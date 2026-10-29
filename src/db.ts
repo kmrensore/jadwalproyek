@@ -282,13 +282,27 @@ export const db = {
         email: cleanEmail,
       };
 
-      // Simpan juga ke tabel public.profiles di Supabase
-      await supabase.from('profiles').upsert({
-        id: profile.id,
-        full_name: profile.fullName,
-        phone: profile.phone,
-        email: profile.email,
-      });
+      // Simpan ke tabel public.profiles di Supabase menggunakan owner_id sebagai identitas utama
+      await supabase.from('profiles').upsert(
+        {
+          owner_id: profile.id,
+          full_name: profile.fullName,
+          phone: profile.phone,
+          email: profile.email,
+        },
+        { onConflict: 'owner_id' }
+      );
+
+      // Pastikan profil owner juga tercatat di tabel public.profiles saat login
+      await supabase.from('profiles').upsert(
+        {
+          owner_id: profile.id,
+          full_name: profile.fullName,
+          phone: profile.phone,
+          email: profile.email,
+        },
+        { onConflict: 'owner_id' }
+      );
 
       safeStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(profile));
       return { user: profile };
@@ -401,10 +415,62 @@ export const db = {
   },
 
   resetToSeed(): { projects: Project[]; entries: ScheduleEntry[] } {
-    safeStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(SEED_PROJECTS));
-    safeStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify(SEED_ENTRIES));
+    const activeOwner = this.getSavedSession();
+    const ownerId = activeOwner?.id || 'owner-demo-1';
+    const ownerName = activeOwner?.fullName || 'Tim Utama';
+    const ownerPhone = activeOwner?.phone || '081234567890';
+    const ownerEmail = activeOwner?.email || 'tim.utama@gmail.com';
+
+    const seededProjects = SEED_PROJECTS.map((p) => ({
+      ...p,
+      ownerId,
+      ownerName,
+    }));
+    const seededEntries = SEED_ENTRIES.map((e) => ({
+      ...e,
+      ownerId,
+      ownerName,
+      ownerPhone,
+      ownerEmail,
+    }));
+
+    safeStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(seededProjects));
+    safeStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify(seededEntries));
     safeStorage.setItem(STORAGE_KEYS.INITIALIZED, 'true');
-    return { projects: [...SEED_PROJECTS], entries: [...SEED_ENTRIES] };
+
+    if (supabase) {
+      supabase
+        .from('projects')
+        .upsert(
+          seededProjects.map((p) => ({
+            id: p.id,
+            name: p.name,
+            color: p.color,
+            owner_id: p.ownerId,
+            owner_name: p.ownerName,
+          })),
+          { onConflict: 'id' }
+        )
+        .then(() => {
+          supabase.from('schedule_entries').upsert(
+            seededEntries.map((e) => ({
+              id: e.id,
+              entry_date: e.date,
+              title: e.title,
+              project_id: e.projectId,
+              status: e.status,
+              notes: e.notes,
+              owner_id: e.ownerId,
+              owner_name: e.ownerName,
+              owner_phone: e.ownerPhone,
+              owner_email: e.ownerEmail,
+            })),
+            { onConflict: 'id' }
+          );
+        });
+    }
+
+    return { projects: seededProjects, entries: seededEntries };
   },
 
   // --- 3. FUNGSI CRUD PROYEK (OTOMATIS MENYIMPAN OWNER_ID) ---

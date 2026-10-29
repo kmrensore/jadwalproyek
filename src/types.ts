@@ -41,3 +41,4 @@ export const PROJECT_COLORS = [
   { name: 'Teal', value: '#14b8a6' },
   { name: 'Orange', value: '#f97316' },
 ];
+
