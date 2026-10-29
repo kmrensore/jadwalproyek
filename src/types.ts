@@ -1,9 +1,18 @@
 export type EntryStatus = 'belum_mulai' | 'berjalan' | 'selesai';
 
+export interface UserProfile {
+  id: string; // owner_id dari Supabase Auth (UUID)
+  fullName: string;
+  phone: string;
+  email: string;
+}
+
 export interface Project {
   id: string;
   name: string;
   color: string;
+  ownerId?: string;
+  ownerName?: string;
   createdAt: string;
 }
 
@@ -14,6 +23,10 @@ export interface ScheduleEntry {
   projectId: string | null; // null = "Tanpa proyek"
   status: EntryStatus;
   notes: string;
+  ownerId?: string; // Penanda pekerjaan milik siapa
+  ownerName?: string;
+  ownerPhone?: string;
+  ownerEmail?: string;
   createdAt: string;
   updatedAt: string;
 }

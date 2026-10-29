@@ -22,11 +22,15 @@ import {
   Layers,
   FileText,
   Copy,
-  Menu
+  Menu,
+  User as UserIcon,
+  LogOut,
+  Users,
 } from 'lucide-react';
+import AuthPage from './AuthPage';
 import { PROJECT_COLORS } from './types';
-import type { EntryStatus, Project, ScheduleEntry } from './types';
-import { db } from './db';
+import type { EntryStatus, Project, ScheduleEntry, UserProfile } from './types';
+import { db, isSupabaseConfigured } from './db';
 
 // ============================================================================
 // UTILITAS TANGGAL & FORMATTER
@@ -103,6 +107,11 @@ export default function App() {
     return { year: y || 2026, month: (m || 10) - 1 };
   }, [todayStr]);
 
+  // State User Login (Owner Aktif)
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() =>
+    db.getSavedSession()
+  );
+
   // State Data Utama
   const [projects, setProjects] = useState<Project[]>([]);
   const [entries, setEntries] = useState<ScheduleEntry[]>([]);
@@ -116,6 +125,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | EntryStatus | 'OVERDUE'>('ALL');
   const [projectFilter, setProjectFilter] = useState<string>('ALL'); // 'ALL' | 'NONE' | projectId
+  const [ownerFilter, setOwnerFilter] = useState<string>('ALL'); // 'ALL' | 'MINE' | ownerId
 
   // State Drawer Detail Hari (Klik Tanggal)
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -139,11 +149,22 @@ export default function App() {
   const [guideTab, setGuideTab] = useState<'sql' | 'db' | 'vercel'>('sql');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Inisialisasi Data dari localStorage
+  // Inisialisasi Data dari localStorage & Sinkronisasi Supabase
   useEffect(() => {
     const { projects: initProj, entries: initEnt } = db.init();
     setProjects(initProj);
     setEntries(initEnt);
+
+    db.getCurrentUser().then((user) => {
+      if (user) setCurrentUser(user);
+    });
+
+    db.fetchFromSupabase().then((remote) => {
+      if (remote) {
+        setProjects(remote.projects);
+        setEntries(remote.entries);
+      }
+    });
   }, []);
 
   const showToast = (msg: string) => {
@@ -152,6 +173,32 @@ export default function App() {
       setToastMessage((prev) => (prev === msg ? null : prev));
     }, 3000);
   };
+
+  const handleLogout = async () => {
+    await db.signOut();
+    setCurrentUser(null);
+    setSelectedDate(null);
+    showToast('Berhasil keluar dari akun');
+  };
+
+  // Daftar Owner Unik untuk Filter Pekerjaan Siapa-Siapanya
+  const uniqueOwners = useMemo(() => {
+    const map = new Map<string, { id: string; name: string }>();
+    if (currentUser) {
+      map.set(currentUser.id, { id: currentUser.id, name: currentUser.fullName });
+    }
+    projects.forEach((p) => {
+      if (p.ownerId && !map.has(p.ownerId)) {
+        map.set(p.ownerId, { id: p.ownerId, name: p.ownerName || 'User' });
+      }
+    });
+    entries.forEach((e) => {
+      if (e.ownerId && !map.has(e.ownerId)) {
+        map.set(e.ownerId, { id: e.ownerId, name: e.ownerName || 'User' });
+      }
+    });
+    return Array.from(map.values());
+  }, [projects, entries, currentUser]);
 
   // Map projectId -> Project
   const projectMap = useMemo(() => {
@@ -167,10 +214,19 @@ export default function App() {
     return `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
   }, [currentYear, currentMonth]);
 
-  // Semua entri pada bulan yang sedang dilihat
+  // Semua entri pada bulan yang sedang dilihat (termasuk Filter Owner)
   const monthEntries = useMemo(() => {
-    return entries.filter((e) => e.date.startsWith(currentMonthPrefix));
-  }, [entries, currentMonthPrefix]);
+    return entries.filter((e) => {
+      if (!e.date.startsWith(currentMonthPrefix)) return false;
+      if (ownerFilter === 'MINE' && currentUser) {
+        return e.ownerId === currentUser.id;
+      }
+      if (ownerFilter !== 'ALL' && ownerFilter !== 'MINE') {
+        return e.ownerId === ownerFilter;
+      }
+      return true;
+    });
+  }, [entries, currentMonthPrefix, ownerFilter, currentUser]);
 
   // KPI Bulan Berjalan (Total, Selesai, Berjalan, Terlambat)
   const kpiStats = useMemo(() => {
@@ -220,9 +276,12 @@ export default function App() {
         if (q) {
           const matchTitle = e.title.toLowerCase().includes(q);
           const matchNotes = e.notes.toLowerCase().includes(q);
+          const matchOwner =
+            (e.ownerName || '').toLowerCase().includes(q) ||
+            (e.ownerId || '').toLowerCase().includes(q);
           const projName = e.projectId ? projectMap[e.projectId]?.name || '' : 'tanpa proyek';
           const matchProj = projName.toLowerCase().includes(q);
-          if (!matchTitle && !matchNotes && !matchProj) return false;
+          if (!matchTitle && !matchNotes && !matchProj && !matchOwner) return false;
         }
         return true;
       })
@@ -243,7 +302,6 @@ export default function App() {
   const calendarCells = useMemo(() => {
     const firstDayOfMonth = new Date(currentYear, currentMonth, 1);
     const totalDaysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-    // Konversi Minggu (0) .. Sabtu (6) menjadi Senin (0) .. Minggu (6)
     const startOffset = (firstDayOfMonth.getDay() + 6) % 7;
 
     const prevMonthTotalDays = new Date(currentYear, currentMonth, 0).getDate();
@@ -253,7 +311,6 @@ export default function App() {
       isCurrentMonth: boolean;
     }> = [];
 
-    // Hari dari bulan sebelumnya
     for (let i = startOffset - 1; i >= 0; i--) {
       const dayNum = prevMonthTotalDays - i;
       const prevDate = new Date(currentYear, currentMonth - 1, dayNum);
@@ -264,7 +321,6 @@ export default function App() {
       });
     }
 
-    // Hari di bulan berjalan
     for (let d = 1; d <= totalDaysInMonth; d++) {
       cells.push({
         dateStr: toDateStr(currentYear, currentMonth, d),
@@ -273,7 +329,6 @@ export default function App() {
       });
     }
 
-    // Genapkan ke kelipatan 7 (35 atau 42 sel)
     const remainder = cells.length % 7;
     const trailingCount = remainder === 0 ? 0 : 7 - remainder;
     for (let i = 1; i <= trailingCount; i++) {
@@ -359,15 +414,18 @@ export default function App() {
       setEntries(updated);
       showToast('Catatan berhasil diperbarui');
     } else {
-      const updated = db.createEntry({
-        date: selectedDate,
-        title: entryTitle.trim(),
-        projectId: entryProjectId || null,
-        status: entryStatus,
-        notes: entryNotes.trim(),
-      });
+      const updated = db.createEntry(
+        {
+          date: selectedDate,
+          title: entryTitle.trim(),
+          projectId: entryProjectId || null,
+          status: entryStatus,
+          notes: entryNotes.trim(),
+        },
+        currentUser
+      );
       setEntries(updated);
-      showToast('Catatan baru ditambahkan');
+      showToast(`Catatan baru ditambahkan (Owner: ${currentUser?.fullName || 'User'})`);
     }
     resetEntryForm(projectFilter !== 'ALL' && projectFilter !== 'NONE' ? projectFilter : '');
   };
@@ -414,9 +472,9 @@ export default function App() {
       setProjects(updated);
       showToast('Proyek diperbarui');
     } else {
-      const updated = db.createProject(projectNameInput, projectColorInput);
+      const updated = db.createProject(projectNameInput, projectColorInput, currentUser);
       setProjects(updated);
-      showToast('Proyek baru ditambahkan');
+      showToast(`Proyek baru ditambahkan (Owner: ${currentUser?.fullName || 'User'})`);
     }
     setIsProjectModalOpen(false);
     setEditingProject(null);
@@ -441,6 +499,7 @@ export default function App() {
     setCurrentMonth(9); // Oktober 2026
     setProjectFilter('ALL');
     setStatusFilter('ALL');
+    setOwnerFilter('ALL');
     setSearchQuery('');
     showToast('Data contoh Oktober 2026 berhasil di-reset');
   };
@@ -462,6 +521,24 @@ export default function App() {
       showToast('Gagal menyalin teks');
     }
   };
+
+  // JIKA BELUM LOGIN, TAMPILKAN HALAMAN PENDAFTARAN & LOGIN (AuthPage)
+  if (!currentUser) {
+    return (
+      <AuthPage
+        onAuthSuccess={(user) => {
+          setCurrentUser(user);
+          showToast(`Selamat datang, ${user.fullName}!`);
+          db.fetchFromSupabase().then((remote) => {
+            if (remote) {
+              setProjects(remote.projects);
+              setEntries(remote.entries);
+            }
+          });
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
@@ -494,7 +571,7 @@ export default function App() {
                   JadwalPro
                 </h1>
                 <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                  React + TS Prototype
+                  Owner ID Tracking
                 </span>
               </div>
               <p className="text-xs text-slate-500 hidden sm:block">
@@ -504,14 +581,28 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Badge Profil User / Owner yang Sedang Login */}
+            <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+              <div className="w-6 h-6 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center text-[11px]">
+                {currentUser.fullName.charAt(0).toUpperCase()}
+              </div>
+              <div className="leading-tight">
+                <div className="font-bold text-slate-800">{currentUser.fullName}</div>
+                <div className="text-[10px] text-slate-500 font-mono">
+                  ID: {currentUser.id.slice(0, 12)}
+                </div>
+              </div>
+            </div>
+
             <button
               type="button"
               onClick={() => setIsGuideOpen(true)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
             >
               <Database className="w-4 h-4" />
-              <span>Supabase & Vercel Guide</span>
+              <span className="hidden sm:inline">Supabase & Vercel Guide</span>
             </button>
+
             <button
               type="button"
               onClick={handleResetDemoData}
@@ -520,6 +611,16 @@ export default function App() {
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span className="hidden md:inline">Reset Contoh</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition-colors"
+              title="Keluar / Ganti Akun"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="hidden sm:inline">Keluar</span>
             </button>
           </div>
         </div>
@@ -541,6 +642,24 @@ export default function App() {
             isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
           }`}
         >
+          {/* Info Owner Aktif di Sidebar */}
+          <div className="p-3.5 m-3 mb-1 rounded-xl bg-indigo-50/70 border border-indigo-100 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">
+                Owner Aktif
+              </span>
+              <span className="px-1.5 py-0.5 rounded bg-white text-indigo-700 font-mono text-[10px] border border-indigo-200">
+                {currentUser.id.slice(0, 12)}
+              </span>
+            </div>
+            <div className="font-bold text-xs text-slate-900 truncate">
+              {currentUser.fullName}
+            </div>
+            <div className="text-[11px] text-slate-600 truncate">
+              {currentUser.email} • {currentUser.phone}
+            </div>
+          </div>
+
           <div className="p-4 border-b border-slate-100 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <FolderKanban className="w-4 h-4 text-indigo-600" />
@@ -600,7 +719,7 @@ export default function App() {
               Proyek Aktif ({INDONESIAN_MONTHS[currentMonth]})
             </div>
 
-            {/* Daftar Proyek dengan Color Dot + Jumlah Entri Bulan Ini */}
+            {/* Daftar Proyek dengan Color Dot + Owner + Jumlah Entri Bulan Ini */}
             {projects.map((proj) => {
               const count = projectMonthCounts[proj.id] || 0;
               const isSelected = projectFilter === proj.id;
@@ -626,13 +745,20 @@ export default function App() {
                         className="w-3 h-3 rounded-full shrink-0 ring-2 ring-offset-1 ring-transparent"
                         style={{ backgroundColor: proj.color }}
                       />
-                      <span
-                        className={`text-sm truncate ${
-                          isSelected ? 'font-semibold text-slate-900' : 'text-slate-700'
-                        }`}
-                      >
-                        {proj.name}
-                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div
+                          className={`text-sm truncate ${
+                            isSelected ? 'font-semibold text-slate-900' : 'text-slate-700'
+                          }`}
+                        >
+                          {proj.name}
+                        </div>
+                        {proj.ownerName && (
+                          <div className="text-[10px] text-slate-400 truncate">
+                            Owner: {proj.ownerName}
+                          </div>
+                        )}
+                      </div>
                     </button>
 
                     <div className="flex items-center gap-1 shrink-0 ml-2">
@@ -717,11 +843,12 @@ export default function App() {
             <div className="flex items-center justify-between font-semibold text-slate-800">
               <span>Mode Penyimpanan</span>
               <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px]">
-                localStorage (db.ts)
+                {isSupabaseConfigured ? 'Supabase Cloud Aktif' : 'localStorage (db.ts)'}
               </span>
             </div>
             <p className="leading-relaxed text-slate-500">
-              Klik tanggal mana saja pada kalender untuk menambah atau mengedit catatan harian.
+              Setiap catatan baru otomatis ditandai dengan Owner ID milik{' '}
+              <strong>{currentUser.fullName}</strong>.
             </p>
           </div>
         </aside>
@@ -874,16 +1001,16 @@ export default function App() {
               </button>
             </div>
 
-            {/* Search, Filter Status, dan Toggle Kalender / Daftar */}
+            {/* Search, Filter Owner, Filter Status, dan Toggle Kalender / Daftar */}
             <div className="flex flex-wrap items-center gap-2">
               {/* Input Search Judul & Isi Catatan */}
-              <div className="relative flex-1 sm:flex-initial sm:w-64">
+              <div className="relative flex-1 sm:flex-initial sm:w-56">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Cari judul atau isi catatan..."
+                  placeholder="Cari tugas, catatan, owner..."
                   className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                 />
                 {searchQuery && (
@@ -895,6 +1022,26 @@ export default function App() {
                     <X className="w-3.5 h-3.5" />
                   </button>
                 )}
+              </div>
+
+              {/* Dropdown Filter Owner ID */}
+              <div className="relative">
+                <Users className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <select
+                  value={ownerFilter}
+                  onChange={(e) => setOwnerFilter(e.target.value)}
+                  className="pl-8 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                >
+                  <option value="ALL">Semua Owner (Tim)</option>
+                  <option value="MINE">Pekerjaan Saya ({currentUser.fullName})</option>
+                  {uniqueOwners
+                    .filter((o) => o.id !== currentUser.id)
+                    .map((o) => (
+                      <option key={o.id} value={o.id}>
+                        Owner: {o.name}
+                      </option>
+                    ))}
+                </select>
               </div>
 
               {/* Dropdown Filter Status */}
@@ -946,7 +1093,10 @@ export default function App() {
           </section>
 
           {/* Indikator Filter Aktif */}
-          {(projectFilter !== 'ALL' || statusFilter !== 'ALL' || searchQuery.trim() !== '') && (
+          {(projectFilter !== 'ALL' ||
+            statusFilter !== 'ALL' ||
+            ownerFilter !== 'ALL' ||
+            searchQuery.trim() !== '') && (
             <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-xl bg-indigo-50/70 border border-indigo-100 text-xs text-indigo-900">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-semibold">Filter Aktif:</span>
@@ -956,6 +1106,14 @@ export default function App() {
                     {projectFilter === 'NONE'
                       ? 'Tanpa proyek'
                       : projectMap[projectFilter]?.name || 'Proyek'}
+                  </span>
+                )}
+                {ownerFilter !== 'ALL' && (
+                  <span className="px-2 py-0.5 rounded-full bg-white border border-indigo-200 font-medium">
+                    Owner:{' '}
+                    {ownerFilter === 'MINE'
+                      ? currentUser.fullName
+                      : uniqueOwners.find((o) => o.id === ownerFilter)?.name || ownerFilter}
                   </span>
                 )}
                 {statusFilter !== 'ALL' && (
@@ -977,6 +1135,7 @@ export default function App() {
                 onClick={() => {
                   setProjectFilter('ALL');
                   setStatusFilter('ALL');
+                  setOwnerFilter('ALL');
                   setSearchQuery('');
                 }}
                 className="font-semibold text-indigo-700 hover:underline"
@@ -1062,7 +1221,7 @@ export default function App() {
                                 borderColor: `${chipColor}40`,
                                 color: '#1e293b',
                               }}
-                              title={`${entry.title} (${STATUS_META[entry.status].label})`}
+                              title={`${entry.title} • Owner: ${entry.ownerName || 'Tim'} (${STATUS_META[entry.status].label})`}
                             >
                               <span
                                 className="w-2 h-2 rounded-full shrink-0"
@@ -1077,6 +1236,11 @@ export default function App() {
                               >
                                 {entry.title}
                               </span>
+                              {entry.ownerName && (
+                                <span className="hidden md:inline-block text-[9px] font-semibold px-1 rounded bg-white/80 text-slate-600 shrink-0">
+                                  {entry.ownerName.split(' ')[0]}
+                                </span>
+                              )}
                               {isOverdue && (
                                 <span
                                   className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0"
@@ -1180,6 +1344,14 @@ export default function App() {
                                       }}
                                     />
                                     {proj ? proj.name : 'Tanpa proyek'}
+                                  </span>
+
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                    <UserIcon className="w-3 h-3" />
+                                    <span>
+                                      {entry.ownerName || 'Tim'} (
+                                      {(entry.ownerId || 'owner').slice(0, 10)})
+                                    </span>
                                   </span>
 
                                   <h4
@@ -1377,6 +1549,17 @@ export default function App() {
                               >
                                 {entry.title}
                               </h5>
+
+                              {/* Badge Owner ID pada Kartu Catatan */}
+                              <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px] text-slate-500">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">
+                                  <UserIcon className="w-3 h-3 text-indigo-600" />
+                                  <span>{entry.ownerName || 'Tim'}</span>
+                                </span>
+                                <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 font-mono text-[10px]">
+                                  owner_id: {(entry.ownerId || 'owner-default').slice(0, 12)}
+                                </span>
+                              </div>
                             </div>
 
                             <div className="flex items-center gap-1 shrink-0">
@@ -1444,11 +1627,9 @@ export default function App() {
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
                     {editingEntryId ? 'Edit Catatan' : 'Tambah Catatan Baru'}
                   </h4>
-                  {editingEntryId && (
-                    <span className="text-[11px] font-medium text-indigo-600">
-                      Mode Edit Aktif
-                    </span>
-                  )}
+                  <span className="text-[11px] font-medium text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                    Owner: {currentUser.fullName}
+                  </span>
                 </div>
 
                 <div>
@@ -1657,7 +1838,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* Tab Pilihan Panduan */}
             <div className="px-5 pt-3 border-b border-slate-200 flex gap-2 bg-white">
               <button
                 type="button"
@@ -1668,7 +1848,7 @@ export default function App() {
                     : 'border-transparent text-slate-500 hover:text-slate-800'
                 }`}
               >
-                1. Skema SQL Supabase (RLS & Trigger)
+                1. Skema SQL Supabase (Profiles & Owner ID)
               </button>
               <button
                 type="button"
@@ -1699,9 +1879,7 @@ export default function App() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-slate-600">
-                      Jalankan query ini di <strong>SQL Editor Supabase</strong>. Relasi{' '}
-                      <code>ON DELETE SET NULL</code> memastikan saat proyek dihapus, catatan
-                      otomatis menjadi &ldquo;Tanpa proyek&rdquo;.
+                      Jalankan query ini di <strong>SQL Editor Supabase</strong>:
                     </p>
                     <button
                       type="button"
@@ -1722,8 +1900,7 @@ export default function App() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-slate-600">
-                      Ganti isi file <code>src/db.ts</code> dengan implementasi Supabase Client
-                      berikut:
+                      Contoh pemanggilan Supabase Auth &amp; Owner ID di <code>src/db.ts</code>:
                     </p>
                     <button
                       type="button"
@@ -1742,44 +1919,20 @@ export default function App() {
 
               {guideTab === 'vercel' && (
                 <div className="space-y-4 text-slate-700 leading-relaxed">
-                  <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs sm:text-sm">
-                    <strong>Catatan Penting:</strong> Preview interaktif yang berjalan saat ini
-                    berada di dalam <em>sandbox preview</em> dengan penyimpanan{' '}
-                    <code>localStorage</code>. Untuk production di Vercel dengan database
-                    Supabase, ikuti langkah di bawah ini.
-                  </div>
-
                   <ol className="list-decimal list-inside space-y-2.5 font-medium">
                     <li>
-                      Inisialisasi proyek Vite + React + TypeScript:{' '}
+                      Pastikan <strong>Confirm email</strong> sudah dimatikan di Supabase Dashboard
+                      (<strong>Authentication → Providers → Email</strong>).
+                    </li>
+                    <li>
+                      Push perubahan terbaru ke GitHub:{' '}
                       <code className="px-2 py-0.5 rounded bg-slate-100 text-slate-800">
-                        npm create vite@latest jadwal-proyek -- --template react-ts
+                        git add . &amp;&amp; git commit -m "Add Auth &amp; Owner ID" &amp;&amp; git push
                       </code>
                     </li>
                     <li>
-                      Install dependensi:{' '}
-                      <code className="px-2 py-0.5 rounded bg-slate-100 text-slate-800">
-                        npm install @supabase/supabase-js lucide-react
-                      </code>
-                    </li>
-                    <li>
-                      Jalankan skema SQL dari Tab 1 pada menu <strong>SQL Editor</strong> di
-                      dashboard Supabase.
-                    </li>
-                    <li>
-                      Push repositori ke GitHub/GitLab/Bitbucket, lalu impor proyek di{' '}
-                      <strong>Vercel Dashboard</strong>.
-                    </li>
-                    <li>
-                      Tambahkan Environment Variables di Vercel:
-                      <pre className="mt-2 p-3 rounded-xl bg-slate-900 text-slate-100 font-mono text-xs">
-{`VITE_SUPABASE_URL=https://xxxx.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6...`}
-                      </pre>
-                    </li>
-                    <li>
-                      Klik <strong>Deploy</strong>. Setiap commit baru ke branch utama akan
-                      otomatis ter-deploy oleh Vercel.
+                      Pastikan Environment Variables <code>VITE_SUPABASE_URL</code> dan{' '}
+                      <code>VITE_SUPABASE_ANON_KEY</code> sudah terpasang di Vercel.
                     </li>
                   </ol>
                 </div>
@@ -1792,111 +1945,31 @@ VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6...`}
   );
 }
 
-const SUPABASE_SQL_SNIPPET = `-- 1. Tabel Proyek
-create table public.projects (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users(id) on delete cascade default auth.uid(),
-  name text not null,
-  color text not null default '#6366f1',
+const SUPABASE_SQL_SNIPPET = `create extension if not exists "pgcrypto";
+
+create table if not exists public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  full_name text not null,
+  phone text not null,
+  email text not null,
   created_at timestamptz not null default now()
 );
 
--- 2. Tabel Entri Jadwal Bulanan
--- on delete set null menjaga catatan tetap ada ("Tanpa proyek") saat proyek dihapus
-create table public.schedule_entries (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users(id) on delete cascade default auth.uid(),
-  project_id uuid references public.projects(id) on delete set null,
-  entry_date date not null,
-  title text not null,
-  status text not null check (status in ('belum_mulai', 'berjalan', 'selesai')) default 'belum_mulai',
-  notes text not null default '',
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+alter table public.projects
+  add column if not exists owner_id text not null default 'owner-default',
+  add column if not exists owner_name text not null default 'User';
 
--- 3. Index untuk filter tanggal & pencarian cepat
-create index idx_entries_user_date on public.schedule_entries (user_id, entry_date);
-create index idx_entries_project on public.schedule_entries (project_id);
+alter table public.schedule_entries
+  add column if not exists owner_id text not null default 'owner-default',
+  add column if not exists owner_name text not null default 'User',
+  add column if not exists owner_phone text not null default '',
+  add column if not exists owner_email text not null default '';`;
 
--- 4. Trigger otomatis update kolom updated_at
-create or replace function public.set_updated_at()
-returns trigger language plpgsql as $$
-begin
-  new.updated_at = now();
-  return new;
-end;
-$$;
-
-create trigger trg_schedule_entries_updated_at
-before update on public.schedule_entries
-for each row execute function public.set_updated_at();
-
--- 5. Row Level Security (RLS) per-user
-alter table public.projects enable row level security;
-alter table public.schedule_entries enable row level security;
-
-create policy "Users manage own projects" on public.projects
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
-
-create policy "Users manage own entries" on public.schedule_entries
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);`;
-
-const SUPABASE_DB_TS_SNIPPET = `import { createClient } from '@supabase/supabase-js';
-// Menggunakan tipe Project, ScheduleEntry, dan EntryStatus
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
-
-export const db = {
-  async getProjects(): Promise<Project[]> {
-    const { data, error } = await supabase
-      .from('projects')
-      .select('id, name, color, createdAt:created_at')
-      .order('created_at', { ascending: true });
-    if (error) throw error;
-    return data ?? [];
+const SUPABASE_DB_TS_SNIPPET = `// Contoh signUp dengan metadata Nama & No. Telepon di src/db.ts
+const { data, error } = await supabase.auth.signUp({
+  email: cleanEmail,
+  password: payload.password,
+  options: {
+    data: { full_name: cleanName, phone: cleanPhone },
   },
-
-  async createProject(name: string, color: string): Promise<Project> {
-    const { data, error } = await supabase
-      .from('projects')
-      .insert({ name: name.trim(), color })
-      .select('id, name, color, createdAt:created_at')
-      .single();
-    if (error) throw error;
-    return data;
-  },
-
-  async updateProject(id: string, name: string, color: string): Promise<void> {
-    const { error } = await supabase
-      .from('projects')
-      .update({ name: name.trim(), color })
-      .eq('id', id);
-    if (error) throw error;
-  },
-
-  async deleteProject(id: string): Promise<void> {
-    // Karena FK menggunakan ON DELETE SET NULL, catatan otomatis menjadi "Tanpa proyek"
-    const { error } = await supabase.from('projects').delete().eq('id', id);
-    if (error) throw error;
-  },
-
-  async getEntriesByMonth(yearMonthPrefix: string): Promise<ScheduleEntry[]> {
-    const startDate = \`\${yearMonthPrefix}-01\`;
-    const [y, m] = yearMonthPrefix.split('-').map(Number);
-    const lastDay = new Date(y, m, 0).getDate();
-    const endDate = \`\${yearMonthPrefix}-\${String(lastDay).padStart(2, '0')}\`;
-
-    const { data, error } = await supabase
-      .from('schedule_entries')
-      .select('id, date:entry_date, title, projectId:project_id, status, notes, createdAt:created_at, updatedAt:updated_at')
-      .gte('entry_date', startDate)
-      .lte('entry_date', endDate)
-      .order('entry_date', { ascending: true });
-    if (error) throw error;
-    return data ?? [];
-  }
-};`;
+});`;
