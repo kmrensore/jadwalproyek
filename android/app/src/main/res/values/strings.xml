@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">JadwalPro</string>
+    <string name="title_activity_main">JadwalPro</string>
+    <string name="package_name">com.jadwalpro.app</string>
+    <string name="custom_url_scheme">com.jadwalpro.app</string>
+</resources>
