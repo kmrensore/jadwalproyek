@@ -1,8 +1,8 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import type { Project, ScheduleEntry, UserProfile } from './types';
+import type { Project, ScheduleEntry, UserProfile, AttendanceRecord, AttendanceType } from './types';
 
 // ============================================================================
-// MODUL DATA LAYER & AUTH (src/db.ts — Terintegrasi Supabase + localStorage)
+// MODUL DATA LAYER (src/db.ts — Jadwal, Proyek, Absensi, & Supabase)
 // ============================================================================
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim() || '';
@@ -15,10 +15,11 @@ export const supabase: SupabaseClient | null = isSupabaseConfigured
   : null;
 
 const STORAGE_KEYS = {
-  PROJECTS: 'jadwalpro_projects_v1',
-  ENTRIES: 'jadwalpro_entries_v1',
-  INITIALIZED: 'jadwalpro_init_v1',
-  SESSION: 'jadwalpro_session_v1',
+  PROJECTS: 'jadwalpro_projects_v3',
+  ENTRIES: 'jadwalpro_entries_v3',
+  ATTENDANCE: 'jadwalpro_attendance_v3',
+  INITIALIZED: 'jadwalpro_init_v3',
+  SESSION: 'jadwalpro_session_v3',
 };
 
 export const SEED_PROJECTS: Project[] = [
@@ -195,6 +196,64 @@ export const SEED_ENTRIES: ScheduleEntry[] = [
   },
 ];
 
+export const SEED_ATTENDANCE: AttendanceRecord[] = [
+  {
+    id: 'att-1',
+    ownerId: 'owner-demo-1',
+    ownerName: 'Tim Utama',
+    date: '2026-10-26',
+    type: 'hadir',
+    checkInTime: '08:15',
+    checkOutTime: '17:20',
+    workDurationHours: 9.1,
+    notes: 'Bekerja di kantor: Slicing UI kalender dan sinkronisasi data.',
+  },
+  {
+    id: 'att-2',
+    ownerId: 'owner-demo-1',
+    ownerName: 'Tim Utama',
+    date: '2026-10-27',
+    type: 'hadir',
+    checkInTime: '08:30',
+    checkOutTime: '17:00',
+    workDurationHours: 8.5,
+    notes: 'Bekerja WFH: Testing endpoint offline storage.',
+  },
+  {
+    id: 'att-3',
+    ownerId: 'owner-demo-1',
+    ownerName: 'Tim Utama',
+    date: '2026-10-28',
+    type: 'hadir',
+    checkInTime: '08:20',
+    checkOutTime: '17:35',
+    workDurationHours: 9.25,
+    notes: 'Bekerja di kantor: Deploy integrasi Supabase.',
+  },
+  {
+    id: 'att-4',
+    ownerId: 'owner-demo-1',
+    ownerName: 'Tim Utama',
+    date: '2026-10-29',
+    type: 'izin',
+    checkInTime: null,
+    checkOutTime: null,
+    workDurationHours: 0,
+    notes: 'Izin urusan dinas luar & pencatatan sipil.',
+  },
+  {
+    id: 'att-5',
+    ownerId: 'owner-demo-1',
+    ownerName: 'Tim Utama',
+    date: '2026-10-30',
+    type: 'hadir',
+    checkInTime: '08:10',
+    checkOutTime: null,
+    workDurationHours: 4.5,
+    notes: 'Hadir di kantor: Mengembangkan fitur absensi & laporan kinerja.',
+  },
+];
+
 const safeStorage = {
   getItem(key: string): string | null {
     try {
@@ -207,20 +266,20 @@ const safeStorage = {
     try {
       window.localStorage.setItem(key, value);
     } catch {
-      // ignore storage errors
+      // ignore
     }
   },
   removeItem(key: string): void {
     try {
       window.localStorage.removeItem(key);
     } catch {
-      // ignore storage errors
+      // ignore
     }
   },
 };
 
 export const db = {
-  // --- 1. FUNGSI AUTHENTICATION (SIGN UP, SIGN IN, SESSION, SIGN OUT) ---
+  // --- 1. SESI LOGIN & AUTHENTICATION ---
   getSavedSession(): UserProfile | null {
     const raw = safeStorage.getItem(STORAGE_KEYS.SESSION);
     if (!raw) return null;
@@ -264,10 +323,7 @@ export const db = {
         email: cleanEmail,
         password: payload.password,
         options: {
-          data: {
-            full_name: cleanName,
-            phone: cleanPhone,
-          },
+          data: { full_name: cleanName, phone: cleanPhone },
         },
       });
 
@@ -282,18 +338,6 @@ export const db = {
         email: cleanEmail,
       };
 
-      // Simpan ke tabel public.profiles di Supabase menggunakan owner_id sebagai identitas utama
-      await supabase.from('profiles').upsert(
-        {
-          owner_id: profile.id,
-          full_name: profile.fullName,
-          phone: profile.phone,
-          email: profile.email,
-        },
-        { onConflict: 'owner_id' }
-      );
-
-      // Pastikan profil owner juga tercatat di tabel public.profiles saat login
       await supabase.from('profiles').upsert(
         {
           owner_id: profile.id,
@@ -308,7 +352,6 @@ export const db = {
       return { user: profile };
     }
 
-    // Fallback jika dijalankan lokal tanpa Supabase
     const localProfile: UserProfile = {
       id: 'owner-' + Date.now().toString(36),
       fullName: cleanName,
@@ -343,11 +386,20 @@ export const db = {
         email: data.user.email || cleanEmail,
       };
 
+      await supabase.from('profiles').upsert(
+        {
+          owner_id: profile.id,
+          full_name: profile.fullName,
+          phone: profile.phone,
+          email: profile.email,
+        },
+        { onConflict: 'owner_id' }
+      );
+
       safeStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(profile));
       return { user: profile };
     }
 
-    // Fallback lokal
     const fallbackProfile: UserProfile = {
       id: 'owner-local',
       fullName: cleanEmail.split('@')[0] || 'User',
@@ -365,115 +417,97 @@ export const db = {
     }
   },
 
-  // --- 2. FUNGSI INISIALISASI & SINKRONISASI SUPABASE ---
-  init(): { projects: Project[]; entries: ScheduleEntry[] } {
+  // --- 2. INISIALISASI & SINKRONISASI ---
+  init(): { projects: Project[]; entries: ScheduleEntry[]; attendance: AttendanceRecord[] } {
     const initialized = safeStorage.getItem(STORAGE_KEYS.INITIALIZED);
     if (!initialized) {
       safeStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(SEED_PROJECTS));
       safeStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify(SEED_ENTRIES));
+      safeStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(SEED_ATTENDANCE));
       safeStorage.setItem(STORAGE_KEYS.INITIALIZED, 'true');
-      return { projects: SEED_PROJECTS, entries: SEED_ENTRIES };
+      return {
+        projects: SEED_PROJECTS,
+        entries: SEED_ENTRIES,
+        attendance: SEED_ATTENDANCE,
+      };
     }
     return {
       projects: this.getProjects(),
       entries: this.getEntries(),
+      attendance: this.getAttendance(),
     };
   },
 
-  async fetchFromSupabase(): Promise<{ projects: Project[]; entries: ScheduleEntry[] } | null> {
+  async fetchFromSupabase(): Promise<{
+    projects: Project[];
+    entries: ScheduleEntry[];
+    attendance: AttendanceRecord[];
+  } | null> {
     if (!supabase) return null;
     try {
-      const [{ data: projData, error: projErr }, { data: entData, error: entErr }] =
-        await Promise.all([
-          supabase
-            .from('projects')
-            .select('id, name, color, ownerId:owner_id, ownerName:owner_name, createdAt:created_at')
-            .order('created_at', { ascending: true }),
-          supabase
-            .from('schedule_entries')
-            .select(
-              'id, date:entry_date, title, projectId:project_id, status, notes, ownerId:owner_id, ownerName:owner_name, ownerPhone:owner_phone, ownerEmail:owner_email, createdAt:created_at, updatedAt:updated_at'
-            )
-            .order('entry_date', { ascending: true })
-            .order('created_at', { ascending: true }),
-        ]);
+      const [
+        { data: projData, error: projErr },
+        { data: entData, error: entErr },
+        { data: attData, error: attErr },
+      ] = await Promise.all([
+        supabase
+          .from('projects')
+          .select('id, name, color, ownerId:owner_id, ownerName:owner_name, createdAt:created_at')
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('schedule_entries')
+          .select(
+            'id, date:entry_date, title, projectId:project_id, status, notes, ownerId:owner_id, ownerName:owner_name, ownerPhone:owner_phone, ownerEmail:owner_email, createdAt:created_at, updatedAt:updated_at'
+          )
+          .order('entry_date', { ascending: true })
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('attendance')
+          .select(
+            'id, ownerId:owner_id, ownerName:owner_name, date:entry_date, type, checkInTime:check_in_time, checkOutTime:check_out_time, workDurationHours:work_duration_hours, notes, createdAt:created_at, updatedAt:updated_at'
+          )
+          .order('entry_date', { ascending: false }),
+      ]);
 
       if (projErr || entErr) {
-        console.error('Supabase fetch error:', projErr || entErr);
+        console.error('Supabase fetch error:', projErr || entErr || attErr);
         return null;
       }
 
       const projects = (projData as Project[]) || [];
       const entries = (entData as ScheduleEntry[]) || [];
+      const attendance = (attData as AttendanceRecord[]) || [];
+
       safeStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(projects));
       safeStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify(entries));
-      return { projects, entries };
+      if (attendance.length > 0) {
+        safeStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(attendance));
+      }
+
+      return { projects, entries, attendance };
     } catch (err) {
       console.error('Supabase connection error:', err);
       return null;
     }
   },
 
-  resetToSeed(): { projects: Project[]; entries: ScheduleEntry[] } {
-    const activeOwner = this.getSavedSession();
-    const ownerId = activeOwner?.id || 'owner-demo-1';
-    const ownerName = activeOwner?.fullName || 'Tim Utama';
-    const ownerPhone = activeOwner?.phone || '081234567890';
-    const ownerEmail = activeOwner?.email || 'tim.utama@gmail.com';
-
-    const seededProjects = SEED_PROJECTS.map((p) => ({
-      ...p,
-      ownerId,
-      ownerName,
-    }));
-    const seededEntries = SEED_ENTRIES.map((e) => ({
-      ...e,
-      ownerId,
-      ownerName,
-      ownerPhone,
-      ownerEmail,
-    }));
-
-    safeStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(seededProjects));
-    safeStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify(seededEntries));
+  resetToSeed(): {
+    projects: Project[];
+    entries: ScheduleEntry[];
+    attendance: AttendanceRecord[];
+  } {
+    safeStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(SEED_PROJECTS));
+    safeStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify(SEED_ENTRIES));
+    safeStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(SEED_ATTENDANCE));
     safeStorage.setItem(STORAGE_KEYS.INITIALIZED, 'true');
-
-    if (supabase) {
-      supabase
-        .from('projects')
-        .upsert(
-          seededProjects.map((p) => ({
-            id: p.id,
-            name: p.name,
-            color: p.color,
-            owner_id: p.ownerId,
-            owner_name: p.ownerName,
-          })),
-          { onConflict: 'id' }
-        )
-        .then(() => {
-          supabase.from('schedule_entries').upsert(
-            seededEntries.map((e) => ({
-              id: e.id,
-              entry_date: e.date,
-              title: e.title,
-              project_id: e.projectId,
-              status: e.status,
-              notes: e.notes,
-              owner_id: e.ownerId,
-              owner_name: e.ownerName,
-              owner_phone: e.ownerPhone,
-              owner_email: e.ownerEmail,
-            })),
-            { onConflict: 'id' }
-          );
-        });
-    }
-
-    return { projects: seededProjects, entries: seededEntries };
+    return {
+      projects: [...SEED_PROJECTS],
+      entries: [...SEED_ENTRIES],
+      attendance: [...SEED_ATTENDANCE],
+    };
   },
 
-  // --- 3. FUNGSI CRUD PROYEK (OTOMATIS MENYIMPAN OWNER_ID) ---
+  // --- 3. CRUD PROYEK ---
   getProjects(): Project[] {
     const raw = safeStorage.getItem(STORAGE_KEYS.PROJECTS);
     if (!raw) return [...SEED_PROJECTS];
@@ -495,8 +529,8 @@ export const db = {
       id: 'proj-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
       name: name.trim(),
       color,
-      ownerId: activeOwner?.id || 'owner-default',
-      ownerName: activeOwner?.fullName || 'User',
+      ownerId: activeOwner?.id || 'owner-demo-1',
+      ownerName: activeOwner?.fullName || 'Tim Utama',
       createdAt: new Date().toISOString(),
     };
     const updated = [...current, newProj];
@@ -561,7 +595,7 @@ export const db = {
     return { projects, entries };
   },
 
-  // --- 4. FUNGSI CRUD CATATAN JADWAL (OTOMATIS MENYIMPAN OWNER_ID) ---
+  // --- 4. CRUD CATATAN JADWAL ---
   getEntries(): ScheduleEntry[] {
     const raw = safeStorage.getItem(STORAGE_KEYS.ENTRIES);
     if (!raw) return [...SEED_ENTRIES];
@@ -586,8 +620,8 @@ export const db = {
     const newEntry: ScheduleEntry = {
       ...payload,
       id: 'ent-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
-      ownerId: payload.ownerId || activeOwner?.id || 'owner-default',
-      ownerName: payload.ownerName || activeOwner?.fullName || 'User',
+      ownerId: payload.ownerId || activeOwner?.id || 'owner-demo-1',
+      ownerName: payload.ownerName || activeOwner?.fullName || 'Tim Utama',
       ownerPhone: payload.ownerPhone || activeOwner?.phone || '',
       ownerEmail: payload.ownerEmail || activeOwner?.email || '',
       createdAt: now,
@@ -661,6 +695,118 @@ export const db = {
         .then(({ error }) => {
           if (error) console.error('Supabase delete entry error:', error);
         });
+    }
+
+    return updated;
+  },
+
+  // --- 5. OPERASI ABSENSI & KETERANGAN DURASI KERJA ---
+  getAttendance(): AttendanceRecord[] {
+    const raw = safeStorage.getItem(STORAGE_KEYS.ATTENDANCE);
+    if (!raw) return [...SEED_ATTENDANCE];
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return [...SEED_ATTENDANCE];
+    }
+  },
+
+  saveAttendance(records: AttendanceRecord[]): void {
+    safeStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(records));
+  },
+
+  recordAttendance(
+    payload: {
+      date: string;
+      type: AttendanceType;
+      checkInTime?: string | null;
+      checkOutTime?: string | null;
+      notes?: string;
+    },
+    owner?: UserProfile | null
+  ): AttendanceRecord[] {
+    const activeOwner = owner || this.getSavedSession();
+    const ownerId = activeOwner?.id || 'owner-demo-1';
+    const ownerName = activeOwner?.fullName || 'Tim Utama';
+
+    const records = this.getAttendance();
+    const existingIndex = records.findIndex(
+      (r) => r.ownerId === ownerId && r.date === payload.date
+    );
+
+    let duration = 0;
+    const inTime = payload.checkInTime !== undefined ? payload.checkInTime : (existingIndex >= 0 ? records[existingIndex].checkInTime : null);
+    const outTime = payload.checkOutTime !== undefined ? payload.checkOutTime : (existingIndex >= 0 ? records[existingIndex].checkOutTime : null);
+
+    if (inTime && outTime) {
+      const [hIn, mIn] = inTime.split(':').map(Number);
+      const [hOut, mOut] = outTime.split(':').map(Number);
+      const diffMinutes = (hOut * 60 + mOut) - (hIn * 60 + mIn);
+      duration = Math.max(0, Math.round((diffMinutes / 60) * 10) / 10);
+    }
+
+    const now = new Date().toISOString();
+    let updatedItem: AttendanceRecord;
+    let updatedList: AttendanceRecord[];
+
+    if (existingIndex >= 0) {
+      updatedItem = {
+        ...records[existingIndex],
+        type: payload.type,
+        checkInTime: inTime,
+        checkOutTime: outTime,
+        workDurationHours: payload.type === 'hadir' ? duration : 0,
+        notes: payload.notes !== undefined ? payload.notes : records[existingIndex].notes,
+        updatedAt: now,
+      };
+      updatedList = [...records];
+      updatedList[existingIndex] = updatedItem;
+    } else {
+      updatedItem = {
+        id: 'att-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+        ownerId,
+        ownerName,
+        date: payload.date,
+        type: payload.type,
+        checkInTime: inTime,
+        checkOutTime: outTime,
+        workDurationHours: payload.type === 'hadir' ? duration : 0,
+        notes: payload.notes || '',
+        createdAt: now,
+        updatedAt: now,
+      };
+      updatedList = [...records, updatedItem];
+    }
+
+    this.saveAttendance(updatedList);
+
+    if (supabase) {
+      supabase.from('attendance').upsert({
+        id: updatedItem.id,
+        owner_id: updatedItem.ownerId,
+        owner_name: updatedItem.ownerName,
+        entry_date: updatedItem.date,
+        type: updatedItem.type,
+        check_in_time: updatedItem.checkInTime,
+        check_out_time: updatedItem.checkOutTime,
+        work_duration_hours: updatedItem.workDurationHours,
+        notes: updatedItem.notes,
+      }, { onConflict: 'owner_id,entry_date' }).then(({ error }) => {
+        if (error) console.error('Supabase upsert attendance error:', error);
+      });
+    }
+
+    return updatedList;
+  },
+
+  deleteAttendance(id: string): AttendanceRecord[] {
+    const updated = this.getAttendance().filter((a) => a.id !== id);
+    this.saveAttendance(updated);
+
+    if (supabase) {
+      supabase.from('attendance').delete().eq('id', id).then(({ error }) => {
+        if (error) console.error('Supabase delete attendance error:', error);
+      });
     }
 
     return updated;
