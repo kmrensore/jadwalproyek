@@ -152,12 +152,12 @@ export default function App() {
   const [currentYear, setCurrentYear] = useState<number>(initialYearMonth.year);
   const [currentMonth, setCurrentMonth] = useState<number>(initialYearMonth.month);
 
-  // State Filter & Tampilan Toolbar
+  // State Filter & Tampilan Toolbar (DEFAULT LANGSUNG 'MINE' / PEKERJAAN SAYA)
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | EntryStatus | 'OVERDUE'>('ALL');
   const [projectFilter, setProjectFilter] = useState<string>('ALL');
-  const [ownerFilter, setOwnerFilter] = useState<string>('ALL');
+  const [ownerFilter, setOwnerFilter] = useState<string>('MINE');
 
   // State Drawer Detail Hari (Jadwal)
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -229,24 +229,25 @@ export default function App() {
     showToast('Berhasil keluar dari akun');
   };
 
-  // Daftar Owner Unik untuk Filter Pekerjaan Siapa-Siapanya
+  // DAFTAR OWNER UNIK (Menghilangkan dummy 'owner-demo-1' / 'Tim Utama')
   const uniqueOwners = useMemo(() => {
     const map = new Map<string, { id: string; name: string }>();
     if (currentUser) {
       map.set(currentUser.id, { id: currentUser.id, name: currentUser.fullName });
     }
+    const isRealUser = currentUser && currentUser.id !== 'owner-demo-1';
     projects.forEach((p) => {
-      if (p.ownerId && !map.has(p.ownerId)) {
+      if (p.ownerId && (!isRealUser || p.ownerId !== 'owner-demo-1') && !map.has(p.ownerId)) {
         map.set(p.ownerId, { id: p.ownerId, name: p.ownerName || 'User' });
       }
     });
     entries.forEach((e) => {
-      if (e.ownerId && !map.has(e.ownerId)) {
+      if (e.ownerId && (!isRealUser || e.ownerId !== 'owner-demo-1') && !map.has(e.ownerId)) {
         map.set(e.ownerId, { id: e.ownerId, name: e.ownerName || 'User' });
       }
     });
     attendance.forEach((a) => {
-      if (a.ownerId && !map.has(a.ownerId)) {
+      if (a.ownerId && (!isRealUser || a.ownerId !== 'owner-demo-1') && !map.has(a.ownerId)) {
         map.set(a.ownerId, { id: a.ownerId, name: a.ownerName || 'User' });
       }
     });
@@ -265,10 +266,14 @@ export default function App() {
     return `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
   }, [currentYear, currentMonth]);
 
-  // Entri Bulan Berjalan
+  // ENTRI BULAN BERJALAN (Otomatis buang data 'Tim Utama' dan fokus ke akun aktif)
   const monthEntries = useMemo(() => {
     return entries.filter((e) => {
       if (!e.date.startsWith(currentMonthPrefix)) return false;
+      // Jangan tampilkan data demo 'Tim Utama' jika user sudah login akun sendiri
+      if (currentUser && currentUser.id !== 'owner-demo-1' && e.ownerId === 'owner-demo-1') {
+        return false;
+      }
       if (ownerFilter === 'MINE' && currentUser) {
         return e.ownerId === currentUser.id;
       }
@@ -279,7 +284,7 @@ export default function App() {
     });
   }, [entries, currentMonthPrefix, ownerFilter, currentUser]);
 
-  // KPI Jadwal Bulan Berjalan
+  // KPI JADWAL BULAN BERJALAN (Murni sesuai akun lu)
   const kpiStats = useMemo(() => {
     const total = monthEntries.length;
     const selesai = monthEntries.filter((e) => e.status === 'selesai').length;
@@ -356,11 +361,14 @@ export default function App() {
     );
   }, [attendance, currentUser, todayStr]);
 
-  // Absensi Bulan Berjalan
+  // Absensi Bulan Berjalan (Murni sesuai akun aktif)
   const monthAttendance = useMemo(() => {
     return attendance
       .filter((a) => {
         if (!a.date.startsWith(currentMonthPrefix)) return false;
+        if (currentUser && currentUser.id !== 'owner-demo-1' && a.ownerId === 'owner-demo-1') {
+          return false;
+        }
         if (ownerFilter === 'MINE' && currentUser) {
           return a.ownerId === currentUser.id;
         }
@@ -745,9 +753,9 @@ export default function App() {
     setCurrentMonth(9);
     setProjectFilter('ALL');
     setStatusFilter('ALL');
-    setOwnerFilter('ALL');
+    setOwnerFilter('MINE');
     setSearchQuery('');
-    showToast('Data contoh Oktober 2026 berhasil di-reset');
+    showToast('Data direset');
   };
 
   const copyCodeToClipboard = (text: string, label: string) => {
@@ -915,16 +923,6 @@ export default function App() {
                 </div>
               </div>
             </div>
-
-            <button
-              type="button"
-              onClick={handleResetDemoData}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition-colors"
-              title="Reset Data Contoh Oktober 2026"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">Reset Contoh</span>
-            </button>
 
             <button
               type="button"
@@ -1108,99 +1106,102 @@ export default function App() {
               Proyek Aktif ({INDONESIAN_MONTHS[currentMonth]})
             </div>
 
-            {projects.map((proj) => {
-              const count = projectMonthCounts[proj.id] || 0;
-              const isSelected = projectFilter === proj.id;
-              const isConfirmingDelete = confirmDeleteProjectId === proj.id;
+            {/* SIDEBAR PROYEK: MURNI HANYA PROYEK MILIK USER YANG LOGIN */}
+            {projects
+              .filter((proj) => !currentUser || currentUser.id === 'owner-demo-1' || proj.ownerId === currentUser.id)
+              .map((proj) => {
+                const count = projectMonthCounts[proj.id] || 0;
+                const isSelected = projectFilter === proj.id;
+                const isConfirmingDelete = confirmDeleteProjectId === proj.id;
 
-              return (
-                <div
-                  key={proj.id}
-                  className={`group rounded-xl transition-colors ${
-                    isSelected ? 'bg-slate-100/90 ring-1 ring-slate-300' : 'hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="flex items-center justify-between px-3 py-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setProjectFilter(isSelected ? 'ALL' : proj.id);
-                        setIsMobileSidebarOpen(false);
-                      }}
-                      className="flex items-center gap-2.5 flex-1 text-left min-w-0"
-                    >
-                      <span
-                        className="w-3 h-3 rounded-full shrink-0 ring-2 ring-offset-1 ring-transparent"
-                        style={{ backgroundColor: proj.color }}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div
-                          className={`text-sm truncate ${
-                            isSelected ? 'font-semibold text-slate-900' : 'text-slate-700'
-                          }`}
-                        >
-                          {proj.name}
-                        </div>
-                        {proj.ownerName && (
-                          <div className="text-[10px] text-slate-400 truncate">
-                            Owner: {proj.ownerName}
+                return (
+                  <div
+                    key={proj.id}
+                    className={`group rounded-xl transition-colors ${
+                      isSelected ? 'bg-slate-100/90 ring-1 ring-slate-300' : 'hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between px-3 py-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProjectFilter(isSelected ? 'ALL' : proj.id);
+                          setIsMobileSidebarOpen(false);
+                        }}
+                        className="flex items-center gap-2.5 flex-1 text-left min-w-0"
+                      >
+                        <span
+                          className="w-3 h-3 rounded-full shrink-0 ring-2 ring-offset-1 ring-transparent"
+                          style={{ backgroundColor: proj.color }}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div
+                            className={`text-sm truncate ${
+                              isSelected ? 'font-semibold text-slate-900' : 'text-slate-700'
+                            }`}
+                          >
+                            {proj.name}
                           </div>
-                        )}
-                      </div>
-                    </button>
+                          {proj.ownerName && (
+                            <div className="text-[10px] text-slate-400 truncate">
+                              Owner: {proj.ownerName}
+                            </div>
+                          )}
+                        </div>
+                      </button>
 
-                    <div className="flex items-center gap-1 shrink-0 ml-2">
-                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 group-hover:hidden">
-                        {count}
-                      </span>
-                      <div className="hidden group-hover:flex items-center gap-0.5">
-                        <button
-                          type="button"
-                          onClick={() => openEditProjectModal(proj)}
-                          className="p-1 text-slate-400 hover:text-indigo-600 rounded"
-                          title="Edit proyek"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDeleteProjectId(proj.id)}
-                          className="p-1 text-slate-400 hover:text-rose-600 rounded"
-                          title="Hapus proyek"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                      <div className="flex items-center gap-1 shrink-0 ml-2">
+                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 group-hover:hidden">
+                          {count}
+                        </span>
+                        <div className="hidden group-hover:flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => openEditProjectModal(proj)}
+                            className="p-1 text-slate-400 hover:text-indigo-600 rounded"
+                            title="Edit proyek"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteProjectId(proj.id)}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                            title="Hapus proyek"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     </div>
+
+                    {isConfirmingDelete && (
+                      <div className="mx-2 mb-2 p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-xs">
+                        <p className="text-rose-800 font-medium mb-2">
+                          Hapus proyek <strong>{proj.name}</strong>? Catatan tidak ikut terhapus dan
+                          akan menjadi &ldquo;Tanpa proyek&rdquo;.
+                        </p>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteProjectId(null)}
+                            className="px-2 py-1 rounded bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                          >
+                            Batal
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteProject(proj.id)}
+                            className="px-2 py-1 rounded bg-rose-600 text-white font-semibold hover:bg-rose-700"
+                          >
+                            Ya, Hapus
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-
-                  {isConfirmingDelete && (
-                    <div className="mx-2 mb-2 p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-xs">
-                      <p className="text-rose-800 font-medium mb-2">
-                        Hapus proyek <strong>{proj.name}</strong>? Catatan tidak ikut terhapus dan
-                        akan menjadi &ldquo;Tanpa proyek&rdquo;.
-                      </p>
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDeleteProjectId(null)}
-                          className="px-2 py-1 rounded bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
-                        >
-                          Batal
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteProject(proj.id)}
-                          className="px-2 py-1 rounded bg-rose-600 text-white font-semibold hover:bg-rose-700"
-                        >
-                          Ya, Hapus
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                );
+              })}
 
             <button
               type="button"
@@ -1230,7 +1231,7 @@ export default function App() {
           {/* TAB 1: KALENDER */}
           {activeMainTab === 'calendar' && (
             <>
-              {/* KPI BULAN BERJALAN */}
+              {/* KPI BULAN BERJALAN (MURNI TUGAS LU SENDIRI) */}
               <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                 <div
                   onClick={() => setStatusFilter('ALL')}
@@ -1396,6 +1397,7 @@ export default function App() {
                     )}
                   </div>
 
+                  {/* FILTER OWNER: HANYA MENAMPILKAN AKUN LU & ANGGOTA ASLI */}
                   <div className="relative">
                     <Users className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <select
@@ -1403,10 +1405,12 @@ export default function App() {
                       onChange={(e) => setOwnerFilter(e.target.value)}
                       className="pl-8 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                     >
-                      <option value="ALL">Semua Owner (Tim)</option>
                       <option value="MINE">Pekerjaan Saya ({currentUser.fullName})</option>
+                      {uniqueOwners.filter((o) => o.id !== currentUser.id && o.id !== 'owner-demo-1').length > 0 && (
+                        <option value="ALL">Semua Anggota Tim</option>
+                      )}
                       {uniqueOwners
-                        .filter((o) => o.id !== currentUser.id)
+                        .filter((o) => o.id !== currentUser.id && o.id !== 'owner-demo-1')
                         .map((o) => (
                           <option key={o.id} value={o.id}>
                             Owner: {o.name}
@@ -1769,10 +1773,12 @@ export default function App() {
                       onChange={(e) => setOwnerFilter(e.target.value)}
                       className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:outline-none"
                     >
-                      <option value="ALL">Semua Anggota (Tim)</option>
                       <option value="MINE">Absensi Saya ({currentUser.fullName})</option>
+                      {uniqueOwners.filter((o) => o.id !== currentUser.id && o.id !== 'owner-demo-1').length > 0 && (
+                        <option value="ALL">Semua Anggota Tim</option>
+                      )}
                       {uniqueOwners
-                        .filter((o) => o.id !== currentUser.id)
+                        .filter((o) => o.id !== currentUser.id && o.id !== 'owner-demo-1')
                         .map((o) => (
                           <option key={o.id} value={o.id}>
                             {o.name}
@@ -1888,7 +1894,7 @@ export default function App() {
                     >
                       <option value="MINE">Pribadi: {currentUser.fullName}</option>
                       {uniqueOwners
-                        .filter((o) => o.id !== currentUser.id)
+                        .filter((o) => o.id !== currentUser.id && o.id !== 'owner-demo-1')
                         .map((o) => (
                           <option key={o.id} value={o.id}>
                             Anggota: {o.name}
