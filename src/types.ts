@@ -1,10 +1,12 @@
 export type EntryStatus = 'belum_mulai' | 'berjalan' | 'selesai';
+export type AttendanceType = 'hadir' | 'izin' | 'cuti' | 'sakit';
 
 export interface UserProfile {
-  id: string; // owner_id dari Supabase Auth (UUID)
+  id: string; // owner_id dari Supabase Auth
   fullName: string;
   phone: string;
   email: string;
+  createdAt?: string;
 }
 
 export interface Project {
@@ -31,6 +33,20 @@ export interface ScheduleEntry {
   updatedAt: string;
 }
 
+export interface AttendanceRecord {
+  id: string;
+  ownerId: string; // ID pemilik absensi
+  ownerName: string;
+  date: string; // Format YYYY-MM-DD
+  type: AttendanceType;
+  checkInTime: string | null; // Format HH:mm (contoh: "08:15")
+  checkOutTime: string | null; // Format HH:mm (contoh: "17:20")
+  workDurationHours: number; // Durasi jam kerja dalam desimal (contoh: 8.5)
+  notes: string; // Keterangan atau alasan izin/cuti/sakit
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export const PROJECT_COLORS = [
   { name: 'Indigo', value: '#6366f1' },
   { name: 'Emerald', value: '#10b981' },
@@ -41,4 +57,3 @@ export const PROJECT_COLORS = [
   { name: 'Teal', value: '#14b8a6' },
   { name: 'Orange', value: '#f97316' },
 ];
-
