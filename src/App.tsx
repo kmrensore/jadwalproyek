@@ -2163,6 +2163,307 @@ export default function App() {
         </main>
       </div>
 
+      
+      {/* =====================================================================
+          2. KLIK TANGGAL -> PANEL DETAIL HARI (DRAWER / BOTTOM SHEET)
+         ===================================================================== */}
+      {selectedDate && (
+        <div className="fixed inset-0 z-50 flex justify-end items-end sm:items-stretch">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-[1px]"
+            onClick={() => setSelectedDate(null)}
+          />
+
+          {/* Panel Konten: Bottom Sheet di Mobile, Drawer Kanan di Desktop */}
+          <div className="relative z-10 w-full sm:w-[440px] max-h-[88vh] sm:max-h-none sm:h-full bg-white rounded-t-3xl sm:rounded-none shadow-2xl border-t sm:border-t-0 sm:border-l border-slate-200 flex flex-col overflow-hidden">
+            {/* Drag Handle Mobile */}
+            <div className="sm:hidden pt-2.5 pb-1 flex justify-center">
+              <div className="w-10 h-1.5 rounded-full bg-slate-300" />
+            </div>
+
+            {/* Header Drawer */}
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/60">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-indigo-600">
+                    Detail Jadwal Harian
+                  </span>
+                  {selectedDate === todayStr && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-600 text-white">
+                      Hari Ini
+                    </span>
+                  )}
+                </div>
+                <h3 className="text-base font-bold text-slate-900 mt-0.5">
+                  {formatDateFullIndo(selectedDate)}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedDate(null)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                aria-label="Tutup panel detail"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body Drawer: Daftar Catatan Hari Itu + Form Tambah/Edit */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-6">
+              {/* Daftar Catatan pada Tanggal Tersebut */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Daftar Catatan ({selectedDateEntries.length})
+                  </h4>
+                  {editingEntryId && (
+                    <button
+                      type="button"
+                      onClick={() => resetEntryForm()}
+                      className="text-xs font-semibold text-indigo-600 hover:underline"
+                    >
+                      + Buat Catatan Baru
+                    </button>
+                  )}
+                </div>
+
+                {selectedDateEntries.length === 0 ? (
+                  <div className="p-4 rounded-xl bg-slate-50 border border-dashed border-slate-200 text-center text-xs text-slate-500">
+                    Belum ada catatan di tanggal ini. Isi formulir di bawah untuk menambahkan
+                    jadwal proyek.
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {selectedDateEntries.map((entry) => {
+                      const proj = entry.projectId ? projectMap[entry.projectId] : null;
+                      const isOverdue =
+                        entry.date < todayStr && entry.status !== 'selesai';
+                      const isDeleting = confirmDeleteEntryId === entry.id;
+
+                      return (
+                        <div
+                          key={entry.id}
+                          className={`p-3.5 rounded-xl border transition-all ${
+                            editingEntryId === entry.id
+                              ? 'border-indigo-500 bg-indigo-50/30 ring-2 ring-indigo-500/10'
+                              : 'border-slate-200 bg-white hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="space-y-1 min-w-0">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold border"
+                                  style={{
+                                    backgroundColor: proj ? `${proj.color}15` : '#f1f5f9',
+                                    borderColor: proj ? `${proj.color}40` : '#cbd5e1',
+                                    color: '#1e293b',
+                                  }}
+                                >
+                                  <span
+                                    className="w-1.5 h-1.5 rounded-full"
+                                    style={{
+                                      backgroundColor: proj ? proj.color : '#64748b',
+                                    }}
+                                  />
+                                  {proj ? proj.name : 'Tanpa proyek'}
+                                </span>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickCycleStatus(entry)}
+                                  className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border inline-flex items-center gap-1 ${
+                                    STATUS_META[entry.status].badgeClass
+                                  }`}
+                                  title="Klik untuk ubah status"
+                                >
+                                  <span
+                                    className={`w-1.5 h-1.5 rounded-full ${
+                                      STATUS_META[entry.status].dotClass
+                                    }`}
+                                  />
+                                  {STATUS_META[entry.status].label}
+                                </button>
+
+                                {isOverdue && (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700">
+                                    Terlambat
+                                  </span>
+                                )}
+                              </div>
+
+                              <h5
+                                className={`font-bold text-sm text-slate-900 pt-0.5 ${
+                                  entry.status === 'selesai'
+                                    ? 'line-through text-slate-400'
+                                    : ''
+                                }`}
+                              >
+                                {entry.title}
+                              </h5>
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleStartEditEntry(entry)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                                title="Edit catatan"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteEntryId(entry.id)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                                title="Hapus catatan"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {entry.notes && (
+                            <p className="mt-2 text-xs text-slate-600 leading-relaxed whitespace-pre-line bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                              {entry.notes}
+                            </p>
+                          )}
+
+                          {isDeleting && (
+                            <div className="mt-2.5 pt-2.5 border-t border-rose-100 flex items-center justify-between text-xs">
+                              <span className="text-rose-700 font-medium">
+                                Hapus catatan ini?
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteEntryId(null)}
+                                  className="px-2 py-1 rounded bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                >
+                                  Batal
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleConfirmDeleteEntry(entry.id)}
+                                  className="px-2.5 py-1 rounded bg-rose-600 text-white font-semibold hover:bg-rose-700"
+                                >
+                                  Hapus
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Form Tambah / Edit Catatan */}
+              <form
+                onSubmit={handleSaveEntry}
+                className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90 space-y-3.5"
+              >
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                    {editingEntryId ? 'Edit Catatan' : 'Tambah Catatan Baru'}
+                  </h4>
+                  {editingEntryId && (
+                    <span className="text-[11px] font-medium text-indigo-600">
+                      Mode Edit Aktif
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Judul Catatan / Tugas <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={entryTitle}
+                    onChange={(e) => setEntryTitle(e.target.value)}
+                    placeholder="Contoh: Review wireframe bersama tim..."
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Proyek
+                    </label>
+                    <select
+                      value={entryProjectId}
+                      onChange={(e) => setEntryProjectId(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                    >
+                      <option value="">Tanpa proyek</option>
+                      {projects
+                        .filter((p) => !currentUser || currentUser.id === 'owner-demo-1' || p.ownerId === currentUser.id)
+                        .map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Status
+                    </label>
+                    <select
+                      value={entryStatus}
+                      onChange={(e) => setEntryStatus(e.target.value as EntryStatus)}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                    >
+                      <option value="belum_mulai">Belum mulai</option>
+                      <option value="berjalan">Berjalan</option>
+                      <option value="selesai">Selesai</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Catatan Detail
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={entryNotes}
+                    onChange={(e) => setEntryNotes(e.target.value)}
+                    placeholder="Tulis rincian pekerjaan, tautan dokumen, atau checklist singkat..."
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  {editingEntryId && (
+                    <button
+                      type="button"
+                      onClick={() => resetEntryForm()}
+                      className="px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 bg-white border border-slate-200 hover:bg-slate-100"
+                    >
+                      Batal Edit
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm transition-colors"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>{editingEntryId ? 'Simpan Perubahan' : 'Tambah ke Jadwal'}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL PENGAJUAN IZIN / CUTI / ABSENSI */}
       {isAttendanceModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
