@@ -2516,9 +2516,15 @@ export default function App() {
                     </span>
                   </div>
 
-                  <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
-                    <table className="w-full text-left text-xs sm:text-sm">
-                      <thead className="bg-slate-100/80 border-b border-slate-200 text-slate-700 font-bold uppercase text-[11px] tracking-wider">
+                  <div className="flex items-center justify-between text-xs text-slate-500 print:hidden pb-1">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50/70 text-indigo-700 text-[11px] font-medium border border-indigo-100">
+                      <span>↔️ Geser kanan/kiri &amp; ↕️ atas/bawah untuk melihat rincian tabel</span>
+                    </span>
+                  </div>
+
+                  <div className="border border-slate-200 rounded-2xl overflow-auto max-h-[480px] shadow-xs print:max-h-none print:overflow-visible bg-white">
+                    <table className="min-w-[820px] w-full text-left text-xs sm:text-sm">
+                      <thead className="sticky top-0 z-10 bg-slate-100 border-b border-slate-200 text-slate-700 font-bold uppercase text-[11px] tracking-wider shadow-2xs">
                         <tr>
                           <th className="py-3 px-4">Proyek &amp; Cabang Program</th>
                           <th className="py-3 px-3 text-center">Beban Tugas</th>
@@ -2664,9 +2670,15 @@ export default function App() {
                     <FileText className="w-4 h-4 text-indigo-600" />
                     <span>3. Log Rincian Pekerjaan ({reportData.userEntries.length} Item)</span>
                   </h3>
-                  <div className="border border-slate-200 rounded-xl overflow-hidden">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-semibold">
+                  <div className="flex items-center justify-between text-xs text-slate-500 print:hidden pb-1">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 text-[11px] font-medium border border-slate-200">
+                      <span>↔️ Geser kanan/kiri &amp; ↕️ atas/bawah untuk melihat seluruh preview log</span>
+                    </span>
+                  </div>
+
+                  <div className="border border-slate-200 rounded-2xl overflow-auto max-h-[440px] shadow-xs print:max-h-none print:overflow-visible bg-white">
+                    <table className="min-w-[800px] w-full text-left text-xs">
+                      <thead className="sticky top-0 z-10 bg-slate-100 border-b border-slate-200 text-slate-700 uppercase font-bold text-[11px] tracking-wider shadow-2xs">
                         <tr>
                           <th className="py-2.5 px-3">Tanggal</th>
                           <th className="py-2.5 px-3">Proyek &amp; Program</th>
@@ -2683,7 +2695,7 @@ export default function App() {
                             </td>
                           </tr>
                         ) : (
-                          reportData.userEntries.slice(0, 25).map((e) => {
+                          reportData.userEntries.map((e) => {
                             const p = e.projectId ? projectMap[e.projectId] : null;
                             const prog = p?.programs?.find((pr) => pr.id === e.programId);
 
