@@ -1,8 +1,17 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import type { EntryStatus, Project, ScheduleEntry, UserProfile, AttendanceRecord, AttendanceType } from './types';
+import type {
+  EntryStatus,
+  Project,
+  ProjectProgram,
+  ScheduleEntry,
+  UserProfile,
+  AttendanceRecord,
+  AttendanceType,
+  AIPerformanceRecord,
+} from './types';
 
 // ============================================================================
-// MODUL DATA LAYER (src/db.ts — Jadwal, Proyek, Absensi, & Supabase)
+// MODUL DATA LAYER (src/db.ts — Jadwal, Proyek, Cabang Program, Absensi, Performa AI & Supabase)
 // ============================================================================
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim() || '';
@@ -20,6 +29,7 @@ const STORAGE_KEYS = {
   ATTENDANCE: 'jadwalpro_attendance_v3',
   INITIALIZED: 'jadwalpro_init_v3',
   SESSION: 'jadwalpro_session_v3',
+  AI_PERFORMANCES: 'jadwalpro_ai_perf_v3',
 };
 
 // Data seed kosong murni agar akun baru tidak tercemar data demo
@@ -59,7 +69,9 @@ export const db = {
   },
 
   getSavedSession(): UserProfile | null {
-    const raw = safeStorage.getItem(STORAGE_KEYS.SESSION) || safeStorage.getItem('jadwalpro_current_user');
+    const raw =
+      safeStorage.getItem(STORAGE_KEYS.SESSION) ||
+      safeStorage.getItem('jadwalpro_current_user');
     if (!raw) return null;
     try {
       return JSON.parse(raw);
@@ -73,7 +85,9 @@ export const db = {
 
     if (supabase) {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
         if (session?.user) {
           const meta = session.user.user_metadata || {};
           const profile: UserProfile = {
@@ -94,7 +108,9 @@ export const db = {
 
   onAuthStateChange(callback: (user: UserProfile | null) => void): (() => void) | undefined {
     if (!supabase) return undefined;
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
         const meta = session.user.user_metadata || {};
         const profile: UserProfile = {
@@ -257,13 +273,13 @@ export const db = {
 
       let projQuery = supabase
         .from('projects')
-        .select('id, name, color, ownerId:owner_id, ownerName:owner_name, createdAt:created_at')
+        .select('id, name, color, ownerId:owner_id, ownerName:owner_name, programs, createdAt:created_at')
         .order('created_at', { ascending: true });
 
       let entQuery = supabase
         .from('schedule_entries')
         .select(
-          'id, date:entry_date, title, projectId:project_id, status, notes, ownerId:owner_id, ownerName:owner_name, ownerPhone:owner_phone, ownerEmail:owner_email, createdAt:created_at, updatedAt:updated_at'
+          'id, date:entry_date, title, projectId:project_id, programId:program_id, status, notes, ownerId:owner_id, ownerName:owner_name, ownerPhone:owner_phone, ownerEmail:owner_email, createdAt:created_at, updatedAt:updated_at'
         )
         .order('entry_date', { ascending: true })
         .order('created_at', { ascending: true });
@@ -292,7 +308,11 @@ export const db = {
         return null;
       }
 
-      const projects = (projData as Project[]) || [];
+      const projects = ((projData as any[]) || []).map((p) => ({
+        ...p,
+        programs: Array.isArray(p.programs) ? p.programs : [],
+      })) as Project[];
+
       const entries = (entData as ScheduleEntry[]) || [];
       const attendance = (attData as AttendanceRecord[]) || [];
 
@@ -307,12 +327,15 @@ export const db = {
     }
   },
 
-  // --- 3. OPERASI PROYEK ---
+  // --- 3. CRUD PROYEK & CABANG PROGRAM ---
   getProjects(): Project[] {
     const raw = safeStorage.getItem(STORAGE_KEYS.PROJECTS);
     if (!raw) return [];
     try {
-      return JSON.parse(raw);
+      const list = JSON.parse(raw);
+      return Array.isArray(list)
+        ? list.map((p) => ({ ...p, programs: Array.isArray(p.programs) ? p.programs : [] }))
+        : [];
     } catch {
       return [];
     }
@@ -322,12 +345,18 @@ export const db = {
     safeStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(projects));
   },
 
-  createProject(name: string, color: string, owner?: UserProfile | null): Project[] {
+  createProject(
+    name: string,
+    color: string,
+    programs: ProjectProgram[] = [],
+    owner?: UserProfile | null
+  ): Project[] {
     const activeOwner = owner || this.getSavedSession();
     const newProj: Project = {
       id: 'proj-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6),
       name: name.trim(),
       color,
+      programs: programs || [],
       ownerId: activeOwner?.id || 'owner-demo-1',
       ownerName: activeOwner?.fullName || 'User',
       createdAt: new Date().toISOString(),
@@ -336,31 +365,51 @@ export const db = {
     this.saveProjects(updated);
 
     if (supabase) {
-      supabase.from('projects').insert({
-        id: newProj.id,
-        name: newProj.name,
-        color: newProj.color,
-        owner_id: newProj.ownerId,
-        owner_name: newProj.ownerName,
-        created_at: newProj.createdAt,
-      }).then(({ error }) => {
-        if (error) console.error('Supabase insert project error:', error);
-      });
+      supabase
+        .from('projects')
+        .insert({
+          id: newProj.id,
+          name: newProj.name,
+          color: newProj.color,
+          programs: newProj.programs,
+          owner_id: newProj.ownerId,
+          owner_name: newProj.ownerName,
+          created_at: newProj.createdAt,
+        })
+        .then(({ error }) => {
+          if (error) console.error('Supabase insert project error:', error);
+        });
     }
 
     return updated;
   },
 
-  updateProject(id: string, name: string, color: string): Project[] {
-    const updated = this.getProjects().map((p) =>
-      p.id === id ? { ...p, name: name.trim(), color } : p
-    );
+  updateProject(
+    id: string,
+    name: string,
+    color: string,
+    programs?: ProjectProgram[]
+  ): Project[] {
+    const updated = this.getProjects().map((p) => {
+      if (p.id !== id) return p;
+      return {
+        ...p,
+        name: name.trim(),
+        color,
+        programs: programs !== undefined ? programs : p.programs || [],
+      };
+    });
     this.saveProjects(updated);
 
     if (supabase) {
+      const target = updated.find((p) => p.id === id);
       supabase
         .from('projects')
-        .update({ name: name.trim(), color })
+        .update({
+          name: name.trim(),
+          color,
+          programs: target?.programs || [],
+        })
         .eq('id', id)
         .then(({ error }) => {
           if (error) console.error('Supabase update project error:', error);
@@ -370,10 +419,68 @@ export const db = {
     return updated;
   },
 
+  addProgramToProject(projectId: string, programName: string): Project[] {
+    const newProg: ProjectProgram = {
+      id: 'prog-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 5),
+      name: programName.trim(),
+      createdAt: new Date().toISOString(),
+    };
+    const updated = this.getProjects().map((p) => {
+      if (p.id !== projectId) return p;
+      const currentProgs = p.programs || [];
+      return { ...p, programs: [...currentProgs, newProg] };
+    });
+    this.saveProjects(updated);
+
+    if (supabase) {
+      const target = updated.find((p) => p.id === projectId);
+      supabase
+        .from('projects')
+        .update({ programs: target?.programs || [] })
+        .eq('id', projectId)
+        .then(({ error }) => {
+          if (error) console.error('Supabase add program error:', error);
+        });
+    }
+
+    return updated;
+  },
+
+  removeProgramFromProject(projectId: string, programId: string): Project[] {
+    const updated = this.getProjects().map((p) => {
+      if (p.id !== projectId) return p;
+      const filtered = (p.programs || []).filter((prog) => prog.id !== programId);
+      return { ...p, programs: filtered };
+    });
+    this.saveProjects(updated);
+
+    const updatedEntries = this.getEntries().map((e) =>
+      e.projectId === projectId && e.programId === programId
+        ? { ...e, programId: null, updatedAt: new Date().toISOString() }
+        : e
+    );
+    this.saveEntries(updatedEntries);
+
+    if (supabase) {
+      const target = updated.find((p) => p.id === projectId);
+      supabase
+        .from('projects')
+        .update({ programs: target?.programs || [] })
+        .eq('id', projectId)
+        .then(({ error }) => {
+          if (error) console.error('Supabase remove program error:', error);
+        });
+    }
+
+    return updated;
+  },
+
   deleteProject(id: string): { projects: Project[]; entries: ScheduleEntry[] } {
     const updatedProjects = this.getProjects().filter((p) => p.id !== id);
     const updatedEntries = this.getEntries().map((e) =>
-      e.projectId === id ? { ...e, projectId: null, updatedAt: new Date().toISOString() } : e
+      e.projectId === id
+        ? { ...e, projectId: null, programId: null, updatedAt: new Date().toISOString() }
+        : e
     );
 
     this.saveProjects(updatedProjects);
@@ -392,7 +499,7 @@ export const db = {
     return { projects: updatedProjects, entries: updatedEntries };
   },
 
-  // --- 4. OPERASI CATATAN JADWAL ---
+  // --- 4. OPERASI CATATAN JADWAL & TUGAS ---
   getEntries(): ScheduleEntry[] {
     const raw = safeStorage.getItem(STORAGE_KEYS.ENTRIES);
     if (!raw) return [];
@@ -412,6 +519,7 @@ export const db = {
       date: string;
       title: string;
       projectId: string | null;
+      programId?: string | null;
       status: EntryStatus;
       notes: string;
     },
@@ -424,6 +532,7 @@ export const db = {
       date: payload.date,
       title: payload.title.trim(),
       projectId: payload.projectId,
+      programId: payload.programId || null,
       status: payload.status,
       notes: payload.notes.trim(),
       ownerId: activeOwner?.id || 'owner-demo-1',
@@ -437,22 +546,26 @@ export const db = {
     this.saveEntries(updated);
 
     if (supabase) {
-      supabase.from('schedule_entries').insert({
-        id: newEntry.id,
-        entry_date: newEntry.date,
-        title: newEntry.title,
-        project_id: newEntry.projectId,
-        status: newEntry.status,
-        notes: newEntry.notes,
-        owner_id: newEntry.ownerId,
-        owner_name: newEntry.ownerName,
-        owner_phone: newEntry.ownerPhone,
-        owner_email: newEntry.ownerEmail,
-        created_at: newEntry.createdAt,
-        updated_at: newEntry.updatedAt,
-      }).then(({ error }) => {
-        if (error) console.error('Supabase insert entry error:', error);
-      });
+      supabase
+        .from('schedule_entries')
+        .insert({
+          id: newEntry.id,
+          entry_date: newEntry.date,
+          title: newEntry.title,
+          project_id: newEntry.projectId,
+          program_id: newEntry.programId,
+          status: newEntry.status,
+          notes: newEntry.notes,
+          owner_id: newEntry.ownerId,
+          owner_name: newEntry.ownerName,
+          owner_phone: newEntry.ownerPhone,
+          owner_email: newEntry.ownerEmail,
+          created_at: newEntry.createdAt,
+          updated_at: newEntry.updatedAt,
+        })
+        .then(({ error }) => {
+          if (error) console.error('Supabase insert entry error:', error);
+        });
     }
 
     return updated;
@@ -475,6 +588,7 @@ export const db = {
       if (payload.date !== undefined) dbUpdate.entry_date = payload.date;
       if (payload.title !== undefined) dbUpdate.title = payload.title;
       if (payload.projectId !== undefined) dbUpdate.project_id = payload.projectId;
+      if (payload.programId !== undefined) dbUpdate.program_id = payload.programId;
       if (payload.status !== undefined) dbUpdate.status = payload.status;
       if (payload.notes !== undefined) dbUpdate.notes = payload.notes;
 
@@ -507,7 +621,7 @@ export const db = {
     return updated;
   },
 
-  // --- 5. OPERASI KEHADIRAN (CLOCK IN & CLOCK OUT TERSIMPAN KE CLOUD) ---
+  // --- 5. OPERASI KEHADIRAN & JAM KERJA ---
   getAttendance(): AttendanceRecord[] {
     const raw = safeStorage.getItem(STORAGE_KEYS.ATTENDANCE);
     if (!raw) return [];
@@ -542,13 +656,23 @@ export const db = {
     );
 
     let duration = 0;
-    const inTime = payload.checkInTime !== undefined ? payload.checkInTime : (existingIndex >= 0 ? records[existingIndex].checkInTime : null);
-    const outTime = payload.checkOutTime !== undefined ? payload.checkOutTime : (existingIndex >= 0 ? records[existingIndex].checkOutTime : null);
+    const inTime =
+      payload.checkInTime !== undefined
+        ? payload.checkInTime
+        : existingIndex >= 0
+        ? records[existingIndex].checkInTime
+        : null;
+    const outTime =
+      payload.checkOutTime !== undefined
+        ? payload.checkOutTime
+        : existingIndex >= 0
+        ? records[existingIndex].checkOutTime
+        : null;
 
     if (inTime && outTime) {
       const [hIn, mIn] = inTime.split(':').map(Number);
       const [hOut, mOut] = outTime.split(':').map(Number);
-      const diffMinutes = (hOut * 60 + mOut) - (hIn * 60 + mIn);
+      const diffMinutes = hOut * 60 + mOut - (hIn * 60 + mIn);
       duration = Math.max(0, Math.round((diffMinutes / 60) * 10) / 10);
     }
 
@@ -587,7 +711,6 @@ export const db = {
 
     this.saveAttendance(updatedList);
 
-    // Simpan ke Supabase: saat Clock In (masuk) maupun Clock Out (keluar)
     if (supabase) {
       const dbPayload = {
         id: updatedItem.id,
@@ -624,9 +747,76 @@ export const db = {
     this.saveAttendance(updated);
 
     if (supabase) {
-      supabase.from('attendance').delete().eq('id', id).then(({ error }) => {
-        if (error) console.error('Supabase delete attendance error:', error);
-      });
+      supabase
+        .from('attendance')
+        .delete()
+        .eq('id', id)
+        .then(({ error }) => {
+          if (error) console.error('Supabase delete attendance error:', error);
+        });
+    }
+
+    return updated;
+  },
+
+  // --- 6. OPERASI EVALUASI PERFORMA AI & SARAN TERPADU ---
+  getAIPerformances(): AIPerformanceRecord[] {
+    const raw = safeStorage.getItem(STORAGE_KEYS.AI_PERFORMANCES);
+    if (!raw) return [];
+    try {
+      const list = JSON.parse(raw);
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  },
+
+  saveAIPerformances(records: AIPerformanceRecord[]): void {
+    safeStorage.setItem(STORAGE_KEYS.AI_PERFORMANCES, JSON.stringify(records));
+  },
+
+  addAIPerformance(record: AIPerformanceRecord): AIPerformanceRecord[] {
+    const current = this.getAIPerformances();
+    const updated = [record, ...current];
+    this.saveAIPerformances(updated);
+
+    if (supabase) {
+      supabase
+        .from('ai_performance')
+        .insert({
+          id: record.id,
+          owner_id: record.ownerId,
+          owner_name: record.ownerName,
+          image_url: record.imageUrl,
+          image_name: record.imageName,
+          score: record.score,
+          summary: record.summary,
+          strengths: record.strengths,
+          improvements: record.improvements,
+          recommendations: record.recommendations,
+          analyzed_date_range: record.analyzedDateRange,
+          created_at: record.createdAt,
+        })
+        .then(({ error }) => {
+          if (error) console.warn('Supabase ai_performance insert notice:', error.message);
+        });
+    }
+
+    return updated;
+  },
+
+  deleteAIPerformance(id: string): AIPerformanceRecord[] {
+    const updated = this.getAIPerformances().filter((r) => r.id !== id);
+    this.saveAIPerformances(updated);
+
+    if (supabase) {
+      supabase
+        .from('ai_performance')
+        .delete()
+        .eq('id', id)
+        .then(({ error }) => {
+          if (error) console.warn('Supabase ai_performance delete notice:', error.message);
+        });
     }
 
     return updated;

@@ -9,10 +9,18 @@ export interface UserProfile {
   createdAt?: string;
 }
 
+// Cabang Program di dalam sebuah Proyek (contoh: Proyek 'abc' -> Program 'abc 1', 'abc 2')
+export interface ProjectProgram {
+  id: string;
+  name: string;
+  createdAt?: string;
+}
+
 export interface Project {
   id: string;
   name: string;
   color: string;
+  programs?: ProjectProgram[]; // Daftar cabang program yang bisa ditambah/dikurangi
   ownerId?: string;
   ownerName?: string;
   createdAt: string;
@@ -23,6 +31,7 @@ export interface ScheduleEntry {
   date: string; // Format YYYY-MM-DD
   title: string;
   projectId: string | null; // null = "Tanpa proyek"
+  programId?: string | null; // null = "Tanpa cabang program spesifik"
   status: EntryStatus;
   notes: string;
   ownerId?: string; // Penanda pekerjaan milik siapa
@@ -45,6 +54,22 @@ export interface AttendanceRecord {
   notes: string; // Keterangan atau alasan izin/cuti/sakit
   createdAt?: string;
   updatedAt?: string;
+}
+
+// Rekaman Evaluasi Performa Kerja Berbantu AI
+export interface AIPerformanceRecord {
+  id: string;
+  ownerId: string;
+  ownerName: string;
+  imageUrl?: string; // Base64 data URL gambar bukti performa
+  imageName?: string;
+  createdAt: string;
+  score: number; // 0 - 100
+  summary: string; // Kesimpulan analisis performa dari gambar & data
+  strengths: string[]; // Kekuatan / pencapaian
+  improvements: string[]; // Area yang perlu ditingkatkan
+  recommendations: string[]; // Menu saran terpadu dari seluruh performa dan program
+  analyzedDateRange?: string; // Rentang tanggal yang dievaluasi
 }
 
 export const PROJECT_COLORS = [
