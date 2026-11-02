@@ -45,12 +45,16 @@ import {
   GitBranch,
   CalendarRange,
   Zap,
+  Settings,
+  Sliders,
 } from 'lucide-react';
 import AuthPage from './AuthPage';
-import { PROJECT_COLORS } from './types';
+import { PROJECT_COLORS, DEFAULT_WORK_POLICY } from './types';
 import type {
   EntryStatus,
   Project,
+  WorkPolicy,
+
   ProjectProgram,
   ScheduleEntry,
   UserProfile,
@@ -113,6 +117,100 @@ function formatDateShortIndo(dateStr: string): string {
   if (!y || !m || !d) return dateStr;
   const monthName = INDONESIAN_MONTHS[m - 1]?.slice(0, 3) || '';
   return `${d} ${monthName} ${y}`;
+}
+
+// ============================================================================
+// DATABASE HARI LIBUR NASIONAL (TANGGAL MERAH) & HARI BESAR INDONESIA
+// ============================================================================
+
+export interface HolidayInfo {
+  name: string;
+  isHoliday: boolean; // true = Tanggal Merah / Libur Resmi Nasional, false = Hari Besar Nasional Non-Libur
+}
+
+const FIXED_ANNUAL_HOLIDAYS: Record<string, HolidayInfo> = {
+  '01-01': { name: 'Tahun Baru Masehi', isHoliday: true },
+  '04-21': { name: 'Hari Kartini', isHoliday: false },
+  '05-01': { name: 'Hari Buruh Internasional', isHoliday: true },
+  '05-02': { name: 'Hari Pendidikan Nasional', isHoliday: false },
+  '05-20': { name: 'Hari Kebangkitan Nasional', isHoliday: false },
+  '06-01': { name: 'Hari Lahir Pancasila', isHoliday: true },
+  '08-17': { name: 'Hari Kemerdekaan RI (HUT RI)', isHoliday: true },
+  '10-01': { name: 'Hari Kesaktian Pancasila', isHoliday: false },
+  '10-02': { name: 'Hari Batik Nasional', isHoliday: false },
+  '10-28': { name: 'Hari Sumpah Pemuda', isHoliday: false },
+  '11-10': { name: 'Hari Pahlawan Nasional', isHoliday: false },
+  '12-22': { name: 'Hari Ibu Nasional', isHoliday: false },
+  '12-25': { name: 'Hari Raya Natal', isHoliday: true },
+};
+
+// Daftar Hari Libur Bergerak (Kalender Hijriah, Saka, Kongzili & Kristiani 2025, 2026, 2027)
+const DYNAMIC_HOLIDAYS: Record<string, HolidayInfo> = {
+  // Tahun 2026 (SKB 3 Menteri)
+  '2026-01-01': { name: 'Tahun Baru 2026 Masehi', isHoliday: true },
+  '2026-01-16': { name: "Isra Mi'raj Nabi Muhammad SAW", isHoliday: true },
+  '2026-02-17': { name: 'Tahun Baru Imlek 2577 Kongzili', isHoliday: true },
+  '2026-03-20': { name: 'Hari Suci Nyepi (Tahun Baru Saka 1948)', isHoliday: true },
+  '2026-03-21': { name: 'Hari Raya Idul Fitri 1447 H (Hari ke-1)', isHoliday: true },
+  '2026-03-22': { name: 'Hari Raya Idul Fitri 1447 H (Hari ke-2)', isHoliday: true },
+  '2026-04-03': { name: 'Wafat Yesus Kristus (Jumat Agung)', isHoliday: true },
+  '2026-04-05': { name: 'Hari Raya Paskah', isHoliday: false },
+  '2026-05-01': { name: 'Hari Buruh Internasional', isHoliday: true },
+  '2026-05-14': { name: 'Kenaikan Yesus Kristus', isHoliday: true },
+  '2026-05-27': { name: 'Hari Raya Idul Adha 1447 H', isHoliday: true },
+  '2026-05-31': { name: 'Hari Raya Waisak 2570 BE', isHoliday: true },
+  '2026-06-01': { name: 'Hari Lahir Pancasila', isHoliday: true },
+  '2026-06-16': { name: 'Tahun Baru Islam 1448 H', isHoliday: true },
+  '2026-08-17': { name: 'Hari Kemerdekaan RI ke-81', isHoliday: true },
+  '2026-08-25': { name: 'Maulid Nabi Muhammad SAW', isHoliday: true },
+  '2026-12-25': { name: 'Hari Raya Natal', isHoliday: true },
+
+  // Tahun 2025
+  '2025-01-01': { name: 'Tahun Baru 2025 Masehi', isHoliday: true },
+  '2025-01-27': { name: "Isra Mi'raj Nabi Muhammad SAW", isHoliday: true },
+  '2025-01-29': { name: 'Tahun Baru Imlek 2576 Kongzili', isHoliday: true },
+  '2025-03-29': { name: 'Hari Suci Nyepi (Tahun Baru Saka 1947)', isHoliday: true },
+  '2025-03-31': { name: 'Hari Raya Idul Fitri 1446 H', isHoliday: true },
+  '2025-04-01': { name: 'Hari Raya Idul Fitri 1446 H (Hari ke-2)', isHoliday: true },
+  '2025-04-18': { name: 'Wafat Yesus Kristus', isHoliday: true },
+  '2025-05-01': { name: 'Hari Buruh Internasional', isHoliday: true },
+  '2025-05-12': { name: 'Hari Raya Waisak 2569 BE', isHoliday: true },
+  '2025-05-29': { name: 'Kenaikan Yesus Kristus', isHoliday: true },
+  '2025-06-01': { name: 'Hari Lahir Pancasila', isHoliday: true },
+  '2025-06-07': { name: 'Hari Raya Idul Adha 1446 H', isHoliday: true },
+  '2025-06-27': { name: 'Tahun Baru Islam 1447 H', isHoliday: true },
+  '2025-08-17': { name: 'Hari Kemerdekaan RI ke-80', isHoliday: true },
+  '2025-09-05': { name: 'Maulid Nabi Muhammad SAW', isHoliday: true },
+  '2025-12-25': { name: 'Hari Raya Natal', isHoliday: true },
+
+  // Tahun 2027
+  '2027-01-01': { name: 'Tahun Baru 2027 Masehi', isHoliday: true },
+  '2027-01-06': { name: "Isra Mi'raj Nabi Muhammad SAW", isHoliday: true },
+  '2027-02-06': { name: 'Tahun Baru Imlek 2578 Kongzili', isHoliday: true },
+  '2027-03-09': { name: 'Hari Suci Nyepi (Tahun Baru Saka 1949)', isHoliday: true },
+  '2027-03-10': { name: 'Hari Raya Idul Fitri 1448 H', isHoliday: true },
+  '2027-03-26': { name: 'Wafat Yesus Kristus', isHoliday: true },
+  '2027-05-01': { name: 'Hari Buruh Internasional', isHoliday: true },
+  '2027-05-06': { name: 'Kenaikan Yesus Kristus', isHoliday: true },
+  '2027-05-17': { name: 'Hari Raya Idul Adha 1448 H', isHoliday: true },
+  '2027-05-20': { name: 'Hari Raya Waisak 2571 BE', isHoliday: true },
+  '2027-06-01': { name: 'Hari Lahir Pancasila', isHoliday: true },
+  '2027-06-06': { name: 'Tahun Baru Islam 1449 H', isHoliday: true },
+  '2027-08-15': { name: 'Maulid Nabi Muhammad SAW', isHoliday: true },
+  '2027-08-17': { name: 'Hari Kemerdekaan RI ke-82', isHoliday: true },
+  '2027-12-25': { name: 'Hari Raya Natal', isHoliday: true },
+};
+
+function getHolidayInfo(dateStr: string): HolidayInfo | null {
+  if (!dateStr) return null;
+  if (DYNAMIC_HOLIDAYS[dateStr]) {
+    return DYNAMIC_HOLIDAYS[dateStr];
+  }
+  const mmDd = dateStr.slice(5);
+  if (FIXED_ANNUAL_HOLIDAYS[mmDd]) {
+    return FIXED_ANNUAL_HOLIDAYS[mmDd];
+  }
+  return null;
 }
 
 const STATUS_META: Record<
@@ -188,6 +286,19 @@ export default function App() {
   const [entries, setEntries] = useState<ScheduleEntry[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [aiPerformances, setAiPerformances] = useState<AIPerformanceRecord[]>([]);
+
+  // State Tolak Ukur & Aturan Baku Kerja
+  const [workPolicy, setWorkPolicy] = useState<WorkPolicy>(() =>
+    db.getWorkPolicy ? db.getWorkPolicy() : DEFAULT_WORK_POLICY
+  );
+  const [isPolicyModalOpen, setIsPolicyModalOpen] = useState<boolean>(false);
+  const [policyWorkDaysInput, setPolicyWorkDaysInput] = useState<number>(workPolicy.workDaysPerWeek);
+  const [policyCheckInInput, setPolicyCheckInInput] = useState<string>(workPolicy.standardCheckInTime);
+  const [policyCheckOutInput, setPolicyCheckOutInput] = useState<string>(workPolicy.standardCheckOutTime);
+  const [policyBreakInput, setPolicyBreakInput] = useState<number>(workPolicy.breakDurationHours);
+  const [policyLeaveQuotaInput, setPolicyLeaveQuotaInput] = useState<number>(workPolicy.annualLeaveQuota);
+  const [policyToleranceInput, setPolicyToleranceInput] = useState<number>(workPolicy.lateToleranceMinutes);
+  const [policyTargetHoursInput, setPolicyTargetHoursInput] = useState<number>(workPolicy.targetDailyWorkHours);
 
   // State Navigasi Bulan (0 = Januari, 10 = November)
   const [currentYear, setCurrentYear] = useState<number>(initialYearMonth.year);
@@ -470,16 +581,54 @@ export default function App() {
 
   const attendanceStats = useMemo(() => {
     const totalRecords = monthAttendance.length;
-    const hadirCount = monthAttendance.filter((a) => a.type === 'hadir').length;
+    const hadirRecords = monthAttendance.filter((a) => a.type === 'hadir');
+    const hadirCount = hadirRecords.length;
     const izinCount = monthAttendance.filter((a) => a.type === 'izin').length;
     const cutiCount = monthAttendance.filter((a) => a.type === 'cuti').length;
     const sakitCount = monthAttendance.filter((a) => a.type === 'sakit').length;
 
-    const totalWorkHours = monthAttendance
-      .filter((a) => a.type === 'hadir')
-      .reduce((acc, curr) => acc + (curr.workDurationHours || 0), 0);
+    // Hitung keterlambatan berdasarkan jam masuk baku + toleransi menit dari tolak ukur
+    let lateCount = 0;
+    hadirRecords.forEach((a) => {
+      if (a.isLate) {
+        lateCount += 1;
+      } else if (a.checkInTime && workPolicy.standardCheckInTime) {
+        const [stdH, stdM] = workPolicy.standardCheckInTime.split(':').map(Number);
+        const [actH, actM] = a.checkInTime.split(':').map(Number);
+        const limitMin = stdH * 60 + stdM + (workPolicy.lateToleranceMinutes || 0);
+        if (actH * 60 + actM > limitMin) {
+          lateCount += 1;
+        }
+      }
+    });
+    const punctualCount = Math.max(0, hadirCount - lateCount);
 
+    // Hitung pemakaian cuti tahun berjalan
+    const currentYearPrefix = `${currentYear}-`;
+    const targetUserId = ownerFilter === 'MINE' && currentUser ? currentUser.id : null;
+    const yearCutiTaken = attendance.filter(
+      (a) =>
+        (!targetUserId || a.ownerId === targetUserId) &&
+        a.date.startsWith(currentYearPrefix) &&
+        a.type === 'cuti'
+    ).length;
+    const remainingLeaveQuota = Math.max(0, (workPolicy.annualLeaveQuota || 12) - yearCutiTaken);
+
+    // Target jam kerja bulanan berdasarkan tolak ukur hari kerja (5 hari = ~21 hari, 6 hari = ~26 hari)
+    const estimatedWorkDaysPerMonth = workPolicy.workDaysPerWeek === 6 ? 26 : 21;
+    const monthlyTargetWorkHours = Math.round(
+      estimatedWorkDaysPerMonth * (workPolicy.targetDailyWorkHours || 7.5)
+    );
+
+    const totalWorkHours = hadirRecords.reduce(
+      (acc, curr) => acc + (curr.workDurationHours || 0),
+      0
+    );
     const avgWorkHours = hadirCount > 0 ? (totalWorkHours / hadirCount).toFixed(1) : '0';
+    const workHourAchievementPercent =
+      monthlyTargetWorkHours > 0
+        ? Math.min(150, Math.round((totalWorkHours / monthlyTargetWorkHours) * 100))
+        : 0;
 
     return {
       totalRecords,
@@ -487,10 +636,16 @@ export default function App() {
       izinCount,
       cutiCount,
       sakitCount,
+      lateCount,
+      punctualCount,
+      yearCutiTaken,
+      remainingLeaveQuota,
+      monthlyTargetWorkHours,
       totalWorkHours: totalWorkHours.toFixed(1),
       avgWorkHours,
+      workHourAchievementPercent,
     };
-  }, [monthAttendance]);
+  }, [monthAttendance, workPolicy, currentYear, attendance, ownerFilter, currentUser]);
 
   // ==========================================================================
   // DATA KHUSUS LAPORAN KINERJA DENGAN FILTER PERIODE KUSTOM & PERSENTASE RINCI
@@ -1082,12 +1237,12 @@ export default function App() {
         `Efisiensi durasi kerja harian dapat ditingkatkan dengan memangkas jeda waktu antar sesi pergantian program.`
       );
 
-      // MENU SARAN AI TERPADU (Sintesis dari seluruh performa dan program kerja)
+      // MENU SARAN AI TERPADU (Sintesis dari seluruh performa, cabang program, dan tolak ukur kerja)
       const recommendations: string[] = [
-        `Prioritas Program: Alokasikan 60% kapasitas kerja mingguan untuk menuntaskan cabang program dengan tingkat penyelesaian di bawah 70%.`,
-        `Manajemen Beban Kerja: Pada proyek dengan kontribusi beban kerja di atas 40%, buatkan sub-task per cabang program agar tracking deliverable lebih terukur.`,
-        `Optimalisasi Jam Kerja: Pertahankan konsistensi Clock In di bawah pukul 08:30 WIB dan gunakan fitur catatan harian untuk mencatat kendala teknis lebih dini.`,
-        `Review Berkala: Lakukan evaluasi mandiri setiap hari Jumat sore menggunakan dokumen laporan kinerja otomatis untuk memastikan tidak ada program yang tertinggal.`,
+        `Prioritas Program: Alokasikan fokus utama pada cabang program dengan penyelesaian terendah agar target deliverable kuartal tidak terhambat.`,
+        `Kepatuhan Jam Kerja: Pertahankan Clock In sebelum pukul ${workPolicy.standardCheckInTime} (toleransi ${workPolicy.lateToleranceMinutes} menit). Saat ini tercatat ${attendanceStats.punctualCount} hari tepat waktu.`,
+        `Optimalisasi Istirahat: Pastikan istirahat harian ${workPolicy.breakDurationHours} jam digunakan optimal agar target jam kerja bersih ${workPolicy.targetDailyWorkHours} jam/hari tercapai tanpa kelelahan.`,
+        `Perencanaan Cuti: Sisa kuota cuti tahunan Anda saat ini ${attendanceStats.remainingLeaveQuota} hari dari total ${workPolicy.annualLeaveQuota} hari. Rencanakan cuti strategis di sela milestone program besar.`,
       ];
 
       const newRecord: AIPerformanceRecord = {
@@ -1902,6 +2057,10 @@ export default function App() {
                       const remainingCount = dayEntries.length - visibleEntries.length;
                       const isToday = cell.dateStr === todayStr;
                       const isSelected = cell.dateStr === selectedDate;
+                      const holiday = getHolidayInfo(cell.dateStr);
+                      const dayOfWeek = cell.dateStr ? new Date(cell.dateStr).getDay() : -1;
+                      const isWeekend = dayOfWeek === 0 || (workPolicy.workDaysPerWeek === 5 && dayOfWeek === 6);
+                      const isTanggalMerah = holiday?.isHoliday || dayOfWeek === 0;
 
                       return (
                         <div
@@ -1920,6 +2079,8 @@ export default function App() {
                               className={`inline-flex items-center justify-center text-xs sm:text-sm font-semibold w-6 h-6 sm:w-7 sm:h-7 rounded-full transition-colors ${
                                 isToday
                                   ? 'bg-indigo-600 text-white font-bold shadow-sm'
+                                  : isTanggalMerah
+                                  ? 'text-rose-600 font-extrabold bg-rose-50'
                                   : cell.isCurrentMonth
                                   ? 'text-slate-700 group-hover:bg-slate-100'
                                   : 'text-slate-400'
@@ -1936,6 +2097,19 @@ export default function App() {
                           </div>
 
                           <div className="space-y-1 flex-1">
+                            {holiday && (
+                              <div
+                                className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold truncate border ${
+                                  holiday.isHoliday
+                                    ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                    : 'bg-amber-50 text-amber-700 border-amber-200'
+                                }`}
+                                title={`${holiday.isHoliday ? 'Libur Nasional (Tanggal Merah)' : 'Hari Besar Nasional'}: ${holiday.name}`}
+                              >
+                                <span className={`w-1.5 h-1.5 rounded-full ${holiday.isHoliday ? 'bg-rose-500' : 'bg-amber-500'} shrink-0`} />
+                                <span className="truncate">{holiday.name}</span>
+                              </div>
+                            )}
                             {visibleEntries.map((entry) => {
                               const proj = entry.projectId ? projectMap[entry.projectId] : null;
                               const chipColor = proj ? proj.color : '#64748b';
@@ -2107,11 +2281,66 @@ export default function App() {
             </>
           )}
 
-          {/* TAB 2: ABSENSI, IZIN, CUTI & JAM KERJA */}
+          {/* TAB 2: ABSENSI, IZIN, CUTI & TOLAK UKUR KERJA */}
           {activeMainTab === 'attendance' && (
             <div className="space-y-5">
+              {/* Card Header Aturan & Tolak Ukur Kerja */}
+              <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-3.5">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
+                      Aturan Baku &amp; Indikator Tolak Ukur Kerja
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                      {workPolicy.workDaysPerWeek} Hari Kerja / Minggu
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-3 gap-y-1 pt-0.5">
+                    <span>
+                      Jam Baku: <strong>{workPolicy.standardCheckInTime} – {workPolicy.standardCheckOutTime}</strong>
+                    </span>
+                    <span>•</span>
+                    <span>
+                      Istirahat: <strong>{workPolicy.breakDurationHours} Jam / Hari</strong>
+                    </span>
+                    <span>•</span>
+                    <span>
+                      Toleransi Keterlambatan: <strong>{workPolicy.lateToleranceMinutes} Menit</strong>
+                    </span>
+                    <span>•</span>
+                    <span>
+                      Target Efektif: <strong>{workPolicy.targetDailyWorkHours} Jam / Hari</strong>
+                    </span>
+                    <span>•</span>
+                    <span>
+                      Jatah Cuti: <strong>{workPolicy.annualLeaveQuota} Hari / Tahun</strong>
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPolicyWorkDaysInput(workPolicy.workDaysPerWeek);
+                    setPolicyCheckInInput(workPolicy.standardCheckInTime);
+                    setPolicyCheckOutInput(workPolicy.standardCheckOutTime);
+                    setPolicyBreakInput(workPolicy.breakDurationHours);
+                    setPolicyLeaveQuotaInput(workPolicy.annualLeaveQuota);
+                    setPolicyToleranceInput(workPolicy.lateToleranceMinutes);
+                    setPolicyTargetHoursInput(workPolicy.targetDailyWorkHours);
+                    setIsPolicyModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors shrink-0 shadow-xs"
+                >
+                  <Sliders className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Ubah Aturan Tolak Ukur</span>
+                </button>
+              </div>
+
+              {/* 4 Stat Cards Absensi Terukur */}
               <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                <div className="bg-white p-4 rounded-2xl border border-slate-200">
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-1">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                       Total Kehadiran
@@ -2120,51 +2349,63 @@ export default function App() {
                       <CalendarCheck2 className="w-4 h-4" />
                     </div>
                   </div>
-                  <div className="mt-2 flex items-baseline gap-2">
-                    <span className="text-2xl sm:text-3xl font-bold text-emerald-600">
+                  <div className="mt-1 flex items-baseline gap-2">
+                    <span className="text-2xl sm:text-3xl font-extrabold text-emerald-600">
                       {attendanceStats.hadirCount}
                     </span>
                     <span className="text-xs text-slate-500">Hari Hadir</span>
                   </div>
+                  <p className="text-[11px] text-slate-500 pt-0.5">
+                    <span className="text-emerald-700 font-semibold">{attendanceStats.punctualCount} Tepat Waktu</span> •{' '}
+                    <span className={attendanceStats.lateCount > 0 ? 'text-rose-600 font-semibold' : 'text-slate-500'}>
+                      {attendanceStats.lateCount} Terlambat
+                    </span>
+                  </p>
                 </div>
 
-                <div className="bg-white p-4 rounded-2xl border border-slate-200">
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-1">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                      Izin &amp; Cuti
+                      Izin, Cuti &amp; Sakit
                     </span>
                     <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
                       <Coffee className="w-4 h-4" />
                     </div>
                   </div>
-                  <div className="mt-2 flex items-baseline gap-2">
-                    <span className="text-2xl sm:text-3xl font-bold text-amber-600">
-                      {attendanceStats.izinCount + attendanceStats.cutiCount}
+                  <div className="mt-1 flex items-baseline gap-2">
+                    <span className="text-2xl sm:text-3xl font-extrabold text-amber-600">
+                      {attendanceStats.izinCount + attendanceStats.cutiCount + attendanceStats.sakitCount}
                     </span>
                     <span className="text-xs text-slate-500">
-                      ({attendanceStats.izinCount} Izin, {attendanceStats.cutiCount} Cuti)
+                      ({attendanceStats.izinCount} Izin, {attendanceStats.cutiCount} Cuti, {attendanceStats.sakitCount} Sakit)
                     </span>
                   </div>
+                  <p className="text-[11px] text-slate-500 pt-0.5">
+                    Sisa Cuti: <strong className="text-indigo-600">{attendanceStats.remainingLeaveQuota} Hari</strong> (dari {workPolicy.annualLeaveQuota})
+                  </p>
                 </div>
 
-                <div className="bg-white p-4 rounded-2xl border border-slate-200">
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-1">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                      Total Jam Kerja
+                      Jam Kerja Bersih
                     </span>
                     <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
                       <Timer className="w-4 h-4" />
                     </div>
                   </div>
-                  <div className="mt-2 flex items-baseline gap-2">
-                    <span className="text-2xl sm:text-3xl font-bold text-indigo-600">
+                  <div className="mt-1 flex items-baseline gap-2">
+                    <span className="text-2xl sm:text-3xl font-extrabold text-indigo-600">
                       {attendanceStats.totalWorkHours}
                     </span>
-                    <span className="text-xs text-slate-500">Jam tercatat</span>
+                    <span className="text-xs text-slate-500">Jam Bersih</span>
                   </div>
+                  <p className="text-[11px] text-slate-500 pt-0.5">
+                    Target: <strong>{attendanceStats.monthlyTargetWorkHours} Jam</strong> ({attendanceStats.workHourAchievementPercent}% tercapai)
+                  </p>
                 </div>
 
-                <div className="bg-white p-4 rounded-2xl border border-slate-200">
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-1">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                       Rata-Rata Jam / Hari
@@ -2173,12 +2414,15 @@ export default function App() {
                       <Clock className="w-4 h-4" />
                     </div>
                   </div>
-                  <div className="mt-2 flex items-baseline gap-2">
-                    <span className="text-2xl sm:text-3xl font-bold text-blue-600">
+                  <div className="mt-1 flex items-baseline gap-2">
+                    <span className="text-2xl sm:text-3xl font-extrabold text-blue-600">
                       {attendanceStats.avgWorkHours}
                     </span>
-                    <span className="text-xs text-slate-500">Jam per hari hadir</span>
+                    <span className="text-xs text-slate-500">Jam / hari</span>
                   </div>
+                  <p className="text-[11px] text-slate-500 pt-0.5">
+                    Target Baku: <strong className="text-slate-800">{workPolicy.targetDailyWorkHours} Jam/Hari</strong> (Potong {workPolicy.breakDurationHours}j istirahat)
+                  </p>
                 </div>
               </section>
 
@@ -2664,11 +2908,41 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* 3. Tolak Ukur Aturan Kerja & Kepatuhan */}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-indigo-600" />
+                    <span>3. Tolak Ukur Aturan Kerja &amp; Kepatuhan Kebijakan</span>
+                  </h3>
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Aturan Shift Kerja</span>
+                      <span className="font-extrabold text-slate-900">{workPolicy.workDaysPerWeek} Hari / Minggu</span>
+                      <span className="text-slate-500 block text-[11px]">{workPolicy.standardCheckInTime} – {workPolicy.standardCheckOutTime}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Istirahat &amp; Target Efektif</span>
+                      <span className="font-extrabold text-slate-900">{workPolicy.targetDailyWorkHours} Jam / Hari</span>
+                      <span className="text-slate-500 block text-[11px]">Potong istirahat {workPolicy.breakDurationHours} jam</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Status Cuti Tahunan</span>
+                      <span className="font-extrabold text-indigo-600">Sisa {attendanceStats.remainingLeaveQuota} Hari</span>
+                      <span className="text-slate-500 block text-[11px]">Dari kuota {workPolicy.annualLeaveQuota} hari/thn</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Kepatuhan Jam Masuk</span>
+                      <span className="font-extrabold text-emerald-600">{attendanceStats.punctualCount} Tepat Waktu</span>
+                      <span className="text-slate-500 block text-[11px]">{attendanceStats.lateCount} kali terlambat ({workPolicy.lateToleranceMinutes}m toleransi)</span>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Log Tugas Rinci */}
                 <div className="space-y-3">
                   <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
                     <FileText className="w-4 h-4 text-indigo-600" />
-                    <span>3. Log Rincian Pekerjaan ({reportData.userEntries.length} Item)</span>
+                    <span>4. Log Rincian Pekerjaan ({reportData.userEntries.length} Item)</span>
                   </h3>
                   <div className="flex items-center justify-between text-xs text-slate-500 print:hidden pb-1">
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 text-[11px] font-medium border border-slate-200">
@@ -3076,6 +3350,22 @@ export default function App() {
                 <h3 className="text-base font-bold text-slate-900 mt-0.5">
                   {formatDateFullIndo(selectedDate)}
                 </h3>
+                {(() => {
+                  const selHol = getHolidayInfo(selectedDate);
+                  if (!selHol) return null;
+                  return (
+                    <div
+                      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-bold border mt-1 ${
+                        selHol.isHoliday
+                          ? 'bg-rose-50 text-rose-700 border-rose-200'
+                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                      }`}
+                    >
+                      <span>{selHol.isHoliday ? '🔴 Libur Nasional:' : '⭐️ Hari Besar:'}</span>
+                      <span>{selHol.name}</span>
+                    </div>
+                  );
+                })()}
               </div>
               <button
                 type="button"
@@ -3492,6 +3782,221 @@ export default function App() {
                   className="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700"
                 >
                   Simpan Absensi
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL ATURAN & TOLAK UKUR KERJA */}
+      {isPolicyModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-[1px]"
+            onClick={() => setIsPolicyModalOpen(false)}
+          />
+          <div className="relative z-10 w-full max-w-lg bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                  <Sliders className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Aturan Baku &amp; Tolak Ukur Kerja
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Konfigurasi manual parameter kehadiran, jam masuk/pulang, istirahat &amp; kuota cuti
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPolicyModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const newPolicy: WorkPolicy = {
+                  workDaysPerWeek: Number(policyWorkDaysInput) || 5,
+                  standardCheckInTime: policyCheckInInput || '08:30',
+                  standardCheckOutTime: policyCheckOutInput || '17:00',
+                  breakDurationHours: Number(policyBreakInput) || 1.0,
+                  annualLeaveQuota: Number(policyLeaveQuotaInput) || 12,
+                  lateToleranceMinutes: Number(policyToleranceInput) || 15,
+                  targetDailyWorkHours: Number(policyTargetHoursInput) || 7.5,
+                };
+                db.saveWorkPolicy(newPolicy);
+                setWorkPolicy(newPolicy);
+                setIsPolicyModalOpen(false);
+                showToast('Aturan tolak ukur kerja berhasil diperbarui!');
+              }}
+              className="space-y-4"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Hari Kerja per Minggu <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={policyWorkDaysInput}
+                    onChange={(e) => setPolicyWorkDaysInput(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  >
+                    <option value={5}>5 Hari Kerja (Senin – Jumat)</option>
+                    <option value={6}>6 Hari Kerja (Senin – Sabtu)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Toleransi Keterlambatan <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={0}
+                      max={60}
+                      value={policyToleranceInput}
+                      onChange={(e) => setPolicyToleranceInput(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 pr-14"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                      Menit
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Jam Masuk Baku (Clock In) <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="time"
+                    required
+                    value={policyCheckInInput}
+                    onChange={(e) => setPolicyCheckInInput(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Batas toleransi s/d {policyCheckInInput ? (() => {
+                      const [h, m] = policyCheckInInput.split(':').map(Number);
+                      const total = h * 60 + m + (Number(policyToleranceInput) || 0);
+                      const limH = String(Math.floor(total / 60)).padStart(2, '0');
+                      const limM = String(total % 60).padStart(2, '0');
+                      return `${limH}:${limM}`;
+                    })() : '-'}
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Jam Pulang Baku (Clock Out) <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="time"
+                    required
+                    value={policyCheckOutInput}
+                    onChange={(e) => setPolicyCheckOutInput(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Jam akhir shift kerja harian
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Jam Istirahat / Hari <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.5"
+                      min={0}
+                      max={4}
+                      value={policyBreakInput}
+                      onChange={(e) => setPolicyBreakInput(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none pr-12"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                      Jam
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Memotong durasi kotor
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Target Jam Kerja Bersih <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.5"
+                      min={1}
+                      max={12}
+                      value={policyTargetHoursInput}
+                      onChange={(e) => setPolicyTargetHoursInput(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none pr-12"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                      Jam
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Target harian bersih
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Jatah Cuti / Tahun <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={0}
+                      max={60}
+                      value={policyLeaveQuotaInput}
+                      onChange={(e) => setPolicyLeaveQuotaInput(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none pr-12"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                      Hari
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Hak cuti 1 tahun
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsPolicyModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
+                >
+                  Simpan Aturan Tolak Ukur
                 </button>
               </div>
             </form>

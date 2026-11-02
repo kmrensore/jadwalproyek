@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { DEFAULT_WORK_POLICY } from './types';
 import type {
   EntryStatus,
   Project,
@@ -8,6 +9,7 @@ import type {
   AttendanceRecord,
   AttendanceType,
   AIPerformanceRecord,
+  WorkPolicy,
 } from './types';
 
 // ============================================================================
@@ -30,6 +32,7 @@ const STORAGE_KEYS = {
   INITIALIZED: 'jadwalpro_init_v3',
   SESSION: 'jadwalpro_session_v3',
   AI_PERFORMANCES: 'jadwalpro_ai_perf_v3',
+  WORK_POLICY: 'jadwalpro_work_policy_v3',
 };
 
 // Data seed kosong murni agar akun baru tidak tercemar data demo
@@ -621,7 +624,23 @@ export const db = {
     return updated;
   },
 
-  // --- 5. OPERASI KEHADIRAN & JAM KERJA ---
+  // --- 5. OPERASI TOLAK UKUR KERJA & KEHADIRAN ---
+  getWorkPolicy(): WorkPolicy {
+    const raw = safeStorage.getItem(STORAGE_KEYS.WORK_POLICY);
+    if (!raw) return { ...DEFAULT_WORK_POLICY };
+    try {
+      const parsed = JSON.parse(raw);
+      return { ...DEFAULT_WORK_POLICY, ...parsed };
+    } catch {
+      return { ...DEFAULT_WORK_POLICY };
+    }
+  },
+
+  saveWorkPolicy(policy: WorkPolicy): WorkPolicy {
+    safeStorage.setItem(STORAGE_KEYS.WORK_POLICY, JSON.stringify(policy));
+    return policy;
+  },
+
   getAttendance(): AttendanceRecord[] {
     const raw = safeStorage.getItem(STORAGE_KEYS.ATTENDANCE);
     if (!raw) return [];
@@ -655,7 +674,8 @@ export const db = {
       (r) => r.ownerId === ownerId && r.date === payload.date
     );
 
-    let duration = 0;
+    const policy = this.getWorkPolicy();
+    let isLate = false;
     const inTime =
       payload.checkInTime !== undefined
         ? payload.checkInTime
@@ -669,11 +689,27 @@ export const db = {
         ? records[existingIndex].checkOutTime
         : null;
 
+    // Evaluasi keterlambatan berdasarkan jam masuk baku + toleransi menit
+    if (inTime && policy.standardCheckInTime) {
+      const [stdH, stdM] = policy.standardCheckInTime.split(':').map(Number);
+      const [actH, actM] = inTime.split(':').map(Number);
+      const limitMinutes = stdH * 60 + stdM + (policy.lateToleranceMinutes || 0);
+      const actMinutes = actH * 60 + actM;
+      if (actMinutes > limitMinutes) {
+        isLate = true;
+      }
+    }
+
+    let duration = 0;
     if (inTime && outTime) {
       const [hIn, mIn] = inTime.split(':').map(Number);
       const [hOut, mOut] = outTime.split(':').map(Number);
       const diffMinutes = hOut * 60 + mOut - (hIn * 60 + mIn);
-      duration = Math.max(0, Math.round((diffMinutes / 60) * 10) / 10);
+      const grossHours = Math.max(0, diffMinutes / 60);
+      const breakDeduction = policy.breakDurationHours || 0;
+      // Potong durasi istirahat harian secara otomatis
+      const netHours = grossHours > breakDeduction ? grossHours - breakDeduction : grossHours;
+      duration = Math.round(netHours * 10) / 10;
     }
 
     const now = new Date().toISOString();
@@ -687,6 +723,7 @@ export const db = {
         checkInTime: inTime,
         checkOutTime: outTime,
         workDurationHours: payload.type === 'hadir' ? duration : 0,
+        isLate: payload.type === 'hadir' ? isLate : false,
         notes: payload.notes !== undefined ? payload.notes : records[existingIndex].notes,
         updatedAt: now,
       };
@@ -702,6 +739,7 @@ export const db = {
         checkInTime: inTime,
         checkOutTime: outTime,
         workDurationHours: payload.type === 'hadir' ? duration : 0,
+        isLate: payload.type === 'hadir' ? isLate : false,
         notes: payload.notes || (payload.type === 'hadir' ? 'Check-in hadir harian.' : ''),
         createdAt: now,
         updatedAt: now,

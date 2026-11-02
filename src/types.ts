@@ -50,11 +50,33 @@ export interface AttendanceRecord {
   type: AttendanceType;
   checkInTime: string | null; // Format HH:mm (contoh: "08:15")
   checkOutTime: string | null; // Format HH:mm (contoh: "17:20")
-  workDurationHours: number; // Durasi jam kerja dalam desimal (contoh: 8.5)
+  workDurationHours: number; // Durasi jam kerja bersih dalam desimal (contoh: 7.5)
+  isLate?: boolean; // Menandai apakah clock-in melewati jam baku + toleransi
   notes: string; // Keterangan atau alasan izin/cuti/sakit
   createdAt?: string;
   updatedAt?: string;
 }
+
+// Tolak Ukur & Aturan Baku Kerja (Work Policy & Attendance Benchmarks)
+export interface WorkPolicy {
+  workDaysPerWeek: number; // Jumlah hari kerja per minggu (contoh: 5 atau 6)
+  standardCheckInTime: string; // Jam masuk baku (contoh: "08:30")
+  standardCheckOutTime: string; // Jam pulang baku (contoh: "17:00")
+  breakDurationHours: number; // Durasi istirahat harian dalam jam (contoh: 1.0)
+  annualLeaveQuota: number; // Jatah cuti tahunan (contoh: 12 hari/tahun)
+  lateToleranceMinutes: number; // Toleransi keterlambatan menit (contoh: 15 menit)
+  targetDailyWorkHours: number; // Target jam kerja bersih harian (contoh: 7.5 jam)
+}
+
+export const DEFAULT_WORK_POLICY: WorkPolicy = {
+  workDaysPerWeek: 5,
+  standardCheckInTime: '08:30',
+  standardCheckOutTime: '17:00',
+  breakDurationHours: 1.0,
+  annualLeaveQuota: 12,
+  lateToleranceMinutes: 15,
+  targetDailyWorkHours: 7.5,
+};
 
 // Rekaman Evaluasi Performa Kerja Berbantu AI
 export interface AIPerformanceRecord {
