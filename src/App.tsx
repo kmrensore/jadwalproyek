@@ -17,7 +17,6 @@ import {
   Check,
   Database,
   Code2,
-  RotateCcw,
   Sparkles,
   Layers,
   FileText,
@@ -748,20 +747,6 @@ export default function App() {
     showToast('Data absensi dihapus.');
   };
 
-  const handleResetDemoData = () => {
-    const { projects: seedP, entries: seedE, attendance: seedA } = db.resetToSeed();
-    setProjects(seedP);
-    setEntries(seedE);
-    setAttendance(seedA);
-    setCurrentYear(2026);
-    setCurrentMonth(9);
-    setProjectFilter('ALL');
-    setStatusFilter('ALL');
-    setOwnerFilter('ALL');
-    setSearchQuery('');
-    showToast('Data contoh Oktober 2026 berhasil di-reset');
-  };
-
   const copyCodeToClipboard = (text: string, label: string) => {
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -928,15 +913,7 @@ export default function App() {
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={handleResetDemoData}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition-colors"
-              title="Reset Data Contoh Oktober 2026"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">Reset Contoh</span>
-            </button>
+
 
             <button
               type="button"
