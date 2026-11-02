@@ -137,7 +137,7 @@ export default function App() {
   // Tab Navigasi Utama: 'calendar' | 'attendance' | 'report'
   const [activeMainTab, setActiveMainTab] = useState<'calendar' | 'attendance' | 'report'>('calendar');
 
-  // State User & Auth
+  // State User & Auth (Auto-login membaca sesi tersimpan langsung saat inisialisasi)
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() =>
     db.getSavedSession ? db.getSavedSession() : null
   );
@@ -151,7 +151,7 @@ export default function App() {
   const [currentYear, setCurrentYear] = useState<number>(initialYearMonth.year);
   const [currentMonth, setCurrentMonth] = useState<number>(initialYearMonth.month);
 
-  // State Filter & Tampilan Toolbar
+  // State Filter & Tampilan Toolbar (DEFAULT MURNI 'MINE' / PEKERJAAN SAYA)
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | EntryStatus | 'OVERDUE'>('ALL');
@@ -189,30 +189,57 @@ export default function App() {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Inisialisasi Data & Sinkronisasi Sesi
+  // Inisialisasi Data & Sinkronisasi Sesi (Auto-Login & Sinkronisasi Cloud)
   useEffect(() => {
-    const { projects: initProj, entries: initEnt } = db.init();
+    const saved = db.getSavedSession ? db.getSavedSession() : null;
+    if (saved && !currentUser) {
+      setCurrentUser(saved);
+    }
+
+    const { projects: initProj, entries: initEnt, attendance: initAtt } = db.init();
     setProjects(initProj);
     setEntries(initEnt);
-    if (db.getAttendance) {
+    if (initAtt && initAtt.length > 0) {
+      setAttendance(initAtt);
+    } else if (db.getAttendance) {
       setAttendance(db.getAttendance());
     }
 
     if (db.getCurrentUser) {
       db.getCurrentUser().then((user: UserProfile | null) => {
-        if (user) setCurrentUser(user);
-      });
-    }
-
-    if (db.fetchFromSupabase) {
-      db.fetchFromSupabase().then((remote: any) => {
-        if (remote) {
-          setProjects(remote.projects);
-          setEntries(remote.entries);
+        if (user) {
+          setCurrentUser(user);
+          if (db.saveSession) db.saveSession(user);
+          if (db.fetchFromSupabase) {
+            db.fetchFromSupabase(user.id).then((remote: any) => {
+              if (remote) {
+                setProjects(remote.projects);
+                setEntries(remote.entries);
+                if (remote.attendance) setAttendance(remote.attendance);
+              }
+            });
+          }
         }
       });
     }
+
+    const unsub = db.onAuthStateChange?.((user) => {
+      if (user) {
+        setCurrentUser(user);
+        if (db.saveSession) db.saveSession(user);
+      }
+    });
+
+    return () => {
+      unsub?.();
+    };
   }, []);
+
+  useEffect(() => {
+    if (currentUser && db.saveSession) {
+      db.saveSession(currentUser);
+    }
+  }, [currentUser]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -228,8 +255,7 @@ export default function App() {
     showToast('Berhasil keluar dari akun');
   };
 
-  // Daftar Owner Unik untuk Filter Pekerjaan Siapa-Siapanya
-  // Daftar Owner Unik (Hanya memuat akun yang sesuai, buang dummy 'owner-demo-1')
+  // DAFTAR OWNER UNIK
   const uniqueOwners = useMemo(() => {
     const map = new Map<string, { id: string; name: string }>();
     if (currentUser) {
@@ -266,11 +292,10 @@ export default function App() {
     return `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
   }, [currentYear, currentMonth]);
 
-  // Entri Bulan Berjalan: Tampilkan murni sesuai owner_id user yang login
+  // ENTRI BULAN BERJALAN
   const monthEntries = useMemo(() => {
     return entries.filter((e) => {
       if (!e.date.startsWith(currentMonthPrefix)) return false;
-      // Jika user sudah login, jangan tampilkan data demo 'Tim Utama'
       if (currentUser && currentUser.id !== 'owner-demo-1' && e.ownerId === 'owner-demo-1') {
         return false;
       }
@@ -284,7 +309,7 @@ export default function App() {
     });
   }, [entries, currentMonthPrefix, ownerFilter, currentUser]);
 
-  // KPI Jadwal Bulan Berjalan
+  // KPI JADWAL BULAN BERJALAN
   const kpiStats = useMemo(() => {
     const total = monthEntries.length;
     const selesai = monthEntries.filter((e) => e.status === 'selesai').length;
@@ -351,7 +376,6 @@ export default function App() {
     return grouped;
   }, [filteredMonthEntries]);
 
-  // Absensi Hari Ini untuk User yang Sedang Login
   const myTodayAttendance = useMemo(() => {
     if (!currentUser) return null;
     return (
@@ -361,11 +385,13 @@ export default function App() {
     );
   }, [attendance, currentUser, todayStr]);
 
-  // Absensi Bulan Berjalan
   const monthAttendance = useMemo(() => {
     return attendance
       .filter((a) => {
         if (!a.date.startsWith(currentMonthPrefix)) return false;
+        if (currentUser && currentUser.id !== 'owner-demo-1' && a.ownerId === 'owner-demo-1') {
+          return false;
+        }
         if (ownerFilter === 'MINE' && currentUser) {
           return a.ownerId === currentUser.id;
         }
@@ -401,7 +427,6 @@ export default function App() {
     };
   }, [monthAttendance]);
 
-  // Data Khusus untuk Halaman Laporan (Report)
   const reportTargetOwner = useMemo(() => {
     if (!currentUser) return null;
     if (reportOwnerFilter === 'MINE') return currentUser;
@@ -488,7 +513,6 @@ export default function App() {
     };
   }, [reportTargetOwner, attendance, entries, currentMonthPrefix, todayStr, projectMap]);
 
-  // Kalender Grid Cells
   const calendarCells = useMemo(() => {
     const firstDayOfMonth = new Date(currentYear, currentMonth, 1);
     const totalDaysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
@@ -529,6 +553,7 @@ export default function App() {
     return cells;
   }, [currentYear, currentMonth]);
 
+  // Catatan tanggal terpilih yang muncul saat tanggal di kalender diklik
   const selectedDateEntries = useMemo(() => {
     if (!selectedDate) return [];
     return entries
@@ -616,7 +641,7 @@ export default function App() {
         currentUser
       );
       setEntries(updated);
-      showToast(`Catatan ditambahkan (Owner: ${currentUser?.fullName || 'User'})`);
+      showToast(`Catatan ditambahkan`);
     }
     resetEntryForm(projectFilter !== 'ALL' && projectFilter !== 'NONE' ? projectFilter : '');
   };
@@ -664,7 +689,7 @@ export default function App() {
     } else {
       const updated = db.createProject(projectNameInput, projectColorInput, currentUser);
       setProjects(updated);
-      showToast(`Proyek dibuat (Owner: ${currentUser?.fullName || 'User'})`);
+      showToast(`Proyek dibuat`);
     }
     setIsProjectModalOpen(false);
     setEditingProject(null);
@@ -678,13 +703,14 @@ export default function App() {
       setProjectFilter('ALL');
     }
     setConfirmDeleteProjectId(null);
-    showToast('Proyek dihapus, catatan dialihkan ke "Tanpa proyek"');
+    showToast('Proyek dihapus');
   };
 
-  const handleQuickClockIn = () => {
+  // Clock In (Jam Masuk) langsung tersimpan ke Supabase
+  const handleQuickClockIn = async () => {
     if (!currentUser) return;
     const nowTime = getNowTimeStr();
-    const updated = db.recordAttendance(
+    const updated = await db.recordAttendance(
       {
         date: todayStr,
         type: 'hadir',
@@ -694,13 +720,14 @@ export default function App() {
       currentUser
     );
     setAttendance(updated);
-    showToast(`Clock In berhasil pada pukul ${nowTime}!`);
+    showToast(`Clock In berhasil pada pukul ${nowTime}! Tersimpan di cloud.`);
   };
 
-  const handleQuickClockOut = () => {
+  // Clock Out (Jam Pulang) langsung tersimpan ke Supabase & menghitung jam kerja
+  const handleQuickClockOut = async () => {
     if (!currentUser) return;
     const nowTime = getNowTimeStr();
-    const updated = db.recordAttendance(
+    const updated = await db.recordAttendance(
       {
         date: todayStr,
         type: 'hadir',
@@ -710,7 +737,7 @@ export default function App() {
       currentUser
     );
     setAttendance(updated);
-    showToast(`Clock Out berhasil pada pukul ${nowTime}!`);
+    showToast(`Clock Out berhasil pada pukul ${nowTime}! Tersimpan di cloud.`);
   };
 
   const openNewAttendanceModal = () => {
@@ -722,11 +749,11 @@ export default function App() {
     setIsAttendanceModalOpen(true);
   };
 
-  const handleSaveAttendanceForm = (e: React.FormEvent) => {
+  const handleSaveAttendanceForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
 
-    const updated = db.recordAttendance(
+    const updated = await db.recordAttendance(
       {
         date: attDateInput,
         type: attTypeInput,
@@ -741,8 +768,8 @@ export default function App() {
     showToast(`Catatan absensi (${ATTENDANCE_META[attTypeInput].label}) berhasil disimpan.`);
   };
 
-  const handleDeleteAttendance = (id: string) => {
-    const updated = db.deleteAttendance(id);
+  const handleDeleteAttendance = async (id: string) => {
+    const updated = await db.deleteAttendance(id);
     setAttendance(updated);
     showToast('Data absensi dihapus.');
   };
@@ -802,13 +829,15 @@ export default function App() {
     return (
       <AuthPage
         onAuthSuccess={(user) => {
+          if (db.saveSession) db.saveSession(user);
           setCurrentUser(user);
           showToast(`Selamat datang, ${user.fullName}!`);
           if (db.fetchFromSupabase) {
-            db.fetchFromSupabase().then((remote: any) => {
+            db.fetchFromSupabase(user.id).then((remote: any) => {
               if (remote) {
                 setProjects(remote.projects);
                 setEntries(remote.entries);
+                if (remote.attendance) setAttendance(remote.attendance);
               }
             });
           }
@@ -897,7 +926,7 @@ export default function App() {
             </button>
           </div>
 
-          {/* Profil User & Tombol Aksi */}
+          {/* Profil User & Tombol Keluar (Tanpa Reset Contoh) */}
           <div className="flex items-center gap-2">
             <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
               <div className="w-7 h-7 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center text-xs shrink-0">
@@ -912,8 +941,6 @@ export default function App() {
                 </div>
               </div>
             </div>
-
-
 
             <button
               type="button"
@@ -1097,99 +1124,101 @@ export default function App() {
               Proyek Aktif ({INDONESIAN_MONTHS[currentMonth]})
             </div>
 
-            {projects.filter((proj) => !currentUser || currentUser.id === 'owner-demo-1' || proj.ownerId === currentUser.id).map((proj) => {
-              const count = projectMonthCounts[proj.id] || 0;
-              const isSelected = projectFilter === proj.id;
-              const isConfirmingDelete = confirmDeleteProjectId === proj.id;
+            {projects
+              .filter((p) => !currentUser || currentUser.id === 'owner-demo-1' || p.ownerId === currentUser.id)
+              .map((proj) => {
+                const count = projectMonthCounts[proj.id] || 0;
+                const isSelected = projectFilter === proj.id;
+                const isConfirmingDelete = confirmDeleteProjectId === proj.id;
 
-              return (
-                <div
-                  key={proj.id}
-                  className={`group rounded-xl transition-colors ${
-                    isSelected ? 'bg-slate-100/90 ring-1 ring-slate-300' : 'hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="flex items-center justify-between px-3 py-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setProjectFilter(isSelected ? 'ALL' : proj.id);
-                        setIsMobileSidebarOpen(false);
-                      }}
-                      className="flex items-center gap-2.5 flex-1 text-left min-w-0"
-                    >
-                      <span
-                        className="w-3 h-3 rounded-full shrink-0 ring-2 ring-offset-1 ring-transparent"
-                        style={{ backgroundColor: proj.color }}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div
-                          className={`text-sm truncate ${
-                            isSelected ? 'font-semibold text-slate-900' : 'text-slate-700'
-                          }`}
-                        >
-                          {proj.name}
-                        </div>
-                        {proj.ownerName && (
-                          <div className="text-[10px] text-slate-400 truncate">
-                            Owner: {proj.ownerName}
+                return (
+                  <div
+                    key={proj.id}
+                    className={`group rounded-xl transition-colors ${
+                      isSelected ? 'bg-slate-100/90 ring-1 ring-slate-300' : 'hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between px-3 py-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProjectFilter(isSelected ? 'ALL' : proj.id);
+                          setIsMobileSidebarOpen(false);
+                        }}
+                        className="flex items-center gap-2.5 flex-1 text-left min-w-0"
+                      >
+                        <span
+                          className="w-3 h-3 rounded-full shrink-0 ring-2 ring-offset-1 ring-transparent"
+                          style={{ backgroundColor: proj.color }}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div
+                            className={`text-sm truncate ${
+                              isSelected ? 'font-semibold text-slate-900' : 'text-slate-700'
+                            }`}
+                          >
+                            {proj.name}
                           </div>
-                        )}
-                      </div>
-                    </button>
+                          {proj.ownerName && (
+                            <div className="text-[10px] text-slate-400 truncate">
+                              Owner: {proj.ownerName}
+                            </div>
+                          )}
+                        </div>
+                      </button>
 
-                    <div className="flex items-center gap-1 shrink-0 ml-2">
-                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 group-hover:hidden">
-                        {count}
-                      </span>
-                      <div className="hidden group-hover:flex items-center gap-0.5">
-                        <button
-                          type="button"
-                          onClick={() => openEditProjectModal(proj)}
-                          className="p-1 text-slate-400 hover:text-indigo-600 rounded"
-                          title="Edit proyek"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDeleteProjectId(proj.id)}
-                          className="p-1 text-slate-400 hover:text-rose-600 rounded"
-                          title="Hapus proyek"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                      <div className="flex items-center gap-1 shrink-0 ml-2">
+                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 group-hover:hidden">
+                          {count}
+                        </span>
+                        <div className="hidden group-hover:flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => openEditProjectModal(proj)}
+                            className="p-1 text-slate-400 hover:text-indigo-600 rounded"
+                            title="Edit proyek"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteProjectId(proj.id)}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                            title="Hapus proyek"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     </div>
+
+                    {isConfirmingDelete && (
+                      <div className="mx-2 mb-2 p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-xs">
+                        <p className="text-rose-800 font-medium mb-2">
+                          Hapus proyek <strong>{proj.name}</strong>? Catatan tidak ikut terhapus dan
+                          akan menjadi &ldquo;Tanpa proyek&rdquo;.
+                        </p>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteProjectId(null)}
+                            className="px-2 py-1 rounded bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                          >
+                            Batal
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteProject(proj.id)}
+                            className="px-2 py-1 rounded bg-rose-600 text-white font-semibold hover:bg-rose-700"
+                          >
+                            Ya, Hapus
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-
-                  {isConfirmingDelete && (
-                    <div className="mx-2 mb-2 p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-xs">
-                      <p className="text-rose-800 font-medium mb-2">
-                        Hapus proyek <strong>{proj.name}</strong>? Catatan tidak ikut terhapus dan
-                        akan menjadi &ldquo;Tanpa proyek&rdquo;.
-                      </p>
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDeleteProjectId(null)}
-                          className="px-2 py-1 rounded bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
-                        >
-                          Batal
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteProject(proj.id)}
-                          className="px-2 py-1 rounded bg-rose-600 text-white font-semibold hover:bg-rose-700"
-                        >
-                          Ya, Hapus
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                );
+              })}
 
             <button
               type="button"
@@ -2140,7 +2169,6 @@ export default function App() {
         </main>
       </div>
 
-      
       {/* =====================================================================
           2. KLIK TANGGAL -> PANEL DETAIL HARI (DRAWER / BOTTOM SHEET)
          ===================================================================== */}

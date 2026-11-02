@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import type { Project, ScheduleEntry, UserProfile, AttendanceRecord, AttendanceType } from './types';
+import type { EntryStatus, Project, ScheduleEntry, UserProfile, AttendanceRecord, AttendanceType } from './types';
 
 // ============================================================================
 // MODUL DATA LAYER (src/db.ts — Jadwal, Proyek, Absensi, & Supabase)
@@ -22,237 +22,10 @@ const STORAGE_KEYS = {
   SESSION: 'jadwalpro_session_v3',
 };
 
-export const SEED_PROJECTS: Project[] = [
-  {
-    id: 'proj-1',
-    name: 'Redesign Website Utama',
-    color: '#6366f1',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    createdAt: '2026-10-01T08:00:00.000Z',
-  },
-  {
-    id: 'proj-2',
-    name: 'Integrasi Mobile App v2',
-    color: '#10b981',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    createdAt: '2026-10-01T08:05:00.000Z',
-  },
-  {
-    id: 'proj-3',
-    name: 'Kampanye Q4 & Marketing',
-    color: '#f59e0b',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    createdAt: '2026-10-01T08:10:00.000Z',
-  },
-];
-
-export const SEED_ENTRIES: ScheduleEntry[] = [
-  {
-    id: 'ent-1',
-    date: '2026-10-05',
-    title: 'Kickoff & Audit UI/UX Lama',
-    projectId: 'proj-1',
-    status: 'selesai',
-    notes: 'Review heatmap pengunjung dan menyusun daftar halaman prioritas yang perlu di-redesign.',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    createdAt: '2026-10-02T09:00:00.000Z',
-    updatedAt: '2026-10-05T16:00:00.000Z',
-  },
-  {
-    id: 'ent-2',
-    date: '2026-10-09',
-    title: 'Setup Skema Database & Auth Supabase',
-    projectId: 'proj-2',
-    status: 'selesai',
-    notes: 'Membuat tabel projects dan schedule_entries beserta Row Level Security (RLS) per user.',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    createdAt: '2026-10-04T10:00:00.000Z',
-    updatedAt: '2026-10-09T17:30:00.000Z',
-  },
-  {
-    id: 'ent-3',
-    date: '2026-10-12',
-    title: 'Riset Keyword & Kalender Konten Oktober',
-    projectId: 'proj-3',
-    status: 'selesai',
-    notes: 'Target 15 artikel SEO dan 8 konten video pendek untuk pengenalan fitur baru.',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    createdAt: '2026-10-06T11:00:00.000Z',
-    updatedAt: '2026-10-12T15:00:00.000Z',
-  },
-  {
-    id: 'ent-4',
-    date: '2026-10-15',
-    title: 'Finalisasi Design System & Komponen Figma',
-    projectId: 'proj-1',
-    status: 'selesai',
-    notes: 'Token warna, tipografi Inter, dan komponen kalender responsif sudah disetujui tim.',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    createdAt: '2026-10-10T09:00:00.000Z',
-    updatedAt: '2026-10-15T18:00:00.000Z',
-  },
-  {
-    id: 'ent-5',
-    date: '2026-10-20',
-    title: 'Integrasi Push Notification FCM',
-    projectId: 'proj-2',
-    status: 'berjalan',
-    notes: 'Masih menunggu sertifikat APNs dari akun Apple Developer untuk pengujian di iOS.',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    createdAt: '2026-10-15T08:00:00.000Z',
-    updatedAt: '2026-10-20T14:00:00.000Z',
-  },
-  {
-    id: 'ent-6',
-    date: '2026-10-24',
-    title: 'Produksi Video Teaser Produk Q4',
-    projectId: 'proj-3',
-    status: 'belum_mulai',
-    notes: 'Revisi storyboard dari tim kreatif belum rampung, perlu follow up hari ini.',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    createdAt: '2026-10-18T10:00:00.000Z',
-    updatedAt: '2026-10-24T12:00:00.000Z',
-  },
-  {
-    id: 'ent-7',
-    date: '2026-10-28',
-    title: 'Slicing Halaman Beranda & Kalender React',
-    projectId: 'proj-1',
-    status: 'berjalan',
-    notes: 'Implementasi grid 7 kolom, drawer detail harian, dan filter proyek dinamis.',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    createdAt: '2026-10-25T09:00:00.000Z',
-    updatedAt: '2026-10-28T09:30:00.000Z',
-  },
-  {
-    id: 'ent-8',
-    date: '2026-10-28',
-    title: 'Uji Coba Endpoint Sinkronisasi Offline',
-    projectId: 'proj-2',
-    status: 'berjalan',
-    notes: 'Memastikan antrean mutasi lokal tersimpan aman sebelum dikirim ke cloud.',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    createdAt: '2026-10-26T13:00:00.000Z',
-    updatedAt: '2026-10-28T10:00:00.000Z',
-  },
-  {
-    id: 'ent-9',
-    date: '2026-10-28',
-    title: 'Review Copywriting Landing Page Promo',
-    projectId: 'proj-3',
-    status: 'selesai',
-    notes: 'Headline dan CTA sudah disepakati bersama tim produk dan siap tayang.',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    createdAt: '2026-10-26T15:00:00.000Z',
-    updatedAt: '2026-10-28T11:00:00.000Z',
-  },
-  {
-    id: 'ent-10',
-    date: '2026-10-28',
-    title: 'Evaluasi Server & Backup Mingguan',
-    projectId: null,
-    status: 'belum_mulai',
-    notes: 'Cek penggunaan storage database dan rotasi environment variable di dashboard.',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    createdAt: '2026-10-27T08:00:00.000Z',
-    updatedAt: '2026-10-27T08:00:00.000Z',
-  },
-  {
-    id: 'ent-11',
-    date: '2026-10-30',
-    title: 'QA Testing Lintas Perangkat (Mobile & Desktop)',
-    projectId: 'proj-1',
-    status: 'belum_mulai',
-    notes: 'Uji tampilan bottom sheet di layar iPhone SE dan Android serta drawer di desktop.',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    createdAt: '2026-10-27T09:00:00.000Z',
-    updatedAt: '2026-10-27T09:00:00.000Z',
-  },
-  {
-    id: 'ent-12',
-    date: '2026-10-31',
-    title: 'Deploy Production ke Vercel & Rilis Publik',
-    projectId: 'proj-2',
-    status: 'belum_mulai',
-    notes: 'Set VITE_SUPABASE_URL dan VITE_SUPABASE_ANON_KEY di Vercel, lalu jalankan smoke test.',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    createdAt: '2026-10-27T10:00:00.000Z',
-    updatedAt: '2026-10-27T10:00:00.000Z',
-  },
-];
-
-export const SEED_ATTENDANCE: AttendanceRecord[] = [
-  {
-    id: 'att-1',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    date: '2026-10-26',
-    type: 'hadir',
-    checkInTime: '08:15',
-    checkOutTime: '17:20',
-    workDurationHours: 9.1,
-    notes: 'Bekerja di kantor: Slicing UI kalender dan sinkronisasi data.',
-  },
-  {
-    id: 'att-2',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    date: '2026-10-27',
-    type: 'hadir',
-    checkInTime: '08:30',
-    checkOutTime: '17:00',
-    workDurationHours: 8.5,
-    notes: 'Bekerja WFH: Testing endpoint offline storage.',
-  },
-  {
-    id: 'att-3',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    date: '2026-10-28',
-    type: 'hadir',
-    checkInTime: '08:20',
-    checkOutTime: '17:35',
-    workDurationHours: 9.25,
-    notes: 'Bekerja di kantor: Deploy integrasi Supabase.',
-  },
-  {
-    id: 'att-4',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    date: '2026-10-29',
-    type: 'izin',
-    checkInTime: null,
-    checkOutTime: null,
-    workDurationHours: 0,
-    notes: 'Izin urusan dinas luar & pencatatan sipil.',
-  },
-  {
-    id: 'att-5',
-    ownerId: 'owner-demo-1',
-    ownerName: 'Tim Utama',
-    date: '2026-10-30',
-    type: 'hadir',
-    checkInTime: '08:10',
-    checkOutTime: null,
-    workDurationHours: 4.5,
-    notes: 'Hadir di kantor: Mengembangkan fitur absensi & laporan kinerja.',
-  },
-];
+// Data seed kosong murni agar akun baru tidak tercemar data demo
+export const SEED_PROJECTS: Project[] = [];
+export const SEED_ENTRIES: ScheduleEntry[] = [];
+export const SEED_ATTENDANCE: AttendanceRecord[] = [];
 
 const safeStorage = {
   getItem(key: string): string | null {
@@ -279,9 +52,14 @@ const safeStorage = {
 };
 
 export const db = {
-  // --- 1. SESI LOGIN & AUTHENTICATION ---
+  // --- 1. SESI LOGIN & AUTHENTICATION (AUTO-LOGIN PERMANEN) ---
+  saveSession(profile: UserProfile): void {
+    safeStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(profile));
+    safeStorage.setItem('jadwalpro_current_user', JSON.stringify(profile));
+  },
+
   getSavedSession(): UserProfile | null {
-    const raw = safeStorage.getItem(STORAGE_KEYS.SESSION);
+    const raw = safeStorage.getItem(STORAGE_KEYS.SESSION) || safeStorage.getItem('jadwalpro_current_user');
     if (!raw) return null;
     try {
       return JSON.parse(raw);
@@ -291,21 +69,49 @@ export const db = {
   },
 
   async getCurrentUser(): Promise<UserProfile | null> {
+    const localSession = this.getSavedSession();
+
     if (supabase) {
-      const { data } = await supabase.auth.getUser();
-      if (data?.user) {
-        const meta = data.user.user_metadata || {};
-        const profile: UserProfile = {
-          id: data.user.id,
-          fullName: meta.full_name || data.user.email?.split('@')[0] || 'User',
-          phone: meta.phone || '-',
-          email: data.user.email || '',
-        };
-        safeStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(profile));
-        return profile;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const meta = session.user.user_metadata || {};
+          const profile: UserProfile = {
+            id: session.user.id,
+            fullName: meta.full_name || session.user.email?.split('@')[0] || 'User',
+            phone: meta.phone || '-',
+            email: session.user.email || '',
+          };
+          this.saveSession(profile);
+          return profile;
+        }
+      } catch (e) {
+        console.warn('Supabase getSession failed, using local session', e);
       }
     }
-    return this.getSavedSession();
+    return localSession;
+  },
+
+  onAuthStateChange(callback: (user: UserProfile | null) => void): (() => void) | undefined {
+    if (!supabase) return undefined;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        const meta = session.user.user_metadata || {};
+        const profile: UserProfile = {
+          id: session.user.id,
+          fullName: meta.full_name || session.user.email?.split('@')[0] || 'User',
+          phone: meta.phone || '-',
+          email: session.user.email || '',
+        };
+        this.saveSession(profile);
+        callback(profile);
+      } else if (event === 'SIGNED_OUT') {
+        safeStorage.removeItem(STORAGE_KEYS.SESSION);
+        safeStorage.removeItem('jadwalpro_current_user');
+        callback(null);
+      }
+    });
+    return () => subscription.unsubscribe();
   },
 
   async signUp(payload: {
@@ -348,7 +154,7 @@ export const db = {
         { onConflict: 'owner_id' }
       );
 
-      safeStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(profile));
+      this.saveSession(profile);
       return { user: profile };
     }
 
@@ -358,7 +164,7 @@ export const db = {
       phone: cleanPhone,
       email: cleanEmail,
     };
-    safeStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(localProfile));
+    this.saveSession(localProfile);
     return { user: localProfile };
   },
 
@@ -396,7 +202,7 @@ export const db = {
         { onConflict: 'owner_id' }
       );
 
-      safeStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(profile));
+      this.saveSession(profile);
       return { user: profile };
     }
 
@@ -406,31 +212,32 @@ export const db = {
       phone: '-',
       email: cleanEmail,
     };
-    safeStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(fallbackProfile));
+    this.saveSession(fallbackProfile);
     return { user: fallbackProfile };
   },
 
   async signOut(): Promise<void> {
     safeStorage.removeItem(STORAGE_KEYS.SESSION);
+    safeStorage.removeItem('jadwalpro_current_user');
     if (supabase) {
-      await supabase.auth.signOut();
+      try {
+        await supabase.auth.signOut();
+      } catch (err) {
+        console.warn('Sign out error:', err);
+      }
     }
   },
 
-  // --- 2. INISIALISASI & SINKRONISASI ---
+  // --- 2. INISIALISASI & SINKRONISASI DATA ---
   init(): { projects: Project[]; entries: ScheduleEntry[]; attendance: AttendanceRecord[] } {
-    const initialized = safeStorage.getItem(STORAGE_KEYS.INITIALIZED);
-    if (!initialized) {
-      safeStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(SEED_PROJECTS));
-      safeStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify(SEED_ENTRIES));
-      safeStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(SEED_ATTENDANCE));
-      safeStorage.setItem(STORAGE_KEYS.INITIALIZED, 'true');
-      return {
-        projects: SEED_PROJECTS,
-        entries: SEED_ENTRIES,
-        attendance: SEED_ATTENDANCE,
-      };
+    const session = this.getSavedSession();
+    if (session && session.id !== 'owner-demo-1') {
+      const p = this.getProjects().filter((item) => item.ownerId === session.id);
+      const e = this.getEntries().filter((item) => item.ownerId === session.id);
+      const a = this.getAttendance().filter((item) => item.ownerId === session.id);
+      return { projects: p, entries: e, attendance: a };
     }
+
     return {
       projects: this.getProjects(),
       entries: this.getEntries(),
@@ -438,36 +245,47 @@ export const db = {
     };
   },
 
-  async fetchFromSupabase(): Promise<{
+  async fetchFromSupabase(userId?: string): Promise<{
     projects: Project[];
     entries: ScheduleEntry[];
     attendance: AttendanceRecord[];
   } | null> {
     if (!supabase) return null;
     try {
+      const session = this.getSavedSession();
+      const currentUserId = userId || session?.id;
+
+      let projQuery = supabase
+        .from('projects')
+        .select('id, name, color, ownerId:owner_id, ownerName:owner_name, createdAt:created_at')
+        .order('created_at', { ascending: true });
+
+      let entQuery = supabase
+        .from('schedule_entries')
+        .select(
+          'id, date:entry_date, title, projectId:project_id, status, notes, ownerId:owner_id, ownerName:owner_name, ownerPhone:owner_phone, ownerEmail:owner_email, createdAt:created_at, updatedAt:updated_at'
+        )
+        .order('entry_date', { ascending: true })
+        .order('created_at', { ascending: true });
+
+      let attQuery = supabase
+        .from('attendance')
+        .select(
+          'id, ownerId:owner_id, ownerName:owner_name, date:entry_date, type, checkInTime:check_in_time, checkOutTime:check_out_time, workDurationHours:work_duration_hours, notes, createdAt:created_at, updatedAt:updated_at'
+        )
+        .order('entry_date', { ascending: false });
+
+      if (currentUserId && currentUserId !== 'owner-demo-1') {
+        projQuery = projQuery.eq('owner_id', currentUserId);
+        entQuery = entQuery.eq('owner_id', currentUserId);
+        attQuery = attQuery.eq('owner_id', currentUserId);
+      }
+
       const [
         { data: projData, error: projErr },
         { data: entData, error: entErr },
         { data: attData, error: attErr },
-      ] = await Promise.all([
-        supabase
-          .from('projects')
-          .select('id, name, color, ownerId:owner_id, ownerName:owner_name, createdAt:created_at')
-          .order('created_at', { ascending: true }),
-        supabase
-          .from('schedule_entries')
-          .select(
-            'id, date:entry_date, title, projectId:project_id, status, notes, ownerId:owner_id, ownerName:owner_name, ownerPhone:owner_phone, ownerEmail:owner_email, createdAt:created_at, updatedAt:updated_at'
-          )
-          .order('entry_date', { ascending: true })
-          .order('created_at', { ascending: true }),
-        supabase
-          .from('attendance')
-          .select(
-            'id, ownerId:owner_id, ownerName:owner_name, date:entry_date, type, checkInTime:check_in_time, checkOutTime:check_out_time, workDurationHours:work_duration_hours, notes, createdAt:created_at, updatedAt:updated_at'
-          )
-          .order('entry_date', { ascending: false }),
-      ]);
+      ] = await Promise.all([projQuery, entQuery, attQuery]);
 
       if (projErr || entErr) {
         console.error('Supabase fetch error:', projErr || entErr || attErr);
@@ -480,9 +298,7 @@ export const db = {
 
       safeStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(projects));
       safeStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify(entries));
-      if (attendance.length > 0) {
-        safeStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(attendance));
-      }
+      safeStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(attendance));
 
       return { projects, entries, attendance };
     } catch (err) {
@@ -491,30 +307,14 @@ export const db = {
     }
   },
 
-  resetToSeed(): {
-    projects: Project[];
-    entries: ScheduleEntry[];
-    attendance: AttendanceRecord[];
-  } {
-    safeStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(SEED_PROJECTS));
-    safeStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify(SEED_ENTRIES));
-    safeStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(SEED_ATTENDANCE));
-    safeStorage.setItem(STORAGE_KEYS.INITIALIZED, 'true');
-    return {
-      projects: [...SEED_PROJECTS],
-      entries: [...SEED_ENTRIES],
-      attendance: [...SEED_ATTENDANCE],
-    };
-  },
-
-  // --- 3. CRUD PROYEK ---
+  // --- 3. OPERASI PROYEK ---
   getProjects(): Project[] {
     const raw = safeStorage.getItem(STORAGE_KEYS.PROJECTS);
-    if (!raw) return [...SEED_PROJECTS];
+    if (!raw) return [];
     try {
       return JSON.parse(raw);
     } catch {
-      return [...SEED_PROJECTS];
+      return [];
     }
   },
 
@@ -524,39 +324,35 @@ export const db = {
 
   createProject(name: string, color: string, owner?: UserProfile | null): Project[] {
     const activeOwner = owner || this.getSavedSession();
-    const current = this.getProjects();
     const newProj: Project = {
-      id: 'proj-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      id: 'proj-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6),
       name: name.trim(),
       color,
       ownerId: activeOwner?.id || 'owner-demo-1',
-      ownerName: activeOwner?.fullName || 'Tim Utama',
+      ownerName: activeOwner?.fullName || 'User',
       createdAt: new Date().toISOString(),
     };
-    const updated = [...current, newProj];
+    const updated = [...this.getProjects(), newProj];
     this.saveProjects(updated);
 
     if (supabase) {
-      supabase
-        .from('projects')
-        .insert({
-          id: newProj.id,
-          name: newProj.name,
-          color: newProj.color,
-          owner_id: newProj.ownerId,
-          owner_name: newProj.ownerName,
-        })
-        .then(({ error }) => {
-          if (error) console.error('Supabase insert project error:', error);
-        });
+      supabase.from('projects').insert({
+        id: newProj.id,
+        name: newProj.name,
+        color: newProj.color,
+        owner_id: newProj.ownerId,
+        owner_name: newProj.ownerName,
+        created_at: newProj.createdAt,
+      }).then(({ error }) => {
+        if (error) console.error('Supabase insert project error:', error);
+      });
     }
 
     return updated;
   },
 
   updateProject(id: string, name: string, color: string): Project[] {
-    const current = this.getProjects();
-    const updated = current.map((p) =>
+    const updated = this.getProjects().map((p) =>
       p.id === id ? { ...p, name: name.trim(), color } : p
     );
     this.saveProjects(updated);
@@ -575,12 +371,13 @@ export const db = {
   },
 
   deleteProject(id: string): { projects: Project[]; entries: ScheduleEntry[] } {
-    const projects = this.getProjects().filter((p) => p.id !== id);
-    const entries = this.getEntries().map((e) =>
+    const updatedProjects = this.getProjects().filter((p) => p.id !== id);
+    const updatedEntries = this.getEntries().map((e) =>
       e.projectId === id ? { ...e, projectId: null, updatedAt: new Date().toISOString() } : e
     );
-    this.saveProjects(projects);
-    this.saveEntries(entries);
+
+    this.saveProjects(updatedProjects);
+    this.saveEntries(updatedEntries);
 
     if (supabase) {
       supabase
@@ -592,17 +389,17 @@ export const db = {
         });
     }
 
-    return { projects, entries };
+    return { projects: updatedProjects, entries: updatedEntries };
   },
 
-  // --- 4. CRUD CATATAN JADWAL ---
+  // --- 4. OPERASI CATATAN JADWAL ---
   getEntries(): ScheduleEntry[] {
     const raw = safeStorage.getItem(STORAGE_KEYS.ENTRIES);
-    if (!raw) return [...SEED_ENTRIES];
+    if (!raw) return [];
     try {
       return JSON.parse(raw);
     } catch {
-      return [...SEED_ENTRIES];
+      return [];
     }
   },
 
@@ -611,43 +408,51 @@ export const db = {
   },
 
   createEntry(
-    payload: Omit<ScheduleEntry, 'id' | 'createdAt' | 'updatedAt'>,
+    payload: {
+      date: string;
+      title: string;
+      projectId: string | null;
+      status: EntryStatus;
+      notes: string;
+    },
     owner?: UserProfile | null
   ): ScheduleEntry[] {
     const activeOwner = owner || this.getSavedSession();
-    const current = this.getEntries();
     const now = new Date().toISOString();
     const newEntry: ScheduleEntry = {
-      ...payload,
-      id: 'ent-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
-      ownerId: payload.ownerId || activeOwner?.id || 'owner-demo-1',
-      ownerName: payload.ownerName || activeOwner?.fullName || 'Tim Utama',
-      ownerPhone: payload.ownerPhone || activeOwner?.phone || '',
-      ownerEmail: payload.ownerEmail || activeOwner?.email || '',
+      id: 'ent-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6),
+      date: payload.date,
+      title: payload.title.trim(),
+      projectId: payload.projectId,
+      status: payload.status,
+      notes: payload.notes.trim(),
+      ownerId: activeOwner?.id || 'owner-demo-1',
+      ownerName: activeOwner?.fullName || 'User',
+      ownerPhone: activeOwner?.phone || '',
+      ownerEmail: activeOwner?.email || '',
       createdAt: now,
       updatedAt: now,
     };
-    const updated = [...current, newEntry];
+    const updated = [...this.getEntries(), newEntry];
     this.saveEntries(updated);
 
     if (supabase) {
-      supabase
-        .from('schedule_entries')
-        .insert({
-          id: newEntry.id,
-          entry_date: newEntry.date,
-          title: newEntry.title,
-          project_id: newEntry.projectId,
-          status: newEntry.status,
-          notes: newEntry.notes,
-          owner_id: newEntry.ownerId,
-          owner_name: newEntry.ownerName,
-          owner_phone: newEntry.ownerPhone,
-          owner_email: newEntry.ownerEmail,
-        })
-        .then(({ error }) => {
-          if (error) console.error('Supabase insert entry error:', error);
-        });
+      supabase.from('schedule_entries').insert({
+        id: newEntry.id,
+        entry_date: newEntry.date,
+        title: newEntry.title,
+        project_id: newEntry.projectId,
+        status: newEntry.status,
+        notes: newEntry.notes,
+        owner_id: newEntry.ownerId,
+        owner_name: newEntry.ownerName,
+        owner_phone: newEntry.ownerPhone,
+        owner_email: newEntry.ownerEmail,
+        created_at: newEntry.createdAt,
+        updated_at: newEntry.updatedAt,
+      }).then(({ error }) => {
+        if (error) console.error('Supabase insert entry error:', error);
+      });
     }
 
     return updated;
@@ -655,7 +460,9 @@ export const db = {
 
   updateEntry(
     id: string,
-    payload: Partial<Omit<ScheduleEntry, 'id' | 'createdAt'>>
+    payload: Partial<
+      Omit<ScheduleEntry, 'id' | 'createdAt' | 'ownerId' | 'ownerName' | 'ownerPhone' | 'ownerEmail'>
+    >
   ): ScheduleEntry[] {
     const current = this.getEntries();
     const updated = current.map((e) =>
@@ -700,14 +507,14 @@ export const db = {
     return updated;
   },
 
-  // --- 5. OPERASI ABSENSI & KETERANGAN DURASI KERJA ---
+  // --- 5. OPERASI KEHADIRAN (CLOCK IN & CLOCK OUT TERSIMPAN KE CLOUD) ---
   getAttendance(): AttendanceRecord[] {
     const raw = safeStorage.getItem(STORAGE_KEYS.ATTENDANCE);
-    if (!raw) return [...SEED_ATTENDANCE];
+    if (!raw) return [];
     try {
       return JSON.parse(raw);
     } catch {
-      return [...SEED_ATTENDANCE];
+      return [];
     }
   },
 
@@ -715,7 +522,7 @@ export const db = {
     safeStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(records));
   },
 
-  recordAttendance(
+  async recordAttendance(
     payload: {
       date: string;
       type: AttendanceType;
@@ -724,10 +531,10 @@ export const db = {
       notes?: string;
     },
     owner?: UserProfile | null
-  ): AttendanceRecord[] {
+  ): Promise<AttendanceRecord[]> {
     const activeOwner = owner || this.getSavedSession();
     const ownerId = activeOwner?.id || 'owner-demo-1';
-    const ownerName = activeOwner?.fullName || 'Tim Utama';
+    const ownerName = activeOwner?.fullName || 'User';
 
     const records = this.getAttendance();
     const existingIndex = records.findIndex(
@@ -771,7 +578,7 @@ export const db = {
         checkInTime: inTime,
         checkOutTime: outTime,
         workDurationHours: payload.type === 'hadir' ? duration : 0,
-        notes: payload.notes || '',
+        notes: payload.notes || (payload.type === 'hadir' ? 'Check-in hadir harian.' : ''),
         createdAt: now,
         updatedAt: now,
       };
@@ -780,8 +587,9 @@ export const db = {
 
     this.saveAttendance(updatedList);
 
+    // Simpan ke Supabase: saat Clock In (masuk) maupun Clock Out (keluar)
     if (supabase) {
-      supabase.from('attendance').upsert({
+      const dbPayload = {
         id: updatedItem.id,
         owner_id: updatedItem.ownerId,
         owner_name: updatedItem.ownerName,
@@ -791,9 +599,21 @@ export const db = {
         check_out_time: updatedItem.checkOutTime,
         work_duration_hours: updatedItem.workDurationHours,
         notes: updatedItem.notes,
-      }, { onConflict: 'owner_id,entry_date' }).then(({ error }) => {
-        if (error) console.error('Supabase upsert attendance error:', error);
-      });
+        updated_at: now,
+      };
+
+      try {
+        const { error: upsertErr } = await supabase
+          .from('attendance')
+          .upsert(dbPayload, { onConflict: 'owner_id,entry_date' });
+
+        if (upsertErr) {
+          console.warn('Upsert on conflict (owner_id, entry_date) failed, retrying on conflict id:', upsertErr.message);
+          await supabase.from('attendance').upsert(dbPayload, { onConflict: 'id' });
+        }
+      } catch (err) {
+        console.error('Supabase attendance save error:', err);
+      }
     }
 
     return updatedList;
