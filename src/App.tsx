@@ -713,6 +713,36 @@ export default function App() {
     }
   }, []);
 
+  // Otomatis menaikkan elemen input ke tengah layar saat virtual keyboard muncul (tanpa zoom)
+  useEffect(() => {
+    const handleFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')
+      ) {
+        setTimeout(() => {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 280);
+      }
+    };
+
+    const preventPinchZoom = (e: TouchEvent) => {
+      if ((e as any).scale !== undefined && (e as any).scale !== 1) {
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener('focusin', handleFocusIn);
+    document.addEventListener('touchmove', preventPinchZoom, { passive: false });
+    document.addEventListener('gesturestart', (e) => e.preventDefault());
+
+    return () => {
+      window.removeEventListener('focusin', handleFocusIn);
+      document.removeEventListener('touchmove', preventPinchZoom);
+    };
+  }, []);
+
   // Interval Pengecekan Jadwal Pengingat & Pemicu Alarm
   useEffect(() => {
     const checkReminders = () => {
@@ -2184,7 +2214,7 @@ export default function App() {
       )}
 
       {/* Top Navigation Bar */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 print:hidden transition-all pt-[max(env(safe-area-inset-top,0px),12px)] sm:pt-0">
+      <header className="fixed top-0 left-0 right-0 z-30 bg-white border-b border-slate-200 print:hidden transition-all shadow-xs pt-[max(env(safe-area-inset-top,0px),12px)] sm:pt-0">
         <div className="max-w-[1440px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <button
@@ -2381,8 +2411,8 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content Layout */}
-      <div className="max-w-[1440px] w-full mx-auto flex-1 flex relative">
+      {/* Main Content Layout (Padding disesuaikan agar tidak tertutup header yang fixed) */}
+      <div className="max-w-[1440px] w-full mx-auto flex-1 flex relative pt-[calc(116px+max(env(safe-area-inset-top,0px),12px))] md:pt-16">
         {isMobileSidebarOpen && (
           <div
             className="fixed inset-0 bg-slate-900/40 z-40 lg:hidden"
