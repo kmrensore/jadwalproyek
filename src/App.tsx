@@ -808,6 +808,44 @@ export default function App() {
     return grouped;
   }, [filteredMonthEntries]);
 
+  // Daftar pengingat aktif/jadwal acara yang jatuh pada bulan yang sedang dilihat di kalender
+  const monthReminders = useMemo(() => {
+    return reminders.filter((rem) => {
+      if (!rem.date.startsWith(currentMonthPrefix)) return false;
+      if (
+        currentUser &&
+        currentUser.id !== 'owner-demo-1' &&
+        rem.ownerId &&
+        rem.ownerId !== currentUser.id &&
+        rem.ownerId !== 'owner-demo-1'
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [reminders, currentMonthPrefix, currentUser]);
+
+  // Kelompokkan pengingat berdasarkan tanggal agar cepat di-lookup di cell kalender
+  const remindersByDate = useMemo(() => {
+    const grouped: Record<string, ReminderItem[]> = {};
+    monthReminders.forEach((r) => {
+      if (!grouped[r.date]) grouped[r.date] = [];
+      grouped[r.date].push(r);
+    });
+    Object.values(grouped).forEach((list) => {
+      list.sort((a, b) => a.startTime.localeCompare(b.startTime));
+    });
+    return grouped;
+  }, [monthReminders]);
+
+  // Gabungan tanggal yang memiliki tugas proyek maupun pengingat untuk mode Tampilan Daftar
+  const allCalendarDates = useMemo(() => {
+    const dates = new Set<string>();
+    Object.keys(entriesByDate).forEach((d) => dates.add(d));
+    Object.keys(remindersByDate).forEach((d) => dates.add(d));
+    return Array.from(dates).sort((a, b) => a.localeCompare(b));
+  }, [entriesByDate, remindersByDate]);
+
   const myTodayAttendance = useMemo(() => {
     if (!currentUser) return null;
     return (
@@ -1196,6 +1234,26 @@ export default function App() {
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }, [entries, selectedDate, currentUser]);
 
+  // Pengingat khusus pada tanggal yang sedang dibuka di Drawer Detail
+  const selectedDateReminders = useMemo(() => {
+    if (!selectedDate) return [];
+    return reminders
+      .filter((r) => {
+        if (r.date !== selectedDate) return false;
+        if (
+          currentUser &&
+          currentUser.id !== 'owner-demo-1' &&
+          r.ownerId &&
+          r.ownerId !== currentUser.id &&
+          r.ownerId !== 'owner-demo-1'
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => a.startTime.localeCompare(b.startTime));
+  }, [reminders, selectedDate, currentUser]);
+
   const handlePrevMonth = () => {
     if (currentMonth === 0) {
       setCurrentMonth(11);
@@ -1490,10 +1548,11 @@ export default function App() {
   // ==========================================================================
   // HANDLERS JADWAL PENGINGAT (REMINDERS & ALARMS)
   // ==========================================================================
-  const openCreateReminderModal = () => {
+  const openCreateReminderModal = (defaultDate?: unknown) => {
     setEditingReminderId(null);
     setRemTitleInput('');
-    setRemDateInput(todayStr);
+    const initialDate = typeof defaultDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(defaultDate) ? defaultDate : todayStr;
+    setRemDateInput(initialDate);
     setRemStartTimeInput('09:00');
     setRemEndTimeInput('10:00');
     setRemNotifyBeforeMinutes(15);
@@ -2581,8 +2640,13 @@ export default function App() {
                   <div className="grid grid-cols-7 divide-x divide-y divide-slate-200">
                     {calendarCells.map((cell) => {
                       const dayEntries = entriesByDate[cell.dateStr] || [];
-                      const visibleEntries = dayEntries.slice(0, 3);
-                      const remainingCount = dayEntries.length - visibleEntries.length;
+                      const dayReminders = remindersByDate[cell.dateStr] || [];
+                      const totalItems = dayEntries.length + dayReminders.length;
+                      // Tampilkan pengingat (maks 2) & tugas proyek (maks 2) agar sel kalender tetap proporsional & rapi
+                      const visibleReminders = dayReminders.slice(0, 2);
+                      const maxEntriesToShow = Math.max(1, 3 - visibleReminders.length);
+                      const visibleEntries = dayEntries.slice(0, maxEntriesToShow);
+                      const remainingCount = totalItems - (visibleReminders.length + visibleEntries.length);
                       const isToday = cell.dateStr === todayStr;
                       const isSelected = cell.dateStr === selectedDate;
                       const holiday = getHolidayInfo(cell.dateStr);
@@ -2617,11 +2681,22 @@ export default function App() {
                               {cell.dayNumber}
                             </span>
 
-                            {isToday && (
-                              <span className="hidden sm:inline-block text-[10px] font-bold uppercase tracking-tight px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700">
-                                Hari Ini
-                              </span>
-                            )}
+                            <div className="flex items-center gap-1">
+                              {dayReminders.length > 0 && (
+                                <span
+                                  className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 border border-amber-300"
+                                  title={`${dayReminders.length} pengingat / alarm terpasang`}
+                                >
+                                  <Bell className="w-2.5 h-2.5 text-amber-600" />
+                                  <span>{dayReminders.length}</span>
+                                </span>
+                              )}
+                              {isToday && (
+                                <span className="hidden sm:inline-block text-[10px] font-bold uppercase tracking-tight px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700">
+                                  Hari Ini
+                                </span>
+                              )}
+                            </div>
                           </div>
 
                           <div className="space-y-1 flex-1">
@@ -2638,6 +2713,29 @@ export default function App() {
                                 <span className="truncate">{holiday.name}</span>
                               </div>
                             )}
+
+                            {/* PENGINGAT / ALARM DI CELL KALENDER */}
+                            {visibleReminders.map((rem) => (
+                              <div
+                                key={rem.id}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEditReminderModal(rem);
+                                }}
+                                className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold truncate border transition-transform hover:scale-[1.02] ${
+                                  rem.isActive
+                                    ? 'bg-amber-50 text-amber-900 border-amber-300/80 shadow-2xs hover:bg-amber-100'
+                                    : 'bg-slate-100 text-slate-500 border-slate-200 line-through opacity-70'
+                                }`}
+                                title={`⏰ Pengingat: ${rem.title} (${rem.startTime} - ${rem.endTime})`}
+                              >
+                                <Bell className={`w-2.5 h-2.5 shrink-0 ${rem.isActive ? 'text-amber-600' : 'text-slate-400'}`} />
+                                <span className="text-[9px] font-bold text-amber-700 shrink-0">{rem.startTime}</span>
+                                <span className="truncate">{rem.title}</span>
+                              </div>
+                            ))}
+
+                            {/* TUGAS PROYEK DI CELL KALENDER */}
                             {visibleEntries.map((entry) => {
                               const proj = entry.projectId ? projectMap[entry.projectId] : null;
                               const chipColor = proj ? proj.color : '#64748b';
@@ -2697,13 +2795,13 @@ export default function App() {
                 </section>
               ) : (
                 <section className="space-y-4">
-                  {Object.keys(entriesByDate).length === 0 ? (
+                  {allCalendarDates.length === 0 ? (
                     <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center space-y-3">
                       <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
                         <CalendarIcon className="w-6 h-6" />
                       </div>
                       <h3 className="text-base font-bold text-slate-800">
-                        Belum Ada Catatan di Bulan Ini
+                        Belum Ada Catatan atau Pengingat di Bulan Ini
                       </h3>
                       <button
                         type="button"
@@ -2715,97 +2813,176 @@ export default function App() {
                       </button>
                     </div>
                   ) : (
-                    Object.entries(entriesByDate).map(([dateStr, dayList]) => (
-                      <div
-                        key={dateStr}
-                        className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm"
-                      >
+                    allCalendarDates.map((dateStr) => {
+                      const dayList = entriesByDate[dateStr] || [];
+                      const dayRemList = remindersByDate[dateStr] || [];
+                      const holiday = getHolidayInfo(dateStr);
+
+                      return (
                         <div
-                          onClick={() => openDayDrawer(dateStr)}
-                          className="px-4 py-3 border-b border-slate-100 flex items-center justify-between cursor-pointer bg-slate-50/70"
+                          key={dateStr}
+                          className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm"
                         >
-                          <span className="font-bold text-sm text-slate-900">
-                            {formatDateFullIndo(dateStr)}
-                          </span>
-                          <span className="text-xs font-medium text-indigo-600 hover:underline">
-                            + Tambah / Detail ({dayList.length})
-                          </span>
-                        </div>
+                          <div
+                            onClick={() => openDayDrawer(dateStr)}
+                            className="px-4 py-3 border-b border-slate-100 flex items-center justify-between cursor-pointer bg-slate-50/70"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-sm text-slate-900">
+                                {formatDateFullIndo(dateStr)}
+                              </span>
+                              {holiday && (
+                                <span
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                    holiday.isHoliday
+                                      ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                      : 'bg-amber-50 text-amber-700 border-amber-200'
+                                  }`}
+                                >
+                                  {holiday.name}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-xs font-medium text-indigo-600 hover:underline">
+                              + Tambah / Detail ({dayList.length} tugas{dayRemList.length > 0 ? `, ${dayRemList.length} pengingat` : ''})
+                            </span>
+                          </div>
 
-                        <div className="divide-y divide-slate-100">
-                          {dayList.map((entry) => {
-                            const proj = entry.projectId ? projectMap[entry.projectId] : null;
-                            const prog = proj?.programs?.find((p) => p.id === entry.programId);
-
-                            return (
-                              <div
-                                key={entry.id}
-                                onClick={() => openDayDrawer(dateStr)}
-                                className="p-4 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer"
-                              >
-                                <div className="space-y-1 min-w-0">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span
-                                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-semibold border"
-                                      style={{
-                                        backgroundColor: proj ? `${proj.color}15` : '#f1f5f9',
-                                        borderColor: proj ? `${proj.color}40` : '#cbd5e1',
-                                        color: '#1e293b',
-                                      }}
-                                    >
-                                      <span
-                                        className="w-2 h-2 rounded-full"
-                                        style={{ backgroundColor: proj ? proj.color : '#64748b' }}
-                                      />
-                                      {proj ? proj.name : 'Tanpa proyek'}
-                                    </span>
-
-                                    {prog && (
-                                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
-                                        <GitBranch className="w-3 h-3 text-indigo-500" />
-                                        <span>Program: {prog.name}</span>
-                                      </span>
-                                    )}
-
-                                    <h4 className="font-semibold text-sm text-slate-900">
-                                      {entry.title}
-                                    </h4>
-                                  </div>
-                                  {entry.notes && (
-                                    <p className="text-xs text-slate-600 line-clamp-2">
-                                      {entry.notes}
-                                    </p>
-                                  )}
-                                </div>
-
-                                <div className="flex items-center gap-2 shrink-0">
-                                  <button
-                                    type="button"
-                                    onClick={(ev) => {
-                                      ev.stopPropagation();
-                                      handleQuickCycleStatus(entry);
-                                    }}
-                                    className={`px-2.5 py-1 rounded-full text-xs font-semibold border inline-flex items-center gap-1.5 ${
-                                      STATUS_META[entry.status].badgeClass
+                          {/* Bagian Jadwal Pengingat di List View */}
+                          {dayRemList.length > 0 && (
+                            <div className="p-3 bg-amber-50/40 border-b border-amber-100 space-y-2">
+                              <div className="text-[11px] font-bold uppercase tracking-wider text-amber-800 flex items-center gap-1.5">
+                                <Bell className="w-3.5 h-3.5 text-amber-600" />
+                                <span>Jadwal Pengingat &amp; Alarm ({dayRemList.length})</span>
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {dayRemList.map((rem) => (
+                                  <div
+                                    key={rem.id}
+                                    onClick={() => openEditReminderModal(rem)}
+                                    className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-colors ${
+                                      rem.isActive
+                                        ? 'bg-white border-amber-200 hover:border-amber-300'
+                                        : 'bg-slate-50 border-slate-200 opacity-60'
                                     }`}
                                   >
-                                    <span
-                                      className={`w-1.5 h-1.5 rounded-full ${
-                                        STATUS_META[entry.status].dotClass
+                                    <div className="min-w-0 pr-2">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-xs font-bold text-amber-900 truncate">
+                                          {rem.title}
+                                        </span>
+                                        <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800">
+                                          {rem.startTime} - {rem.endTime}
+                                        </span>
+                                      </div>
+                                      {rem.notes && (
+                                        <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                                          {rem.notes}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleToggleReminder(rem.id);
+                                      }}
+                                      className={`p-1.5 rounded-lg text-xs font-semibold ${
+                                        rem.isActive
+                                          ? 'text-amber-700 hover:bg-amber-100'
+                                          : 'text-slate-400 hover:bg-slate-200'
                                       }`}
-                                    />
-                                    {STATUS_META[entry.status].label}
-                                  </button>
-                                </div>
+                                      title={rem.isActive ? 'Alarm Aktif (Klik untuk nonaktifkan)' : 'Alarm Nonaktif (Klik untuk aktifkan)'}
+                                    >
+                                      {rem.isActive ? <BellRing className="w-4 h-4 text-amber-600" /> : <BellOff className="w-4 h-4" />}
+                                    </button>
+                                  </div>
+                                ))}
                               </div>
-                            );
-                          })}
+                            </div>
+                          )}
+
+                          {/* Bagian Tugas Proyek */}
+                          {dayList.length > 0 ? (
+                            <div className="divide-y divide-slate-100">
+                              {dayList.map((entry) => {
+                                const proj = entry.projectId ? projectMap[entry.projectId] : null;
+                                const prog = proj?.programs?.find((p) => p.id === entry.programId);
+
+                                return (
+                                  <div
+                                    key={entry.id}
+                                    onClick={() => openDayDrawer(dateStr)}
+                                    className="p-4 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer"
+                                  >
+                                    <div className="space-y-1 min-w-0">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span
+                                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-semibold border"
+                                          style={{
+                                            backgroundColor: proj ? `${proj.color}15` : '#f1f5f9',
+                                            borderColor: proj ? `${proj.color}40` : '#cbd5e1',
+                                            color: '#1e293b',
+                                          }}
+                                        >
+                                          <span
+                                            className="w-2 h-2 rounded-full"
+                                            style={{ backgroundColor: proj ? proj.color : '#64748b' }}
+                                          />
+                                          {proj ? proj.name : 'Tanpa proyek'}
+                                        </span>
+
+                                        {prog && (
+                                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                                            <GitBranch className="w-3 h-3 text-indigo-500" />
+                                            <span>Program: {prog.name}</span>
+                                          </span>
+                                        )}
+
+                                        <h4 className="font-semibold text-sm text-slate-900">
+                                          {entry.title}
+                                        </h4>
+                                      </div>
+                                      {entry.notes && (
+                                        <p className="text-xs text-slate-600 line-clamp-2">
+                                          {entry.notes}
+                                        </p>
+                                      )}
+                                    </div>
+
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <button
+                                        type="button"
+                                        onClick={(ev) => {
+                                          ev.stopPropagation();
+                                          handleQuickCycleStatus(entry);
+                                        }}
+                                        className={`px-2.5 py-1 rounded-full text-xs font-semibold border inline-flex items-center gap-1.5 ${
+                                          STATUS_META[entry.status].badgeClass
+                                        }`}
+                                      >
+                                        <span
+                                          className={`w-1.5 h-1.5 rounded-full ${
+                                            STATUS_META[entry.status].dotClass
+                                          }`}
+                                        />
+                                        {STATUS_META[entry.status].label}
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="p-3 text-center text-xs text-slate-400 italic">
+                              Tidak ada tugas proyek di tanggal ini (hanya jadwal pengingat).
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
-                </section>
-              )}
+                </section>              )}
             </>
           )}
 
@@ -3152,7 +3329,7 @@ export default function App() {
                   </button>
                   <button
                     type="button"
-                    onClick={openCreateReminderModal}
+                    onClick={() => openCreateReminderModal()}
                     className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition-all"
                   >
                     <Plus className="w-4 h-4" />
@@ -3197,7 +3374,7 @@ export default function App() {
                     </p>
                     <button
                       type="button"
-                      onClick={openCreateReminderModal}
+                      onClick={() => openCreateReminderModal()}
                       className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700"
                     >
                       <Plus className="w-4 h-4" />
@@ -4170,6 +4347,96 @@ export default function App() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-5 space-y-6">
+              {/* JADWAL PENGINGAT & ALARM TANGGAL INI */}
+              <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200/90 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Bell className="w-4 h-4 text-amber-600" />
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-amber-900">
+                      Jadwal Pengingat &amp; Alarm ({selectedDateReminders.length})
+                    </h4>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openCreateReminderModal(selectedDate)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-600 text-white hover:bg-amber-700 shadow-2xs transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Pasang Alarm</span>
+                  </button>
+                </div>
+
+                {selectedDateReminders.length === 0 ? (
+                  <div className="p-3 rounded-xl bg-white/80 border border-dashed border-amber-200 text-center text-xs text-amber-800">
+                    Belum ada jadwal alarm/pengingat untuk tanggal ini. Klik <strong>+ Pasang Alarm</strong> untuk menyetel pengingat acara.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {selectedDateReminders.map((rem) => (
+                      <div
+                        key={rem.id}
+                        className={`p-3 rounded-xl border transition-all ${
+                          rem.isActive
+                            ? 'bg-white border-amber-200 shadow-2xs'
+                            : 'bg-slate-50 border-slate-200 opacity-60'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-slate-900">{rem.title}</span>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                                ⏰ {rem.startTime} - {rem.endTime}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                              <span>🔔 Notifikasi: {rem.notifyBeforeMinutes === 0 ? 'Tepat waktu' : `${rem.notifyBeforeMinutes} mnt sebelumnya`}</span>
+                              {rem.isTriggered && (
+                                <span className="text-emerald-600 font-semibold">• Sudah berbunyi</span>
+                              )}
+                            </div>
+                            {rem.notes && (
+                              <p className="text-xs text-slate-600 bg-amber-50/50 p-2 rounded-lg border border-amber-100 mt-1">
+                                {rem.notes}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleReminder(rem.id)}
+                              className={`p-1.5 rounded-lg text-xs font-semibold ${
+                                rem.isActive ? 'text-amber-700 bg-amber-50 hover:bg-amber-100' : 'text-slate-400 bg-slate-100 hover:bg-slate-200'
+                              }`}
+                              title={rem.isActive ? 'Nonaktifkan Alarm' : 'Aktifkan Alarm'}
+                            >
+                              {rem.isActive ? <BellRing className="w-4 h-4 text-amber-600" /> : <BellOff className="w-4 h-4" />}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openEditReminderModal(rem)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                              title="Edit Pengingat"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteReminder(rem.id)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                              title="Hapus Pengingat"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Daftar Catatan Tanggal Ini */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
