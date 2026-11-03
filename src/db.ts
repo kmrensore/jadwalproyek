@@ -20,11 +20,11 @@ import type {
 
 const supabaseUrl =
   import.meta.env.VITE_SUPABASE_URL?.trim() ||
-  'https://GANTI_DENGAN_URL_SUPABASE_LU.supabase.co'; // <--- TEMPELKAN URL SUPABASE LU DI SINI
+  'https://uqwcskzvichqukdqzdam.supabase.co'; // <--- TEMPELKAN URL SUPABASE LU DI SINI
 
 const supabaseAnonKey =
   import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ||
-  'GANTI_DENGAN_ANON_KEY_SUPABASE_LU'; // <--- TEMPELKAN ANON KEY ASLI LU DI SINI
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxd2Nza3p2aWNocXVrZHF6ZGFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMxNzA5NDksImV4cCI6MjEwODc0Njk0OX0.ArENDsxU23l08yhrPZGLgneSKlJ0cobEXyJ5OAiPQSY'; // <--- TEMPELKAN ANON KEY ASLI LU DI SINI
 
 export const isSupabaseConfigured = Boolean(
   supabaseUrl &&
