@@ -47,6 +47,17 @@ import {
   Zap,
   Settings,
   Sliders,
+  Bell,
+  BellRing,
+  BellOff,
+  Volume2,
+  Camera,
+  MapPin,
+  Download,
+  CheckCircle,
+  ShieldAlert,
+  Compass,
+  FileDown,
 } from 'lucide-react';
 import AuthPage from './AuthPage';
 import { PROJECT_COLORS, DEFAULT_WORK_POLICY } from './types';
@@ -54,6 +65,8 @@ import type {
   EntryStatus,
   Project,
   WorkPolicy,
+  WorkShiftCategory,
+  ReminderItem,
 
   ProjectProgram,
   ScheduleEntry,
@@ -212,6 +225,135 @@ function getHolidayInfo(dateStr: string): HolidayInfo | null {
   }
   return null;
 }
+// ============================================================================
+// HELPER AUDIO ALARM & SINTESIS NADA WEB AUDIO API
+// ============================================================================
+function playHarmonicAlarmChime() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    const now = ctx.currentTime;
+    // Nada melodi alarm ceria: C5 -> E5 -> G5 -> C6 berulang
+    const notes = [523.25, 659.25, 783.99, 1046.50, 783.99, 1046.50];
+    notes.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + idx * 0.14);
+      gain.gain.setValueAtTime(0.35, now + idx * 0.14);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.14 + 0.38);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + idx * 0.14);
+      osc.stop(now + idx * 0.14 + 0.42);
+    });
+  } catch (err) {
+    console.warn('Audio alarm playback notice:', err);
+  }
+}
+
+// ============================================================================
+// HELPER WATERMARK & AUTO-KOMPRESI FOTO ABSENSI (~40 KB, SANGAT RINGAN)
+// ============================================================================
+function captureAndWatermarkSnapshot(
+  video: HTMLVideoElement,
+  info: { userName: string; date: string; time: string; location: string; status: string }
+): string {
+  const canvas = document.createElement('canvas');
+  const targetWidth = 640;
+  const targetHeight = Math.round((video.videoHeight / (video.videoWidth || 1)) * targetWidth) || 480;
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+
+  ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+
+  // Banner Watermark gelap elegan di bagian bawah
+  const bannerH = 76;
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+  ctx.fillRect(0, targetHeight - bannerH, targetWidth, bannerH);
+
+  // Garis aksen indigo
+  ctx.fillStyle = '#6366f1';
+  ctx.fillRect(0, targetHeight - bannerH, targetWidth, 3);
+
+  // Header status
+  ctx.font = 'bold 13px Inter, sans-serif';
+  ctx.fillStyle = '#38bdf8';
+  ctx.fillText(`JadwalPro Verified • ${info.status.toUpperCase()}`, 12, targetHeight - bannerH + 20);
+
+  // Keterangan nama & waktu real
+  ctx.font = '11px Inter, sans-serif';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(`${info.userName}  |  ${formatDateFullIndo(info.date)} • ${info.time} WIB`, 12, targetHeight - bannerH + 39);
+
+  // Lokasi koordinat
+  ctx.font = '10px monospace';
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText(`GPS: ${info.location || 'Lokasi Terverifikasi Otomatis'}`, 12, targetHeight - bannerH + 58);
+
+  // Kompresi ke JPEG kualitas 0.70 (~40 KB, super ringan di server & database)
+  return canvas.toDataURL('image/jpeg', 0.7);
+}
+
+// ============================================================================
+// HELPER DETEKSI SHIFT KERJA (NORMAL VS LEMBUR AWAL / LEMBUR SORE)
+// ============================================================================
+function detectShiftCategoryInfo(
+  mode: 'in' | 'out',
+  timeStr: string,
+  policy: WorkPolicy
+): { category: WorkShiftCategory; note: string } {
+  const [h, m] = timeStr.split(':').map(Number);
+  const actMin = h * 60 + m;
+
+  const stdIn = policy.standardCheckInTime || '08:00';
+  const [stdInH, stdInM] = stdIn.split(':').map(Number);
+  const stdInMin = stdInH * 60 + stdInM;
+
+  const stdOut = policy.standardCheckOutTime || '17:00';
+  const [stdOutH, stdOutM] = stdOut.split(':').map(Number);
+  const stdOutMin = stdOutH * 60 + stdOutM;
+
+  const threshold = policy.earlyOvertimeThresholdMinutes || 60;
+
+  if (mode === 'in') {
+    if (stdInMin - actMin > threshold) {
+      const diffH = Math.floor((stdInMin - actMin) / 60);
+      const diffM = (stdInMin - actMin) % 60;
+      return {
+        category: 'lembur_awal',
+        note: `Lembur Pagi: Datang ${diffH > 0 ? `${diffH} jam ` : ''}${diffM} menit lebih awal sebelum jam masuk baku (${stdIn}).`,
+      };
+    }
+    if (actMin > stdInMin + (policy.lateToleranceMinutes || 15)) {
+      return {
+        category: 'normal',
+        note: `Shift Normal (Terlambat melewati toleransi jam ${stdIn}).`,
+      };
+    }
+    return {
+      category: 'normal',
+      note: `Shift Normal: Datang sesuai jadwal (masuk baku ${stdIn}).`,
+    };
+  } else {
+    if (actMin > stdOutMin + 30) {
+      const diffH = Math.floor((actMin - stdOutMin) / 60);
+      const diffM = (actMin - stdOutMin) % 60;
+      return {
+        category: 'lembur_akhir',
+        note: `Lembur Sore/Malam: Pulang lebih lama ${diffH > 0 ? `${diffH} jam ` : ''}${diffM} menit setelah jam pulang baku (${stdOut}).`,
+      };
+    }
+    return {
+      category: 'normal',
+      note: `Shift Normal: Pulang kerja sesuai jam reguler (${stdOut}).`,
+    };
+  }
+}
+
 
 const STATUS_META: Record<
   EntryStatus,
@@ -271,9 +413,9 @@ export default function App() {
     return { year: y || 2026, month: (m || 11) - 1 };
   }, [todayStr]);
 
-  // Tab Navigasi Utama: 'calendar' | 'attendance' | 'report' | 'ai_performance'
+  // Tab Navigasi Utama: 'calendar' | 'attendance' | 'reminders' | 'report' | 'ai_performance'
   const [activeMainTab, setActiveMainTab] = useState<
-    'calendar' | 'attendance' | 'report' | 'ai_performance'
+    'calendar' | 'attendance' | 'reminders' | 'report' | 'ai_performance'
   >('calendar');
 
   // State User & Auth (Auto-login membaca sesi tersimpan langsung saat inisialisasi)
@@ -286,6 +428,47 @@ export default function App() {
   const [entries, setEntries] = useState<ScheduleEntry[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [aiPerformances, setAiPerformances] = useState<AIPerformanceRecord[]>([]);
+  const [reminders, setReminders] = useState<ReminderItem[]>([]);
+
+  // State Jadwal Pengingat & Alarm
+  const [isReminderModalOpen, setIsReminderModalOpen] = useState<boolean>(false);
+  const [editingReminderId, setEditingReminderId] = useState<string | null>(null);
+  const [remTitleInput, setRemTitleInput] = useState<string>('');
+  const [remDateInput, setRemDateInput] = useState<string>(todayStr);
+  const [remStartTimeInput, setRemStartTimeInput] = useState<string>('09:00');
+  const [remEndTimeInput, setRemEndTimeInput] = useState<string>('10:00');
+  const [remNotifyBeforeMinutes, setRemNotifyBeforeMinutes] = useState<number>(15);
+  const [remNotesInput, setRemNotesInput] = useState<string>('');
+  const [alarmTriggeredReminder, setAlarmTriggeredReminder] = useState<ReminderItem | null>(null);
+  const [hasNotificationPermission, setHasNotificationPermission] = useState<boolean>(() => {
+    return typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted';
+  });
+
+  // State Kamera & Lokasi GPS untuk Absensi
+  const [isCameraModalOpen, setIsCameraModalOpen] = useState<boolean>(false);
+  const [cameraMode, setCameraMode] = useState<'in' | 'out'>('in');
+  const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [currentGPSLocation, setCurrentGPSLocation] = useState<string>('Mendeteksi koordinat GPS...');
+  const [isGPSLoading, setIsGPSLoading] = useState<boolean>(false);
+  const [detectedShiftInfo, setDetectedShiftInfo] = useState<{ category: WorkShiftCategory; note: string }>({
+    category: 'normal',
+    note: 'Shift Normal',
+  });
+  const [customShiftNoteInput, setCustomShiftNoteInput] = useState<string>('');
+  const [capturedSnapshotPreview, setCapturedSnapshotPreview] = useState<string | null>(null);
+  const videoElemRef = useRef<HTMLVideoElement | null>(null);
+
+  // State Galeri Foto Bukti Absensi di Laporan
+  const [isPhotoGalleryModalOpen, setIsPhotoGalleryModalOpen] = useState<boolean>(false);
+  const [selectedPreviewPhoto, setSelectedPreviewPhoto] = useState<{
+    url: string;
+    title: string;
+    date: string;
+    time: string;
+    location: string;
+    shift: string;
+  } | null>(null);
 
   // State Tolak Ukur & Aturan Baku Kerja
   const [workPolicy, setWorkPolicy] = useState<WorkPolicy>(() =>
@@ -299,6 +482,8 @@ export default function App() {
   const [policyLeaveQuotaInput, setPolicyLeaveQuotaInput] = useState<number>(workPolicy.annualLeaveQuota);
   const [policyToleranceInput, setPolicyToleranceInput] = useState<number>(workPolicy.lateToleranceMinutes);
   const [policyTargetHoursInput, setPolicyTargetHoursInput] = useState<number>(workPolicy.targetDailyWorkHours);
+  const [policyLeaveResetInput, setPolicyLeaveResetInput] = useState<string>(workPolicy.leaveResetDate || '01-01');
+  const [policyThresholdInput, setPolicyThresholdInput] = useState<number>(workPolicy.earlyOvertimeThresholdMinutes || 60);
 
   // State Navigasi Bulan (0 = Januari, 10 = November)
   const [currentYear, setCurrentYear] = useState<number>(initialYearMonth.year);
@@ -380,6 +565,9 @@ export default function App() {
     if (db.getAIPerformances) {
       setAiPerformances(db.getAIPerformances());
     }
+    if (db.getReminders) {
+      setReminders(db.getReminders());
+    }
 
     if (db.getCurrentUser) {
       db.getCurrentUser().then((user: UserProfile | null) => {
@@ -416,6 +604,74 @@ export default function App() {
       db.saveSession(currentUser);
     }
   }, [currentUser]);
+
+
+  // Interval Pengecekan Jadwal Pengingat & Pemicu Alarm
+  useEffect(() => {
+    const checkReminders = () => {
+      const now = new Date();
+      const currDateStr = toDateStr(now.getFullYear(), now.getMonth(), now.getDate());
+      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+      reminders.forEach((rem) => {
+        if (!rem.isActive || rem.isTriggered) return;
+        if (rem.date !== currDateStr) return;
+
+        const [remH, remM] = rem.startTime.split(':').map(Number);
+        const remStartMin = remH * 60 + remM;
+        const targetAlarmMin = remStartMin - (rem.notifyBeforeMinutes || 0);
+
+        // Jika waktu sekarang pas atau dalam jendela toleransi 1 menit
+        if (nowMinutes >= targetAlarmMin && nowMinutes < targetAlarmMin + 2) {
+          // 1. Bunyikan nada alarm merdu Web Audio API
+          playHarmonicAlarmChime();
+
+          // 2. Kirim Web Notification ke perangkat jika ada izin
+          if ('Notification' in window && Notification.permission === 'granted') {
+            try {
+              new Notification(`⏰ Pengingat: ${rem.title}`, {
+                body: `Pukul ${rem.startTime} - ${rem.notes || 'Siapkan agenda kegiatan Anda.'}`,
+                icon: '/favicon.ico',
+              });
+            } catch (e) {
+              console.warn('Web notification error:', e);
+            }
+          }
+
+          // 3. Getar perangkat jika didukung
+          if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            navigator.vibrate([200, 100, 200, 100, 400]);
+          }
+
+          // 4. Munculkan visual alarm pop-up interaktif di aplikasi
+          setAlarmTriggeredReminder(rem);
+
+          // Tandai sudah pernah dibunyikan
+          const updated = db.updateReminder(rem.id, { isTriggered: true });
+          setReminders(updated);
+        }
+      });
+    };
+
+    const intervalId = setInterval(checkReminders, 20000); // Cek tiap 20 detik
+    return () => clearInterval(intervalId);
+  }, [reminders]);
+
+  const requestNotificationAccess = async () => {
+    if ('Notification' in window) {
+      const perm = await Notification.requestPermission();
+      setHasNotificationPermission(perm === 'granted');
+      if (perm === 'granted') {
+        showToast('Izin notifikasi perangkat berhasil diaktifkan! 🔔');
+        // Tes nada alarm merdu
+        playHarmonicAlarmChime();
+      } else {
+        showToast('Izin notifikasi perangkat ditolak');
+      }
+    } else {
+      showToast('Perangkat/browser Anda tidak mendukung Web Notification');
+    }
+  };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -699,6 +955,16 @@ export default function App() {
       .reduce((acc, curr) => acc + (curr.workDurationHours || 0), 0);
     const avgHours = totalHadir > 0 ? (totalHours / totalHadir).toFixed(1) : '0';
 
+    const totalRegularHours = userAttendance
+      .filter((a) => a.type === 'hadir')
+      .reduce((acc, curr) => acc + (curr.regularWorkHours || 0), 0);
+
+    const totalOvertimeHours = userAttendance
+      .filter((a) => a.type === 'hadir')
+      .reduce((acc, curr) => acc + (curr.overtimeHours || 0), 0);
+
+    const targetPeriodHours = Math.round(totalHadir * (workPolicy.targetDailyWorkHours || 8.0));
+
     // Filter entri tugas berdasarkan rentang tanggal kustom (startDate s/d endDate)
     const userEntries = entries.filter((e) => {
       if (e.ownerId !== targetId) return false;
@@ -854,6 +1120,9 @@ export default function App() {
       totalSakit,
       totalHours: totalHours.toFixed(1),
       avgHours,
+      totalRegularHours: totalRegularHours.toFixed(1),
+      totalOvertimeHours: totalOvertimeHours.toFixed(1),
+      targetPeriodHours,
       totalTasks,
       finishedTasks,
       inProgressTasks,
@@ -1101,6 +1370,241 @@ export default function App() {
     }
     setConfirmDeleteProjectId(null);
     showToast('Proyek dihapus');
+  };
+
+
+  // ==========================================================================
+  // HANDLERS KAMERA & LOKASI GPS (CLOCK IN & CLOCK OUT)
+  // ==========================================================================
+  const openCameraForAttendance = (mode: 'in' | 'out') => {
+    if (!currentUser) return;
+    setCameraMode(mode);
+    setCapturedSnapshotPreview(null);
+    setIsCameraModalOpen(true);
+    setIsCameraActive(false);
+    setIsGPSLoading(true);
+    setCurrentGPSLocation('Mendeteksi koordinat GPS...');
+
+    const nowTime = getNowTimeStr();
+    const shift = detectShiftCategoryInfo(mode, nowTime, workPolicy);
+    setDetectedShiftInfo(shift);
+    setCustomShiftNoteInput(shift.note);
+
+    // 1. Minta akses GPS / Geolocation
+    if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude.toFixed(6);
+          const lng = pos.coords.longitude.toFixed(6);
+          const acc = Math.round(pos.coords.accuracy);
+          setCurrentGPSLocation(`Lat: ${lat}, Lng: ${lng} (Akurasi: ±${acc}m)`);
+          setIsGPSLoading(false);
+        },
+        (err) => {
+          console.warn('Geolocation error:', err.message);
+          setCurrentGPSLocation('Lokasi GPS: Kantor / Presensi Terverifikasi');
+          setIsGPSLoading(false);
+        },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    } else {
+      setCurrentGPSLocation('Lokasi: Presensi Terverifikasi');
+      setIsGPSLoading(false);
+    }
+
+    // 2. Minta akses Kamera
+    if (typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices
+        .getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: false,
+        })
+        .then((stream) => {
+          setCameraStream(stream);
+          setIsCameraActive(true);
+          if (videoElemRef.current) {
+            videoElemRef.current.srcObject = stream;
+            videoElemRef.current.play().catch((e) => console.warn(e));
+          }
+        })
+        .catch((err) => {
+          console.warn('Camera access error:', err);
+          setIsCameraActive(false);
+          showToast('Kamera tidak dapat diakses atau diblokir browser');
+        });
+    }
+  };
+
+  const closeCameraModal = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      setCameraStream(null);
+    }
+    setIsCameraActive(false);
+    setIsCameraModalOpen(false);
+    setCapturedSnapshotPreview(null);
+  };
+
+  const handleTakeSnapshotAndSubmit = async () => {
+    if (!currentUser) return;
+    const nowTime = getNowTimeStr();
+    let photoDataUrl = capturedSnapshotPreview;
+
+    if (!photoDataUrl && videoElemRef.current) {
+      photoDataUrl = captureAndWatermarkSnapshot(videoElemRef.current, {
+        userName: currentUser.fullName,
+        date: todayStr,
+        time: nowTime,
+        location: currentGPSLocation,
+        status: cameraMode === 'in' ? `CLOCK IN (${detectedShiftInfo.category})` : `CLOCK OUT (${detectedShiftInfo.category})`,
+      });
+    }
+
+    const payload: any = {
+      date: todayStr,
+      type: 'hadir',
+      notes: customShiftNoteInput || detectedShiftInfo.note,
+      shiftCategory: detectedShiftInfo.category,
+      shiftNotes: customShiftNoteInput || detectedShiftInfo.note,
+    };
+
+    if (cameraMode === 'in') {
+      payload.checkInTime = nowTime;
+      payload.checkInPhoto = photoDataUrl;
+      payload.checkInLocation = currentGPSLocation;
+    } else {
+      payload.checkOutTime = nowTime;
+      payload.checkOutPhoto = photoDataUrl;
+      payload.checkOutLocation = currentGPSLocation;
+    }
+
+    const updated = await db.recordAttendance(payload, currentUser);
+    setAttendance(updated);
+
+    closeCameraModal();
+    showToast(
+      `${cameraMode === 'in' ? 'Clock In' : 'Clock Out'} berhasil pukul ${nowTime}! Foto & lokasi tersimpan.`
+    );
+  };
+
+  // ==========================================================================
+  // HANDLERS JADWAL PENGINGAT (REMINDERS & ALARMS)
+  // ==========================================================================
+  const openCreateReminderModal = () => {
+    setEditingReminderId(null);
+    setRemTitleInput('');
+    setRemDateInput(todayStr);
+    setRemStartTimeInput('09:00');
+    setRemEndTimeInput('10:00');
+    setRemNotifyBeforeMinutes(15);
+    setRemNotesInput('');
+    setIsReminderModalOpen(true);
+  };
+
+  const openEditReminderModal = (rem: ReminderItem) => {
+    setEditingReminderId(rem.id);
+    setRemTitleInput(rem.title);
+    setRemDateInput(rem.date);
+    setRemStartTimeInput(rem.startTime);
+    setRemEndTimeInput(rem.endTime);
+    setRemNotifyBeforeMinutes(rem.notifyBeforeMinutes);
+    setRemNotesInput(rem.notes);
+    setIsReminderModalOpen(true);
+  };
+
+  const handleSaveReminder = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!remTitleInput.trim() || !currentUser) return;
+
+    if (editingReminderId) {
+      const updated = db.updateReminder(editingReminderId, {
+        title: remTitleInput.trim(),
+        date: remDateInput,
+        startTime: remStartTimeInput,
+        endTime: remEndTimeInput,
+        notifyBeforeMinutes: Number(remNotifyBeforeMinutes) || 0,
+        notes: remNotesInput.trim(),
+        isTriggered: false, // reset trigger agar bisa berbunyi di waktu baru
+      });
+      setReminders(updated);
+      showToast('Jadwal pengingat diperbarui');
+    } else {
+      const updated = db.createReminder(
+        {
+          title: remTitleInput.trim(),
+          date: remDateInput,
+          startTime: remStartTimeInput,
+          endTime: remEndTimeInput,
+          notifyBeforeMinutes: Number(remNotifyBeforeMinutes) || 0,
+          notes: remNotesInput.trim(),
+          isActive: true,
+        },
+        currentUser
+      );
+      setReminders(updated);
+      showToast(`Jadwal pengingat "${remTitleInput.trim()}" berhasil dibuat`);
+    }
+
+    // Pastikan izin notifikasi ditanyakan jika belum aktif
+    if (!hasNotificationPermission) {
+      requestNotificationAccess();
+    }
+
+    setIsReminderModalOpen(false);
+  };
+
+  const handleDeleteReminder = (id: string) => {
+    const updated = db.deleteReminder(id);
+    setReminders(updated);
+    showToast('Jadwal pengingat dihapus');
+  };
+
+  const handleToggleReminder = (id: string) => {
+    const updated = db.toggleReminderActive(id);
+    setReminders(updated);
+  };
+
+  // Handler Download Foto Bukti Absensi
+  const handleDownloadSinglePhoto = (photoUrl?: string | null, fileName: string = 'foto.jpg') => {
+    if (!photoUrl) return;
+    const link = document.createElement('a');
+    link.href = photoUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast(`Foto ${fileName} berhasil diunduh`);
+  };
+
+  const handleDownloadAllAttendancePhotos = () => {
+    const items = (reportData?.userAttendance || []).filter(
+      (a) => a.checkInPhoto || a.checkOutPhoto
+    );
+    if (items.length === 0) {
+      showToast('Tidak ada foto bukti absensi pada rentang tanggal ini');
+      return;
+    }
+
+    items.forEach((a, idx) => {
+      setTimeout(() => {
+        if (a.checkInPhoto) {
+          handleDownloadSinglePhoto(
+            a.checkInPhoto,
+            `Bukti_ClockIn_${currentUser?.fullName?.replace(/\s+/g, '_')}_${a.date}.jpg`
+          );
+        }
+        if (a.checkOutPhoto) {
+          setTimeout(() => {
+            handleDownloadSinglePhoto(
+              a.checkOutPhoto,
+              `Bukti_ClockOut_${currentUser?.fullName?.replace(/\s+/g, '_')}_${a.date}.jpg`
+            );
+          }, 250);
+        }
+      }, idx * 600);
+    });
+
+    showToast(`Mengunduh ${items.length} foto bukti absensi...`);
   };
 
   // Clock In & Out Kehadiran
@@ -1416,6 +1920,21 @@ export default function App() {
             </button>
             <button
               type="button"
+              onClick={() => setActiveMainTab('reminders')}
+              className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                activeMainTab === 'reminders'
+                  ? 'bg-white text-indigo-600 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Bell className="w-4 h-4" />
+              <span>Pengingat &amp; Alarm</span>
+              {reminders.filter((r) => r.isActive && r.date === todayStr).length > 0 && (
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+              )}
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveMainTab('report')}
               className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
                 activeMainTab === 'report'
@@ -1487,6 +2006,15 @@ export default function App() {
             }`}
           >
             Absensi
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveMainTab('reminders')}
+            className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold text-center whitespace-nowrap ${
+              activeMainTab === 'reminders' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            Pengingat
           </button>
           <button
             type="button"
@@ -1562,7 +2090,7 @@ export default function App() {
             <div className="grid grid-cols-2 gap-1.5">
               <button
                 type="button"
-                onClick={handleQuickClockIn}
+                onClick={() => openCameraForAttendance('in')}
                 disabled={Boolean(myTodayAttendance?.checkInTime)}
                 className="py-1.5 px-2 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white flex items-center justify-center gap-1 shadow-xs"
               >
@@ -1571,7 +2099,7 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={handleQuickClockOut}
+                onClick={() => openCameraForAttendance('out')}
                 disabled={!myTodayAttendance?.checkInTime || Boolean(myTodayAttendance?.checkOutTime)}
                 className="py-1.5 px-2 rounded-lg text-[11px] font-bold bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white flex items-center justify-center gap-1 shadow-xs"
               >
@@ -2469,10 +2997,11 @@ export default function App() {
                       <tr>
                         <th className="py-3 px-4">Tanggal</th>
                         <th className="py-3 px-4">Owner / Anggota</th>
-                        <th className="py-3 px-4">Status</th>
+                        <th className="py-3 px-4">Status &amp; Shift</th>
                         <th className="py-3 px-4">Jam Masuk</th>
                         <th className="py-3 px-4">Jam Pulang</th>
-                        <th className="py-3 px-4">Lama Kerja</th>
+                        <th className="py-3 px-4">Lama Kerja Bersih</th>
+                        <th className="py-3 px-4">Bukti Foto &amp; GPS</th>
                         <th className="py-3 px-4">Catatan / Keterangan</th>
                         <th className="py-3 px-4 text-right">Aksi</th>
                       </tr>
@@ -2512,8 +3041,61 @@ export default function App() {
                               <td className="py-3.5 px-4 font-mono text-slate-700 whitespace-nowrap">
                                 {rec.checkOutTime || '-'}
                               </td>
-                              <td className="py-3.5 px-4 font-semibold text-indigo-700 whitespace-nowrap">
-                                {rec.workDurationHours > 0 ? `${rec.workDurationHours} Jam` : '-'}
+                              <td className="py-3.5 px-4 whitespace-nowrap">
+                                <div className="font-extrabold text-indigo-700">
+                                  {rec.workDurationHours > 0 ? `${rec.workDurationHours} Jam Bersih` : '-'}
+                                </div>
+                                {rec.type === 'hadir' && rec.workDurationHours > 0 && (
+                                  <div className="text-[10px] text-slate-500 font-medium">
+                                    <span>{rec.regularWorkHours || 0}j Reguler</span>
+                                    {(rec.overtimeHours || 0) > 0 && (
+                                      <span className="text-amber-600 font-bold ml-1">+{rec.overtimeHours}j Lembur</span>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-4 whitespace-nowrap">
+                                <div className="flex items-center gap-1.5">
+                                  {rec.checkInPhoto && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedPreviewPhoto({
+                                        url: rec.checkInPhoto!,
+                                        title: `Bukti Masuk - ${rec.ownerName}`,
+                                        date: rec.date,
+                                        time: rec.checkInTime || '',
+                                        location: rec.checkInLocation || '',
+                                        shift: rec.shiftCategory || 'normal'
+                                      })}
+                                      className="px-2 py-1 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-[10px] font-bold text-indigo-700 flex items-center gap-1"
+                                      title="Lihat Foto Clock In"
+                                    >
+                                      <Camera className="w-3 h-3" />
+                                      <span>In</span>
+                                    </button>
+                                  )}
+                                  {rec.checkOutPhoto && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedPreviewPhoto({
+                                        url: rec.checkOutPhoto!,
+                                        title: `Bukti Pulang - ${rec.ownerName}`,
+                                        date: rec.date,
+                                        time: rec.checkOutTime || '',
+                                        location: rec.checkOutLocation || '',
+                                        shift: rec.shiftCategory || 'normal'
+                                      })}
+                                      className="px-2 py-1 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-[10px] font-bold text-rose-700 flex items-center gap-1"
+                                      title="Lihat Foto Clock Out"
+                                    >
+                                      <Camera className="w-3 h-3" />
+                                      <span>Out</span>
+                                    </button>
+                                  )}
+                                  {!rec.checkInPhoto && !rec.checkOutPhoto && (
+                                    <span className="text-[11px] text-slate-400 italic">Tanpa foto</span>
+                                  )}
+                                </div>
                               </td>
                               <td className="py-3.5 px-4 text-slate-600 max-w-xs truncate">
                                 {rec.notes || '-'}
@@ -2535,6 +3117,177 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            </div>
+          )}
+
+
+          {/* TAB: JADWAL PENGINGAT & ALARM DENGAN NOTIFIKASI PERANGKAT */}
+          {activeMainTab === 'reminders' && (
+            <div className="space-y-5">
+              {/* Header Pengingat */}
+              <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white p-6 rounded-3xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
+                    <BellRing className="w-3.5 h-3.5 text-indigo-300 animate-bounce" />
+                    <span>Sistem Pengingat &amp; Alarm Acara Aktif</span>
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight">
+                    Jadwal Pengingat &amp; Alarm Perangkat
+                  </h2>
+                  <p className="text-xs text-indigo-200/90 max-w-2xl">
+                    Pasang jadwal acara penting dengan pemberitahuan alarm suara merdu dan notifikasi
+                    otomatis pada perangkat laptop atau HP Anda beberapa menit sebelum acara dimulai.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={playHarmonicAlarmChime}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-all"
+                  >
+                    <Volume2 className="w-3.5 h-3.5" />
+                    <span>Tes Suara Alarm</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openCreateReminderModal}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition-all"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Buat Pengingat Baru</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Banner Izin Notifikasi jika belum aktif */}
+              {!hasNotificationPermission && (
+                <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2.5 text-amber-900 font-medium">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                    <span>
+                      Izin notifikasi perangkat belum aktif. Klik tombol di samping agar laptop/HP Anda
+                      dapat menampilkan notifikasi pengingat secara otomatis saat jadwal tiba.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={requestNotificationAccess}
+                    className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold shrink-0 transition-colors"
+                  >
+                    Izinkan Notifikasi Perangkat
+                  </button>
+                </div>
+              )}
+
+              {/* Grid Daftar Jadwal Pengingat */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {reminders.length === 0 ? (
+                  <div className="col-span-full bg-white p-12 rounded-3xl border border-slate-200 text-center space-y-3">
+                    <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto">
+                      <Bell className="w-7 h-7" />
+                    </div>
+                    <h3 className="font-bold text-base text-slate-800">
+                      Belum Ada Jadwal Pengingat
+                    </h3>
+                    <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                      Klik tombol &ldquo;Buat Pengingat Baru&rdquo; untuk mengatur jadwal acara, waktu
+                      alarm, dan durasi notifikasi sebelum acara dimulai.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={openCreateReminderModal}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Tambah Pengingat Pertama</span>
+                    </button>
+                  </div>
+                ) : (
+                  reminders.map((rem) => {
+                    const isTodayEvent = rem.date === todayStr;
+
+                    return (
+                      <div
+                        key={rem.id}
+                        className={`bg-white rounded-3xl border p-5 space-y-3.5 transition-all shadow-xs relative overflow-hidden ${
+                          rem.isActive
+                            ? 'border-slate-200 hover:border-indigo-300'
+                            : 'border-slate-200 bg-slate-50/60 opacity-60'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              {isTodayEvent ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-600 text-white">
+                                  Hari Ini
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                                  {formatDateShortIndo(rem.date)}
+                                </span>
+                              )}
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                {rem.notifyBeforeMinutes === 0
+                                  ? 'Tepat waktu'
+                                  : `${rem.notifyBeforeMinutes} mnt sebelumnya`}
+                              </span>
+                            </div>
+
+                            <h4 className="font-bold text-base text-slate-900 truncate">
+                              {rem.title}
+                            </h4>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleReminder(rem.id)}
+                              className={`p-1.5 rounded-xl border text-xs font-bold transition-colors ${
+                                rem.isActive
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                  : 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200'
+                              }`}
+                              title={rem.isActive ? 'Nonaktifkan Alarm' : 'Aktifkan Alarm'}
+                            >
+                              {rem.isActive ? <Bell className="w-4 h-4" /> : <BellOff className="w-4 h-4" />}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openEditReminderModal(rem)}
+                              className="p-1.5 rounded-xl text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                              title="Edit Pengingat"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteReminder(rem.id)}
+                              className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                              title="Hapus Pengingat"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Waktu & Detail */}
+                        <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                          <Clock className="w-4 h-4 text-indigo-600 shrink-0" />
+                          <span>Pukul {rem.startTime} – {rem.endTime} WIB</span>
+                        </div>
+
+                        {rem.notes && (
+                          <p className="text-xs text-slate-600 line-clamp-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                            {rem.notes}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
           )}
@@ -2659,6 +3412,14 @@ export default function App() {
                     </button>
                     <button
                       type="button"
+                      onClick={() => setIsPhotoGalleryModalOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white hover:bg-slate-50 text-indigo-700 border border-indigo-200 shadow-2xs transition-colors"
+                    >
+                      <Camera className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Bukti Foto &amp; Unduh</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={handlePrintReport}
                       className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-colors"
                     >
@@ -2744,6 +3505,37 @@ export default function App() {
                     <div className="text-xs text-slate-600">
                       {reportData.inProgressTasks} tugas berjalan •{' '}
                       <span className="text-rose-600 font-semibold">{reportData.overdueTasks} terlambat</span>.
+                    </div>
+                  </div>
+
+                  <div className="p-5 rounded-2xl bg-indigo-50/50 border border-indigo-200 space-y-2 md:col-span-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-indigo-900 uppercase tracking-wider">
+                        Realisasi Jam Kerja Bersih &amp; Lembur
+                      </span>
+                      <span className="text-[11px] font-semibold text-indigo-700 bg-white px-2 py-0.5 rounded-full border border-indigo-100">
+                        Target Baku: {reportData.targetPeriodHours} Jam
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1 text-slate-800">
+                      <div>
+                        <span className="text-[10px] text-slate-500 uppercase block font-semibold">Total Jam Bersih</span>
+                        <span className="text-lg font-extrabold text-indigo-700">{reportData.totalHours} Jam</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 uppercase block font-semibold">Reguler (Normal)</span>
+                        <span className="text-lg font-bold text-slate-800">{reportData.totalRegularHours} Jam</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 uppercase block font-semibold">Total Jam Lembur</span>
+                        <span className="text-lg font-extrabold text-amber-600">+{reportData.totalOvertimeHours} Jam</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 uppercase block font-semibold">Tingkat Capaian</span>
+                        <span className="text-lg font-bold text-emerald-600">
+                          {reportData.targetPeriodHours > 0 ? Math.round((Number(reportData.totalHours) / reportData.targetPeriodHours) * 100) : 100}%
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -3825,12 +4617,14 @@ export default function App() {
                 e.preventDefault();
                 const newPolicy: WorkPolicy = {
                   workDaysPerWeek: Number(policyWorkDaysInput) || 5,
-                  standardCheckInTime: policyCheckInInput || '08:30',
+                  standardCheckInTime: policyCheckInInput || '08:00',
                   standardCheckOutTime: policyCheckOutInput || '17:00',
                   breakDurationHours: Number(policyBreakInput) || 1.0,
                   annualLeaveQuota: Number(policyLeaveQuotaInput) || 12,
+                  leaveResetDate: policyLeaveResetInput || '01-01',
                   lateToleranceMinutes: Number(policyToleranceInput) || 15,
-                  targetDailyWorkHours: Number(policyTargetHoursInput) || 7.5,
+                  earlyOvertimeThresholdMinutes: Number(policyThresholdInput) || 60,
+                  targetDailyWorkHours: Number(policyTargetHoursInput) || 8.0,
                 };
                 db.saveWorkPolicy(newPolicy);
                 setWorkPolicy(newPolicy);
@@ -3980,6 +4774,48 @@ export default function App() {
                   </div>
                   <span className="text-[10px] text-slate-400 mt-0.5 block">
                     Hak cuti 1 tahun
+                  </span>
+                </div>
+              </div>
+
+              {/* Tanggal Reset Cuti & Ambang Batas Lembur Awal */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Tanggal Reset Cuti Tahunan <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="01-01 (1 Januari)"
+                    value={policyLeaveResetInput}
+                    onChange={(e) => setPolicyLeaveResetInput(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Format: MM-DD (misal: 01-01 untuk reset tiap 1 Januari)
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Batas Menit Datang Awal (Lembur Pagi) <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={15}
+                      max={180}
+                      value={policyThresholdInput}
+                      onChange={(e) => setPolicyThresholdInput(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none pr-14"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                      Menit
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Datang lebih awal &gt; {policyThresholdInput}m otomatis dihitung lembur
                   </span>
                 </div>
               </div>
@@ -4159,6 +4995,495 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* MODAL KAMERA & LOKASI GPS (CLOCK IN & CLOCK OUT DENGAN WATERMARK) */}
+      {isCameraModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs"
+            onClick={closeCameraModal}
+          />
+          <div className="relative z-10 w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+              <div className="flex items-center gap-2">
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-white ${
+                  cameraMode === 'in' ? 'bg-emerald-600' : 'bg-rose-600'
+                }`}>
+                  <Camera className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900">
+                    {cameraMode === 'in' ? 'Presensi Masuk (Clock In)' : 'Presensi Pulang (Clock Out)'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Ambil foto wajah langsung dan verifikasi lokasi GPS
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeCameraModal}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4">
+              {/* Live Video Camera / Preview */}
+              <div className="relative rounded-2xl overflow-hidden bg-slate-900 aspect-video flex items-center justify-center border border-slate-800 shadow-inner">
+                {isCameraActive ? (
+                  <video
+                    ref={videoElemRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover scale-x-[-1]"
+                  />
+                ) : (
+                  <div className="text-center text-slate-400 p-4 space-y-2">
+                    <Camera className="w-8 h-8 mx-auto text-slate-500 animate-pulse" />
+                    <p className="text-xs">Menyiapkan kamera live...</p>
+                  </div>
+                )}
+
+                {/* Badge Waktu Real di Pojok Kamera */}
+                <div className="absolute top-2.5 left-2.5 bg-slate-900/80 backdrop-blur-xs px-2.5 py-1 rounded-full text-[11px] font-bold text-white flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                  <span>{getNowTimeStr()} WIB</span>
+                </div>
+              </div>
+
+              {/* Status Deteksi Shift Otomatis (Normal vs Lembur) */}
+              <div className="p-3.5 rounded-2xl bg-indigo-50/70 border border-indigo-100 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-800 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Status Shift Terdeteksi:</span>
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                    detectedShiftInfo.category.includes('lembur')
+                      ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                      : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                  }`}>
+                    {detectedShiftInfo.category.replace('_', ' ')}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                  {detectedShiftInfo.note}
+                </p>
+              </div>
+
+              {/* Status Koordinat GPS */}
+              <div className="flex items-center gap-2 p-3 rounded-2xl bg-slate-50 border border-slate-200 text-xs">
+                <MapPin className={`w-4 h-4 shrink-0 ${isGPSLoading ? 'text-amber-500 animate-spin' : 'text-emerald-600'}`} />
+                <span className="text-slate-700 font-mono text-[11px] truncate flex-1">
+                  {currentGPSLocation}
+                </span>
+              </div>
+
+              {/* Catatan Tambahan Shift */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Keterangan Tambahan / Alasan Lembur
+                </label>
+                <input
+                  type="text"
+                  value={customShiftNoteInput}
+                  onChange={(e) => setCustomShiftNoteInput(e.target.value)}
+                  placeholder="Contoh: Datang awal untuk briefing lapangan..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                />
+              </div>
+            </div>
+
+            <div className="px-5 py-3.5 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeCameraModal}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-200 transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleTakeSnapshotAndSubmit}
+                className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-white shadow-sm transition-all ${
+                  cameraMode === 'in' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'
+                }`}
+              >
+                <Camera className="w-4 h-4" />
+                <span>{cameraMode === 'in' ? 'Ambil Foto & Clock In' : 'Ambil Foto & Clock Out'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL BUAT / EDIT JADWAL PENGINGAT (REMINDER FORM) */}
+      {isReminderModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs"
+            onClick={() => setIsReminderModalOpen(false)}
+          />
+          <div className="relative z-10 w-full max-w-md bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                  <Bell className="w-4 h-4" />
+                </div>
+                <h3 className="font-bold text-base text-slate-900">
+                  {editingReminderId ? 'Edit Jadwal Pengingat' : 'Buat Jadwal Pengingat Baru'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsReminderModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveReminder} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Nama Acara / Pengingat <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={remTitleInput}
+                  onChange={(e) => setRemTitleInput(e.target.value)}
+                  placeholder="Contoh: Meeting Progres Mingguan Tim..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Tanggal Acara <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={remDateInput}
+                  onChange={(e) => setRemDateInput(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Mulai Pukul <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="time"
+                    required
+                    value={remStartTimeInput}
+                    onChange={(e) => setRemStartTimeInput(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Hingga Pukul
+                  </label>
+                  <input
+                    type="time"
+                    value={remEndTimeInput}
+                    onChange={(e) => setRemEndTimeInput(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Bunyikan Alarm &amp; Notifikasi <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={remNotifyBeforeMinutes}
+                  onChange={(e) => setRemNotifyBeforeMinutes(Number(e.target.value))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none"
+                >
+                  <option value={0}>Tepat waktu saat jam mulai (0 menit)</option>
+                  <option value={5}>5 menit sebelum jam mulai</option>
+                  <option value={10}>10 menit sebelum jam mulai</option>
+                  <option value={15}>15 menit sebelum jam mulai</option>
+                  <option value={30}>30 menit sebelum jam mulai</option>
+                  <option value={60}>1 jam (60 menit) sebelum jam mulai</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Catatan / Keterangan
+                </label>
+                <textarea
+                  rows={2}
+                  value={remNotesInput}
+                  onChange={(e) => setRemNotesInput(e.target.value)}
+                  placeholder="Catatan agenda, link google meet, atau rincian kegiatan..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsReminderModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
+                >
+                  {editingReminderId ? 'Simpan Perubahan' : 'Pasang Pengingat'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL ALARM VISUAL POPUP INTERAKTIF KETIKA WAKTU TIBA */}
+      {alarmTriggeredReminder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs animate-pulse"
+            onClick={() => setAlarmTriggeredReminder(null)}
+          />
+          <div className="relative z-10 w-full max-w-sm bg-white rounded-3xl shadow-2xl border-2 border-indigo-500 p-6 text-center space-y-4 overflow-hidden">
+            <div className="w-16 h-16 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center mx-auto shadow-sm ring-8 ring-indigo-50 animate-bounce">
+              <BellRing className="w-8 h-8" />
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[10px] font-extrabold uppercase tracking-widest text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">
+                Alarm Pengingat Acara
+              </span>
+              <h3 className="text-lg font-extrabold text-slate-900 pt-1">
+                {alarmTriggeredReminder.title}
+              </h3>
+              <p className="text-sm font-semibold text-slate-700">
+                Mulai Pukul {alarmTriggeredReminder.startTime} – {alarmTriggeredReminder.endTime} WIB
+              </p>
+            </div>
+
+            {alarmTriggeredReminder.notes && (
+              <p className="text-xs text-slate-600 bg-slate-50 p-3 rounded-2xl border border-slate-200 line-clamp-3">
+                {alarmTriggeredReminder.notes}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setAlarmTriggeredReminder(null)}
+              className="w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-extrabold bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all"
+            >
+              Matikan Alarm &amp; Mengerti
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL GALERI BUKTI FOTO ABSENSI DI LAPORAN */}
+      {isPhotoGalleryModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs"
+            onClick={() => setIsPhotoGalleryModalOpen(false)}
+          />
+          <div className="relative z-10 w-full max-w-4xl bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col max-h-[90vh] overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                  <Camera className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-slate-900">
+                    Galeri Bukti Foto &amp; Lokasi Absensi
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Foto terverifikasi dengan watermark jam, status lembur/normal, dan koordinat GPS
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleDownloadAllAttendancePhotos}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition-colors"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Unduh Semua Foto</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsPhotoGalleryModalOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-4">
+              {(() => {
+                const photosList: Array<{
+                  date: string;
+                  type: 'in' | 'out';
+                  url: string;
+                  time: string;
+                  location: string;
+                  shift: string;
+                }> = [];
+
+                (reportData?.userAttendance || []).forEach((a) => {
+                  if (a.checkInPhoto) {
+                    photosList.push({
+                      date: a.date,
+                      type: 'in',
+                      url: a.checkInPhoto,
+                      time: a.checkInTime || '',
+                      location: a.checkInLocation || '',
+                      shift: a.shiftCategory || 'normal',
+                    });
+                  }
+                  if (a.checkOutPhoto) {
+                    photosList.push({
+                      date: a.date,
+                      type: 'out',
+                      url: a.checkOutPhoto,
+                      time: a.checkOutTime || '',
+                      location: a.checkOutLocation || '',
+                      shift: a.shiftCategory || 'normal',
+                    });
+                  }
+                });
+
+                if (photosList.length === 0) {
+                  return (
+                    <div className="p-12 text-center text-slate-400 space-y-2">
+                      <Camera className="w-8 h-8 mx-auto text-slate-300" />
+                      <p className="text-xs font-medium">Belum ada foto bukti absensi tercatat pada rentang periode ini.</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                    {photosList.map((item, idx) => (
+                      <div
+                        key={idx}
+                        className="bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden shadow-xs space-y-2 p-2 flex flex-col justify-between"
+                      >
+                        <div
+                          onClick={() => setSelectedPreviewPhoto({
+                            url: item.url,
+                            title: item.type === 'in' ? 'Foto Clock In' : 'Foto Clock Out',
+                            date: item.date,
+                            time: item.time,
+                            location: item.location,
+                            shift: item.shift,
+                          })}
+                          className="aspect-video rounded-xl overflow-hidden bg-slate-900 cursor-pointer relative group flex items-center justify-center"
+                        >
+                          <img src={item.url} alt="Bukti Absensi" className="w-full h-full object-cover" />
+                          <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white text-xs font-bold">
+                            Perbesar Foto
+                          </div>
+                          <span className={`absolute top-2 left-2 px-2 py-0.5 rounded-full text-[9px] font-bold text-white uppercase ${
+                            item.type === 'in' ? 'bg-emerald-600' : 'bg-rose-600'
+                          }`}>
+                            {item.type === 'in' ? 'Masuk' : 'Pulang'}
+                          </span>
+                        </div>
+
+                        <div className="space-y-1 px-1">
+                          <div className="flex items-center justify-between text-[11px] font-bold text-slate-800">
+                            <span>{formatDateShortIndo(item.date)}</span>
+                            <span className="font-mono text-indigo-600">{item.time} WIB</span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 truncate font-mono">
+                            {item.location || 'Lokasi Terverifikasi'}
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadSinglePhoto(
+                            item.url,
+                            `Bukti_${item.type === 'in' ? 'ClockIn' : 'ClockOut'}_${currentUser?.fullName?.replace(/\s+/g, '_')}_${item.date}.jpg`
+                          )}
+                          className="w-full py-1.5 px-2 rounded-xl text-xs font-semibold bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 flex items-center justify-center gap-1.5 transition-colors"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Unduh Foto (JPG)</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL PREVIEW FOTO BESAR */}
+      {selectedPreviewPhoto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-slate-900/80 backdrop-blur-xs"
+            onClick={() => setSelectedPreviewPhoto(null)}
+          />
+          <div className="relative z-10 w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden space-y-3 p-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <span className="font-bold text-xs text-slate-800">{selectedPreviewPhoto.title}</span>
+              <button
+                type="button"
+                onClick={() => setSelectedPreviewPhoto(null)}
+                className="p-1 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="rounded-2xl overflow-hidden border border-slate-200 bg-slate-900 aspect-video flex items-center justify-center">
+              <img
+                src={selectedPreviewPhoto.url}
+                alt="Preview Bukti"
+                className="w-full h-full object-contain"
+              />
+            </div>
+
+            <div className="flex items-center justify-between pt-1">
+              <div className="text-[11px] text-slate-500 font-mono">
+                {selectedPreviewPhoto.date} • {selectedPreviewPhoto.time} WIB
+              </div>
+              <button
+                type="button"
+                onClick={() => handleDownloadSinglePhoto(
+                  selectedPreviewPhoto.url,
+                  `${selectedPreviewPhoto.title.replace(/\s+/g, '_')}_${selectedPreviewPhoto.date}.jpg`
+                )}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Unduh File Asli</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

@@ -8,18 +8,29 @@ import type {
   UserProfile,
   AttendanceRecord,
   AttendanceType,
+  WorkShiftCategory,
   AIPerformanceRecord,
   WorkPolicy,
+  ReminderItem,
 } from './types';
 
 // ============================================================================
 // MODUL DATA LAYER (src/db.ts — Jadwal, Proyek, Cabang Program, Absensi, Performa AI & Supabase)
 // ============================================================================
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim() || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() || '';
+const supabaseUrl =
+  import.meta.env.VITE_SUPABASE_URL?.trim() ||
+  'https://GANTI_DENGAN_URL_SUPABASE_LU.supabase.co'; // <--- TEMPELKAN URL SUPABASE LU DI SINI
 
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+const supabaseAnonKey =
+  import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ||
+  'GANTI_DENGAN_ANON_KEY_SUPABASE_LU'; // <--- TEMPELKAN ANON KEY ASLI LU DI SINI
+
+export const isSupabaseConfigured = Boolean(
+  supabaseUrl &&
+  supabaseAnonKey &&
+  !supabaseUrl.includes('GANTI_DENGAN')
+);
 
 export const supabase: SupabaseClient | null = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey)
@@ -33,9 +44,9 @@ const STORAGE_KEYS = {
   SESSION: 'jadwalpro_session_v3',
   AI_PERFORMANCES: 'jadwalpro_ai_perf_v3',
   WORK_POLICY: 'jadwalpro_work_policy_v3',
+  REMINDERS: 'jadwalpro_reminders_v3',
 };
 
-// Data seed kosong murni agar akun baru tidak tercemar data demo
 export const SEED_PROJECTS: Project[] = [];
 export const SEED_ENTRIES: ScheduleEntry[] = [];
 export const SEED_ATTENDANCE: AttendanceRecord[] = [];
@@ -65,7 +76,7 @@ const safeStorage = {
 };
 
 export const db = {
-  // --- 1. SESI LOGIN & AUTHENTICATION (AUTO-LOGIN PERMANEN) ---
+  // --- 1. SESI LOGIN & AUTHENTICATION ---
   saveSession(profile: UserProfile): void {
     safeStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(profile));
     safeStorage.setItem('jadwalpro_current_user', JSON.stringify(profile));
@@ -290,7 +301,7 @@ export const db = {
       let attQuery = supabase
         .from('attendance')
         .select(
-          'id, ownerId:owner_id, ownerName:owner_name, date:entry_date, type, checkInTime:check_in_time, checkOutTime:check_out_time, workDurationHours:work_duration_hours, notes, createdAt:created_at, updatedAt:updated_at'
+          'id, ownerId:owner_id, ownerName:owner_name, date:entry_date, type, checkInTime:check_in_time, checkOutTime:check_out_time, workDurationHours:work_duration_hours, regularWorkHours:regular_work_hours, overtimeHours:overtime_hours, shiftCategory:shift_category, shiftNotes:shift_notes, checkInPhoto:check_in_photo, checkInLocation:check_in_location, checkOutPhoto:check_out_photo, checkOutLocation:check_out_location, notes, createdAt:created_at, updatedAt:updated_at'
         )
         .order('entry_date', { ascending: false });
 
@@ -661,6 +672,12 @@ export const db = {
       type: AttendanceType;
       checkInTime?: string | null;
       checkOutTime?: string | null;
+      shiftCategory?: WorkShiftCategory;
+      shiftNotes?: string;
+      checkInPhoto?: string | null;
+      checkInLocation?: string | null;
+      checkOutPhoto?: string | null;
+      checkOutLocation?: string | null;
       notes?: string;
     },
     owner?: UserProfile | null
@@ -675,7 +692,12 @@ export const db = {
     );
 
     const policy = this.getWorkPolicy();
-    let isLate = false;
+    const stdIn = policy.standardCheckInTime || '08:00';
+    const stdOut = policy.standardCheckOutTime || '17:00';
+    const breakHours = policy.breakDurationHours !== undefined ? policy.breakDurationHours : 1.0;
+    const thresholdMin = policy.earlyOvertimeThresholdMinutes || 60;
+    const lateTolMin = policy.lateToleranceMinutes || 15;
+
     const inTime =
       payload.checkInTime !== undefined
         ? payload.checkInTime
@@ -689,28 +711,111 @@ export const db = {
         ? records[existingIndex].checkOutTime
         : null;
 
-    // Evaluasi keterlambatan berdasarkan jam masuk baku + toleransi menit
-    if (inTime && policy.standardCheckInTime) {
-      const [stdH, stdM] = policy.standardCheckInTime.split(':').map(Number);
-      const [actH, actM] = inTime.split(':').map(Number);
-      const limitMinutes = stdH * 60 + stdM + (policy.lateToleranceMinutes || 0);
-      const actMinutes = actH * 60 + actM;
-      if (actMinutes > limitMinutes) {
+    let isLate = false;
+    let earlyOvertimeHours = 0;
+    let lateOvertimeHours = 0;
+    let effectiveInMinutes = 0;
+    let effectiveOutMinutes = 0;
+
+    const [stdInH, stdInM] = stdIn.split(':').map(Number);
+    const stdInTotalMin = stdInH * 60 + stdInM;
+
+    const [stdOutH, stdOutM] = stdOut.split(':').map(Number);
+    const stdOutTotalMin = stdOutH * 60 + stdOutM;
+
+    // Evaluasi Jam Masuk & Early Overtime
+    if (inTime) {
+      const [hIn, mIn] = inTime.split(':').map(Number);
+      const actInMin = hIn * 60 + mIn;
+
+      if (actInMin > stdInTotalMin + lateTolMin) {
         isLate = true;
+        effectiveInMinutes = actInMin;
+      } else if (stdInTotalMin - actInMin > thresholdMin) {
+        effectiveInMinutes = actInMin;
+        earlyOvertimeHours = (stdInTotalMin - actInMin) / 60;
+      } else {
+        effectiveInMinutes = stdInTotalMin;
       }
     }
 
-    let duration = 0;
-    if (inTime && outTime) {
-      const [hIn, mIn] = inTime.split(':').map(Number);
+    // Evaluasi Jam Keluar & Late Overtime
+    if (outTime) {
       const [hOut, mOut] = outTime.split(':').map(Number);
-      const diffMinutes = hOut * 60 + mOut - (hIn * 60 + mIn);
-      const grossHours = Math.max(0, diffMinutes / 60);
-      const breakDeduction = policy.breakDurationHours || 0;
-      // Potong durasi istirahat harian secara otomatis
-      const netHours = grossHours > breakDeduction ? grossHours - breakDeduction : grossHours;
-      duration = Math.round(netHours * 10) / 10;
+      const actOutMin = hOut * 60 + mOut;
+      effectiveOutMinutes = actOutMin;
+
+      if (actOutMin > stdOutTotalMin + 30) {
+        lateOvertimeHours = (actOutMin - stdOutTotalMin) / 60;
+      }
     }
+
+    let workDurationHours = 0;
+    let overtimeHours = 0;
+    let regularWorkHours = 0;
+
+    if (inTime && outTime && effectiveOutMinutes > effectiveInMinutes) {
+      const grossMinutes = effectiveOutMinutes - effectiveInMinutes;
+      const grossHours = Math.max(0, grossMinutes / 60);
+
+      const netHours = grossHours > breakHours ? grossHours - breakHours : grossHours;
+      workDurationHours = Math.round(netHours * 10) / 10;
+
+      const totalOvertime = Math.round((earlyOvertimeHours + lateOvertimeHours) * 10) / 10;
+      overtimeHours = Math.min(workDurationHours, totalOvertime);
+      regularWorkHours = Math.max(0, Math.round((workDurationHours - overtimeHours) * 10) / 10);
+    }
+
+    let autoShiftCategory: WorkShiftCategory = 'normal';
+    if (earlyOvertimeHours > 0 && lateOvertimeHours > 0) {
+      autoShiftCategory = 'lembur_penuh';
+    } else if (earlyOvertimeHours > 0) {
+      autoShiftCategory = 'lembur_awal';
+    } else if (lateOvertimeHours > 0) {
+      autoShiftCategory = 'lembur_akhir';
+    }
+
+    const shiftCategory: WorkShiftCategory =
+      payload.shiftCategory ||
+      (existingIndex >= 0 && records[existingIndex].shiftCategory) ||
+      autoShiftCategory;
+
+    const shiftNotes =
+      payload.shiftNotes !== undefined
+        ? payload.shiftNotes
+        : existingIndex >= 0
+        ? records[existingIndex].shiftNotes
+        : autoShiftCategory !== 'normal'
+        ? `Lembur terdeteksi (${overtimeHours > 0 ? `${overtimeHours} Jam` : ''})`
+        : 'Shift kerja normal';
+
+    const checkInPhoto =
+      payload.checkInPhoto !== undefined
+        ? payload.checkInPhoto
+        : existingIndex >= 0
+        ? records[existingIndex].checkInPhoto
+        : null;
+
+    const checkInLocation =
+      payload.checkInLocation !== undefined
+        ? payload.checkInLocation
+        : existingIndex >= 0
+        ? records[existingIndex].checkInLocation
+        : null;
+
+    const checkOutPhoto =
+      payload.checkOutPhoto !== undefined
+        ? payload.checkOutPhoto
+        : existingIndex >= 0
+        ? records[existingIndex].checkOutPhoto
+        : null;
+
+    const checkOutLocation =
+      payload.checkOutLocation !== undefined
+        ? payload.checkOutLocation
+        : existingIndex >= 0
+        ? records[existingIndex].checkOutLocation
+        : null;
 
     const now = new Date().toISOString();
     let updatedItem: AttendanceRecord;
@@ -722,8 +827,16 @@ export const db = {
         type: payload.type,
         checkInTime: inTime,
         checkOutTime: outTime,
-        workDurationHours: payload.type === 'hadir' ? duration : 0,
+        workDurationHours: payload.type === 'hadir' ? workDurationHours : 0,
+        regularWorkHours: payload.type === 'hadir' ? regularWorkHours : 0,
+        overtimeHours: payload.type === 'hadir' ? overtimeHours : 0,
+        shiftCategory,
+        shiftNotes,
         isLate: payload.type === 'hadir' ? isLate : false,
+        checkInPhoto,
+        checkInLocation,
+        checkOutPhoto,
+        checkOutLocation,
         notes: payload.notes !== undefined ? payload.notes : records[existingIndex].notes,
         updatedAt: now,
       };
@@ -738,8 +851,16 @@ export const db = {
         type: payload.type,
         checkInTime: inTime,
         checkOutTime: outTime,
-        workDurationHours: payload.type === 'hadir' ? duration : 0,
+        workDurationHours: payload.type === 'hadir' ? workDurationHours : 0,
+        regularWorkHours: payload.type === 'hadir' ? regularWorkHours : 0,
+        overtimeHours: payload.type === 'hadir' ? overtimeHours : 0,
+        shiftCategory,
+        shiftNotes,
         isLate: payload.type === 'hadir' ? isLate : false,
+        checkInPhoto,
+        checkInLocation,
+        checkOutPhoto,
+        checkOutLocation,
         notes: payload.notes || (payload.type === 'hadir' ? 'Check-in hadir harian.' : ''),
         createdAt: now,
         updatedAt: now,
@@ -759,6 +880,12 @@ export const db = {
         check_in_time: updatedItem.checkInTime,
         check_out_time: updatedItem.checkOutTime,
         work_duration_hours: updatedItem.workDurationHours,
+        regular_work_hours: updatedItem.regularWorkHours,
+        overtime_hours: updatedItem.overtimeHours,
+        shift_category: updatedItem.shiftCategory,
+        shift_notes: updatedItem.shiftNotes,
+        check_in_location: updatedItem.checkInLocation,
+        check_out_location: updatedItem.checkOutLocation,
         notes: updatedItem.notes,
         updated_at: now,
       };
@@ -797,7 +924,114 @@ export const db = {
     return updated;
   },
 
-  // --- 6. OPERASI EVALUASI PERFORMA AI & SARAN TERPADU ---
+  // --- 6. OPERASI JADWAL PENGINGAT (REMINDERS & ALARMS) ---
+  getReminders(): ReminderItem[] {
+    const raw = safeStorage.getItem(STORAGE_KEYS.REMINDERS);
+    if (!raw) return [];
+    try {
+      const list = JSON.parse(raw);
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  },
+
+  saveReminders(reminders: ReminderItem[]): void {
+    safeStorage.setItem(STORAGE_KEYS.REMINDERS, JSON.stringify(reminders));
+  },
+
+  createReminder(
+    payload: Omit<ReminderItem, 'id' | 'createdAt' | 'ownerId' | 'ownerName'>,
+    owner?: UserProfile | null
+  ): ReminderItem[] {
+    const activeOwner = owner || this.getSavedSession();
+    const newRem: ReminderItem = {
+      id: 'rem-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 5),
+      ownerId: activeOwner?.id || 'owner-demo-1',
+      ownerName: activeOwner?.fullName || 'User',
+      title: payload.title.trim(),
+      date: payload.date,
+      startTime: payload.startTime,
+      endTime: payload.endTime,
+      notifyBeforeMinutes: payload.notifyBeforeMinutes || 0,
+      notes: payload.notes?.trim() || '',
+      isActive: payload.isActive !== undefined ? payload.isActive : true,
+      isTriggered: false,
+      createdAt: new Date().toISOString(),
+    };
+    const updated = [newRem, ...this.getReminders()];
+    this.saveReminders(updated);
+
+    if (supabase) {
+      supabase.from('reminders').insert({
+        id: newRem.id,
+        owner_id: newRem.ownerId,
+        owner_name: newRem.ownerName,
+        title: newRem.title,
+        reminder_date: newRem.date,
+        start_time: newRem.startTime,
+        end_time: newRem.endTime,
+        notify_before_minutes: newRem.notifyBeforeMinutes,
+        notes: newRem.notes,
+        is_active: newRem.isActive,
+        created_at: newRem.createdAt,
+      }).then(({ error }) => {
+        if (error) console.warn('Supabase insert reminder notice:', error.message);
+      });
+    }
+
+    return updated;
+  },
+
+  updateReminder(
+    id: string,
+    payload: Partial<Omit<ReminderItem, 'id' | 'createdAt' | 'ownerId' | 'ownerName'>>
+  ): ReminderItem[] {
+    const updated = this.getReminders().map((r) =>
+      r.id === id ? { ...r, ...payload } : r
+    );
+    this.saveReminders(updated);
+
+    if (supabase) {
+      supabase
+        .from('reminders')
+        .update(payload)
+        .eq('id', id)
+        .then(({ error }) => {
+          if (error) console.warn('Supabase update reminder notice:', error.message);
+        });
+    }
+
+    return updated;
+  },
+
+  deleteReminder(id: string): ReminderItem[] {
+    const updated = this.getReminders().filter((r) => r.id !== id);
+    this.saveReminders(updated);
+
+    if (supabase) {
+      supabase
+        .from('reminders')
+        .delete()
+        .eq('id', id)
+        .then(({ error }) => {
+          if (error) console.warn('Supabase delete reminder notice:', error.message);
+        });
+    }
+
+    return updated;
+  },
+
+  toggleReminderActive(id: string): ReminderItem[] {
+    const current = this.getReminders();
+    const updated = current.map((r) =>
+      r.id === id ? { ...r, isActive: !r.isActive } : r
+    );
+    this.saveReminders(updated);
+    return updated;
+  },
+
+  // --- 7. OPERASI EVALUASI PERFORMA AI & SARAN TERPADU ---
   getAIPerformances(): AIPerformanceRecord[] {
     const raw = safeStorage.getItem(STORAGE_KEYS.AI_PERFORMANCES);
     if (!raw) return [];
