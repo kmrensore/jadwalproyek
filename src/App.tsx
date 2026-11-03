@@ -58,6 +58,13 @@ import {
   ShieldAlert,
   Compass,
   FileDown,
+  Lock,
+  Key as KeyIcon,
+  ShieldCheck,
+  Eye,
+  EyeOff,
+  Smartphone,
+  Mail,
 } from 'lucide-react';
 import AuthPage from './AuthPage';
 import { PROJECT_COLORS, DEFAULT_WORK_POLICY } from './types';
@@ -459,6 +466,19 @@ export default function App() {
   const [capturedSnapshotPreview, setCapturedSnapshotPreview] = useState<string | null>(null);
   const videoElemRef = useRef<HTMLVideoElement | null>(null);
 
+  // State Pengaturan Akun Pribadi (Profile, Password & Cloud)
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState<boolean>(false);
+  const [accountActiveSubTab, setAccountActiveSubTab] = useState<'profile' | 'security' | 'stats'>('profile');
+  const [accFullName, setAccFullName] = useState<string>('');
+  const [accPhone, setAccPhone] = useState<string>('');
+  const [accNewPassword, setAccNewPassword] = useState<string>('');
+  const [accConfirmPassword, setAccConfirmPassword] = useState<string>('');
+  const [accShowPassword, setAccShowPassword] = useState<boolean>(false);
+  const [isSavingAccount, setIsSavingAccount] = useState<boolean>(false);
+  const [accountFeedback, setAccountFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [accAvatarUrl, setAccAvatarUrl] = useState<string>('');
+  const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
+
   // State Galeri Foto Bukti Absensi di Laporan
   const [isPhotoGalleryModalOpen, setIsPhotoGalleryModalOpen] = useState<boolean>(false);
   const [selectedPreviewPhoto, setSelectedPreviewPhoto] = useState<{
@@ -685,6 +705,133 @@ export default function App() {
     setCurrentUser(null);
     setSelectedDate(null);
     showToast('Berhasil keluar dari akun');
+  };
+
+  // HANDLERS SETINGAN AKUN PRIBADI (PROFIL & PASSWORD)
+  const openAccountModal = () => {
+    if (currentUser) {
+      setAccFullName(currentUser.fullName);
+      setAccPhone(currentUser.phone !== '-' ? currentUser.phone : '');
+      setAccAvatarUrl(currentUser.avatarUrl || '');
+    }
+    setAccNewPassword('');
+    setAccConfirmPassword('');
+    setAccShowPassword(false);
+    setAccountFeedback(null);
+    setIsAccountModalOpen(true);
+  };
+
+  const handleAvatarImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setAccountFeedback({ type: 'error', message: 'File yang dipilih harus berupa format gambar (JPG, PNG, WEBP)' });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        // Kompresi avatar ke resolusi bujur sangkar 256x256 agar tajam dan sangat ringan (<25KB)
+        const size = 256;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        // Crop tengah bujur sangkar (center square crop)
+        const minDim = Math.min(img.width, img.height);
+        const sx = (img.width - minDim) / 2;
+        const sy = (img.height - minDim) / 2;
+
+        ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, size, size);
+        const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        setAccAvatarUrl(compressedDataUrl);
+        setAccountFeedback({ type: 'success', message: 'Foto profil siap disimpan. Klik "Simpan Perubahan Profil" untuk menerapkan.' });
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!accFullName.trim()) {
+      setAccountFeedback({ type: 'error', message: 'Nama lengkap tidak boleh kosong' });
+      return;
+    }
+    setIsSavingAccount(true);
+    setAccountFeedback(null);
+    try {
+      const dbInstance = db as typeof db & {
+        updateProfile?: (payload: {
+          fullName: string;
+          phone: string;
+          avatarUrl?: string;
+        }) => Promise<{ user?: UserProfile; error?: string }>;
+      };
+
+      if (!dbInstance.updateProfile) {
+        throw new Error('Metode updateProfile belum ditemukan di src/db.ts. Pastikan file src/db.ts sudah diperbarui.');
+      }
+
+      const res = await dbInstance.updateProfile({
+        fullName: accFullName.trim(),
+        phone: accPhone.trim() || '-',
+        avatarUrl: accAvatarUrl,
+      });
+      if (res.error) {
+        setAccountFeedback({ type: 'error', message: res.error });
+      } else if (res.user) {
+        setCurrentUser(res.user);
+        setAccountFeedback({ type: 'success', message: 'Profil akun dan foto berhasil diperbarui dan disinkronkan!' });
+        showToast('Profil akun berhasil disimpan');
+      }
+    } catch (err: any) {
+      setAccountFeedback({ type: 'error', message: err.message || 'Gagal menyimpan profil' });
+    } finally {
+      setIsSavingAccount(false);
+    }
+  };
+
+  const handleUpdatePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!accNewPassword || accNewPassword.length < 6) {
+      setAccountFeedback({ type: 'error', message: 'Kata sandi baru minimal 6 karakter' });
+      return;
+    }
+    if (accNewPassword !== accConfirmPassword) {
+      setAccountFeedback({ type: 'error', message: 'Konfirmasi kata sandi tidak cocok' });
+      return;
+    }
+    setIsSavingAccount(true);
+    setAccountFeedback(null);
+    try {
+      const dbInstance = db as typeof db & {
+        updatePassword?: (newPassword: string) => Promise<{ success: boolean; error?: string }>;
+      };
+
+      if (!dbInstance.updatePassword) {
+        throw new Error('Metode updatePassword belum ditemukan di src/db.ts. Pastikan file src/db.ts sudah diperbarui.');
+      }
+
+      const res = await dbInstance.updatePassword(accNewPassword);
+      if (!res.success) {
+        setAccountFeedback({ type: 'error', message: res.error || 'Gagal mengubah kata sandi' });
+      } else {
+        setAccountFeedback({ type: 'success', message: 'Kata sandi akun Anda berhasil diperbarui!' });
+        setAccNewPassword('');
+        setAccConfirmPassword('');
+        showToast('Kata sandi berhasil diubah');
+      }
+    } catch (err: any) {
+      setAccountFeedback({ type: 'error', message: err.message || 'Gagal mengubah kata sandi' });
+    } finally {
+      setIsSavingAccount(false);
+    }
   };
 
   // DAFTAR OWNER UNIK
@@ -2018,21 +2165,44 @@ export default function App() {
             </button>
           </div>
 
-          {/* Profil User & Tombol Keluar */}
+          {/* Profil User, Setingan Akun & Tombol Keluar */}
           <div className="flex items-center gap-2">
-            <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-              <div className="w-7 h-7 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center text-xs shrink-0">
-                {currentUser.fullName.charAt(0).toUpperCase()}
+            <button
+              type="button"
+              onClick={openAccountModal}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs transition-colors cursor-pointer group text-left"
+              title="Klik untuk membuka Pengaturan Akun & Profil Pribadi"
+            >
+              <div className="w-7 h-7 rounded-full bg-indigo-600 group-hover:bg-indigo-700 text-white font-bold flex items-center justify-center text-xs shrink-0 shadow-2xs transition-colors overflow-hidden">
+                {currentUser.avatarUrl ? (
+                  <img
+                    src={currentUser.avatarUrl}
+                    alt={currentUser.fullName}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  currentUser.fullName.charAt(0).toUpperCase()
+                )}
               </div>
-              <div className="leading-tight">
-                <div className="font-bold text-slate-900 truncate max-w-[120px]">
+              <div className="leading-tight hidden sm:block">
+                <div className="font-bold text-slate-900 truncate max-w-[120px] group-hover:text-indigo-600 transition-colors">
                   {currentUser.fullName}
                 </div>
                 <div className="text-[10px] text-slate-500 font-mono">
                   {currentUser.id.slice(0, 10)}
                 </div>
               </div>
-            </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={openAccountModal}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-100 border border-slate-200 transition-colors"
+              title="Setingan Akun Pribadi"
+            >
+              <Settings className="w-4 h-4 text-slate-600" />
+              <span className="hidden md:inline">Setingan Akun</span>
+            </button>
 
             <button
               type="button"
@@ -5699,6 +5869,452 @@ export default function App() {
                   </div>
                 );
               })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL SETINGAN AKUN PRIBADI (PROFIL & PASSWORD) */}
+      {isAccountModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs"
+            onClick={() => setIsAccountModalOpen(false)}
+          />
+
+          <div className="relative z-10 w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-slate-50 to-indigo-50/30">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white font-extrabold flex items-center justify-center text-base shadow-sm overflow-hidden">
+                  {currentUser.avatarUrl ? (
+                    <img
+                      src={currentUser.avatarUrl}
+                      alt={currentUser.fullName}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    currentUser.fullName.charAt(0).toUpperCase()
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Pengaturan Akun &amp; Profil
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Kelola identitas, ubah kata sandi, dan status akun
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAccountModalOpen(false)}
+                className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors"
+                aria-label="Tutup"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Sub-tab Navigation */}
+            <div className="flex border-b border-slate-200 bg-slate-50/70 px-6 pt-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setAccountActiveSubTab('profile');
+                  setAccountFeedback(null);
+                }}
+                className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+                  accountActiveSubTab === 'profile'
+                    ? 'border-indigo-600 text-indigo-600'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <UserIcon className="w-3.5 h-3.5" />
+                <span>Biodata Profil</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setAccountActiveSubTab('security');
+                  setAccountFeedback(null);
+                }}
+                className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+                  accountActiveSubTab === 'security'
+                    ? 'border-indigo-600 text-indigo-600'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>Ubah Password</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setAccountActiveSubTab('stats');
+                  setAccountFeedback(null);
+                }}
+                className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+                  accountActiveSubTab === 'stats'
+                    ? 'border-indigo-600 text-indigo-600'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>Status &amp; Data</span>
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-4">
+              {/* Alert Feedback */}
+              {accountFeedback && (
+                <div
+                  className={`p-3.5 rounded-2xl text-xs font-semibold flex items-center gap-2.5 border ${
+                    accountFeedback.type === 'success'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                      : 'bg-rose-50 text-rose-800 border-rose-200'
+                  }`}
+                >
+                  {accountFeedback.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  )}
+                  <span>{accountFeedback.message}</span>
+                </div>
+              )}
+
+              {/* TAB 1: BIODATA PROFIL */}
+              {accountActiveSubTab === 'profile' && (
+                <form onSubmit={handleSaveProfile} className="space-y-4">
+                  {/* Foto Profil / Avatar Uploader */}
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-center gap-4">
+                    <div className="relative group shrink-0">
+                      <div className="w-20 h-20 rounded-full border-2 border-indigo-500 shadow-md overflow-hidden bg-indigo-600 text-white font-black text-2xl flex items-center justify-center">
+                        {accAvatarUrl ? (
+                          <img
+                            src={accAvatarUrl}
+                            alt="Avatar Preview"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : accFullName ? (
+                          accFullName.charAt(0).toUpperCase()
+                        ) : (
+                          <UserIcon className="w-10 h-10 text-white/80" />
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => avatarFileInputRef.current?.click()}
+                        className="absolute inset-0 bg-slate-900/40 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity cursor-pointer"
+                        title="Ganti Foto Profil"
+                      >
+                        <Camera className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-1.5 text-center sm:text-left flex-1">
+                      <h4 className="text-xs font-bold text-slate-800">Foto Profil Akun</h4>
+                      <p className="text-[11px] text-slate-500 leading-tight">
+                        Unggah foto profil Anda (JPG, PNG, atau WEBP). Gambar otomatis dioptimasi dan dikompres agar sangat ringan (&lt;25KB) dan jernih.
+                      </p>
+                      <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
+                        <input
+                          type="file"
+                          ref={avatarFileInputRef}
+                          onChange={handleAvatarImageChange}
+                          accept="image/*"
+                          className="hidden"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => avatarFileInputRef.current?.click()}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 shadow-2xs transition-colors"
+                        >
+                          <Upload className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>Pilih Foto</span>
+                        </button>
+
+                        {accAvatarUrl && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAccAvatarUrl('');
+                              setAccountFeedback({ type: 'success', message: 'Foto profil dihapus. Klik "Simpan Perubahan Profil" untuk menerapkan.' });
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Hapus</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Nama Lengkap <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        required
+                        value={accFullName}
+                        onChange={(e) => setAccFullName(e.target.value)}
+                        placeholder="Contoh: Budi Santoso"
+                        className="w-full pl-9 pr-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      />
+                      <UserIcon className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Nomor Telepon / WhatsApp
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="tel"
+                        value={accPhone}
+                        onChange={(e) => setAccPhone(e.target.value)}
+                        placeholder="Contoh: 08123456789"
+                        className="w-full pl-9 pr-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      />
+                      <Smartphone className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Nomor telepon digunakan untuk identifikasi penanggung jawab pekerjaan dan laporan absensi.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Alamat Email (Akun Supabase)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="email"
+                        readOnly
+                        value={currentUser.email || '-'}
+                        className="w-full pl-9 pr-3.5 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-600 cursor-not-allowed"
+                      />
+                      <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                    </div>
+                    <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 font-semibold mt-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Email terdaftar dan terautentikasi di Supabase Cloud
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      User ID / Owner ID
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={currentUser.id}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-500 select-all"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(currentUser.id);
+                          showToast('User ID disalin ke clipboard');
+                        }}
+                        className="px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-xs font-bold text-slate-600 flex items-center gap-1 shrink-0"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Salin</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex justify-end gap-2 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setIsAccountModalOpen(false)}
+                      className="px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSavingAccount}
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm disabled:opacity-50"
+                    >
+                      {isSavingAccount ? (
+                        <span>Menyimpan...</span>
+                      ) : (
+                        <>
+                          <Check className="w-4 h-4" />
+                          <span>Simpan Perubahan Profil</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* TAB 2: UBAH PASSWORD */}
+              {accountActiveSubTab === 'security' && (
+                <form onSubmit={handleUpdatePassword} className="space-y-4">
+                  <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 text-xs text-amber-900 space-y-1">
+                    <div className="font-bold flex items-center gap-1.5">
+                      <KeyIcon className="w-4 h-4 text-amber-600" />
+                      <span>Ubah Kata Sandi Akun</span>
+                    </div>
+                    <p className="text-[11px] text-amber-800/90 leading-relaxed">
+                      Kata sandi baru akan otomatis disinkronkan ke Supabase Auth. Setelah diubah, gunakan kata sandi baru untuk login di semua versi aplikasi (Web &amp; Desktop DMG).
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Kata Sandi Baru <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={accShowPassword ? 'text' : 'password'}
+                        required
+                        minLength={6}
+                        value={accNewPassword}
+                        onChange={(e) => setAccNewPassword(e.target.value)}
+                        placeholder="Minimal 6 karakter"
+                        className="w-full pl-9 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      />
+                      <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                      <button
+                        type="button"
+                        onClick={() => setAccShowPassword(!accShowPassword)}
+                        className="p-1 text-slate-400 hover:text-slate-600 absolute right-2.5 top-2.5 rounded-lg"
+                      >
+                        {accShowPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Konfirmasi Kata Sandi Baru <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={accShowPassword ? 'text' : 'password'}
+                        required
+                        minLength={6}
+                        value={accConfirmPassword}
+                        onChange={(e) => setAccConfirmPassword(e.target.value)}
+                        placeholder="Ulangi kata sandi baru"
+                        className="w-full pl-9 pr-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      />
+                      <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                    </div>
+                    {accConfirmPassword && accNewPassword !== accConfirmPassword && (
+                      <span className="text-[11px] font-semibold text-rose-500 block mt-1">
+                        Konfirmasi kata sandi belum cocok
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="pt-2 flex justify-end gap-2 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setIsAccountModalOpen(false)}
+                      className="px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSavingAccount || !accNewPassword || accNewPassword !== accConfirmPassword}
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm disabled:opacity-50"
+                    >
+                      {isSavingAccount ? (
+                        <span>Memperbarui...</span>
+                      ) : (
+                        <>
+                          <KeyIcon className="w-4 h-4" />
+                          <span>Perbarui Kata Sandi</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* TAB 3: STATUS & DATA AKUN */}
+              {accountActiveSubTab === 'stats' && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
+                      <div className="text-[11px] font-semibold text-slate-500">Status Server</div>
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                        <span className={`w-2 h-2 rounded-full ${isSupabaseConfigured ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                        <span>{isSupabaseConfigured ? 'Supabase Terhubung' : 'Mode Offline'}</span>
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
+                      <div className="text-[11px] font-semibold text-slate-500">Hak Akses</div>
+                      <div className="text-xs font-bold text-indigo-700">Owner / Administrator</div>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
+                      <div className="text-[11px] font-semibold text-slate-500">Proyek Aktif</div>
+                      <div className="text-base font-extrabold text-slate-900">
+                        {projects.filter((p) => p.ownerId === currentUser.id).length} Proyek
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
+                      <div className="text-[11px] font-semibold text-slate-500">Catatan Jadwal</div>
+                      <div className="text-base font-extrabold text-slate-900">
+                        {entries.filter((e) => e.ownerId === currentUser.id).length} Catatan
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
+                      <div className="text-[11px] font-semibold text-slate-500">Riwayat Absensi</div>
+                      <div className="text-base font-extrabold text-slate-900">
+                        {attendance.filter((a) => a.ownerId === currentUser.id).length} Hari
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
+                      <div className="text-[11px] font-semibold text-slate-500">Pengingat Terpasang</div>
+                      <div className="text-base font-extrabold text-slate-900">
+                        {reminders.filter((r) => r.ownerId === currentUser.id).length} Alarm
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-indigo-50/60 border border-indigo-100 flex items-start gap-3">
+                    <ShieldCheck className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+                    <div className="text-xs text-indigo-950 space-y-1">
+                      <span className="font-bold block">Sinkronisasi Multi-Device</span>
+                      <p className="text-[11px] text-indigo-800 leading-relaxed">
+                        Data akun, riwayat absensi, bukti foto, dan jadwal Anda disimpan secara aman dan otomatis tersinkronisasi saat Anda membuka aplikasi di browser web maupun desktop Mac (DMG).
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setIsAccountModalOpen(false)}
+                      className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold"
+                    >
+                      Tutup
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -8,9 +8,9 @@ import type {
   UserProfile,
   AttendanceRecord,
   AttendanceType,
-  WorkShiftCategory,
   AIPerformanceRecord,
   WorkPolicy,
+  WorkShiftCategory,
   ReminderItem,
 } from './types';
 
@@ -18,19 +18,10 @@ import type {
 // MODUL DATA LAYER (src/db.ts — Jadwal, Proyek, Cabang Program, Absensi, Performa AI & Supabase)
 // ============================================================================
 
-const supabaseUrl =
-  import.meta.env.VITE_SUPABASE_URL?.trim() ||
-  'https://uqwcskzvichqukdqzdam.supabase.co'; // <--- TEMPELKAN URL SUPABASE LU DI SINI
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim() || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() || '';
 
-const supabaseAnonKey =
-  import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxd2Nza3p2aWNocXVrZHF6ZGFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMxNzA5NDksImV4cCI6MjEwODc0Njk0OX0.ArENDsxU23l08yhrPZGLgneSKlJ0cobEXyJ5OAiPQSY'; // <--- TEMPELKAN ANON KEY ASLI LU DI SINI
-
-export const isSupabaseConfigured = Boolean(
-  supabaseUrl &&
-  supabaseAnonKey &&
-  !supabaseUrl.includes('GANTI_DENGAN')
-);
+export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
 export const supabase: SupabaseClient | null = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey)
@@ -47,6 +38,7 @@ const STORAGE_KEYS = {
   REMINDERS: 'jadwalpro_reminders_v3',
 };
 
+// Data seed kosong murni agar akun baru tidak tercemar data demo
 export const SEED_PROJECTS: Project[] = [];
 export const SEED_ENTRIES: ScheduleEntry[] = [];
 export const SEED_ATTENDANCE: AttendanceRecord[] = [];
@@ -76,7 +68,7 @@ const safeStorage = {
 };
 
 export const db = {
-  // --- 1. SESI LOGIN & AUTHENTICATION ---
+  // --- 1. SESI LOGIN & AUTHENTICATION (AUTO-LOGIN PERMANEN) ---
   saveSession(profile: UserProfile): void {
     safeStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(profile));
     safeStorage.setItem('jadwalpro_current_user', JSON.stringify(profile));
@@ -109,6 +101,7 @@ export const db = {
             fullName: meta.full_name || session.user.email?.split('@')[0] || 'User',
             phone: meta.phone || '-',
             email: session.user.email || '',
+            avatarUrl: meta.avatar_url || undefined,
           };
           this.saveSession(profile);
           return profile;
@@ -132,6 +125,7 @@ export const db = {
           fullName: meta.full_name || session.user.email?.split('@')[0] || 'User',
           phone: meta.phone || '-',
           email: session.user.email || '',
+          avatarUrl: meta.avatar_url || undefined,
         };
         this.saveSession(profile);
         callback(profile);
@@ -220,6 +214,7 @@ export const db = {
         fullName: meta.full_name || data.user.email?.split('@')[0] || 'User',
         phone: meta.phone || '-',
         email: data.user.email || cleanEmail,
+        avatarUrl: meta.avatar_url || undefined,
       };
 
       await supabase.from('profiles').upsert(
@@ -256,6 +251,81 @@ export const db = {
         console.warn('Sign out error:', err);
       }
     }
+  },
+
+  // --- 1.1 SETINGAN AKUN PRIBADI (UPDATE PROFIL & GANTI PASSWORD) ---
+  async updateProfile(payload: {
+    fullName: string;
+    phone: string;
+    avatarUrl?: string;
+  }): Promise<{ user?: UserProfile; error?: string }> {
+    const cleanName = payload.fullName.trim();
+    const cleanPhone = payload.phone.trim();
+    const session = this.getSavedSession();
+    if (!session) return { error: 'Sesi pengguna tidak ditemukan' };
+
+    const updatedProfile: UserProfile = {
+      ...session,
+      fullName: cleanName || session.fullName,
+      phone: cleanPhone || session.phone,
+      ...(payload.avatarUrl !== undefined ? { avatarUrl: payload.avatarUrl } : {}),
+    };
+
+    if (supabase) {
+      try {
+        const { error: authError } = await supabase.auth.updateUser({
+          data: {
+            full_name: updatedProfile.fullName,
+            phone: updatedProfile.phone,
+            avatar_url: updatedProfile.avatarUrl || '',
+          },
+        });
+        if (authError) {
+          console.warn('Supabase auth.updateUser warning:', authError);
+        }
+
+        const { error: dbError } = await supabase.from('profiles').upsert(
+          {
+            owner_id: updatedProfile.id,
+            full_name: updatedProfile.fullName,
+            phone: updatedProfile.phone,
+            email: updatedProfile.email,
+          },
+          { onConflict: 'owner_id' }
+        );
+        if (dbError) {
+          console.warn('Supabase profiles.upsert warning:', dbError);
+        }
+      } catch (err: any) {
+        console.warn('Gagal sinkron update profil ke Supabase:', err);
+      }
+    }
+
+    this.saveSession(updatedProfile);
+    return { user: updatedProfile };
+  },
+
+  async updatePassword(newPassword: string): Promise<{ success: boolean; error?: string }> {
+    if (!newPassword || newPassword.length < 6) {
+      return { success: false, error: 'Password minimal 6 karakter' };
+    }
+
+    if (supabase) {
+      try {
+        const { error } = await supabase.auth.updateUser({
+          password: newPassword,
+        });
+        if (error) {
+          return { success: false, error: error.message || 'Gagal mengubah kata sandi di Supabase Auth' };
+        }
+        return { success: true };
+      } catch (err: any) {
+        return { success: false, error: err.message || 'Terjadi kesalahan sistem saat memperbarui password' };
+      }
+    }
+
+    // Mode offline / demo lokal
+    return { success: true };
   },
 
   // --- 2. INISIALISASI & SINKRONISASI DATA ---
@@ -301,7 +371,7 @@ export const db = {
       let attQuery = supabase
         .from('attendance')
         .select(
-          'id, ownerId:owner_id, ownerName:owner_name, date:entry_date, type, checkInTime:check_in_time, checkOutTime:check_out_time, workDurationHours:work_duration_hours, regularWorkHours:regular_work_hours, overtimeHours:overtime_hours, shiftCategory:shift_category, shiftNotes:shift_notes, checkInPhoto:check_in_photo, checkInLocation:check_in_location, checkOutPhoto:check_out_photo, checkOutLocation:check_out_location, notes, createdAt:created_at, updatedAt:updated_at'
+          'id, ownerId:owner_id, ownerName:owner_name, date:entry_date, type, checkInTime:check_in_time, checkOutTime:check_out_time, workDurationHours:work_duration_hours, notes, createdAt:created_at, updatedAt:updated_at'
         )
         .order('entry_date', { ascending: false });
 
@@ -468,6 +538,7 @@ export const db = {
     });
     this.saveProjects(updated);
 
+    // Update entri tugas yang sebelumnya memakai program ini agar programId jadi null
     const updatedEntries = this.getEntries().map((e) =>
       e.projectId === projectId && e.programId === programId
         ? { ...e, programId: null, updatedAt: new Date().toISOString() }
@@ -672,12 +743,6 @@ export const db = {
       type: AttendanceType;
       checkInTime?: string | null;
       checkOutTime?: string | null;
-      shiftCategory?: WorkShiftCategory;
-      shiftNotes?: string;
-      checkInPhoto?: string | null;
-      checkInLocation?: string | null;
-      checkOutPhoto?: string | null;
-      checkOutLocation?: string | null;
       notes?: string;
     },
     owner?: UserProfile | null
@@ -691,13 +756,7 @@ export const db = {
       (r) => r.ownerId === ownerId && r.date === payload.date
     );
 
-    const policy = this.getWorkPolicy();
-    const stdIn = policy.standardCheckInTime || '08:00';
-    const stdOut = policy.standardCheckOutTime || '17:00';
-    const breakHours = policy.breakDurationHours !== undefined ? policy.breakDurationHours : 1.0;
-    const thresholdMin = policy.earlyOvertimeThresholdMinutes || 60;
-    const lateTolMin = policy.lateToleranceMinutes || 15;
-
+    let duration = 0;
     const inTime =
       payload.checkInTime !== undefined
         ? payload.checkInTime
@@ -711,111 +770,27 @@ export const db = {
         ? records[existingIndex].checkOutTime
         : null;
 
+    const policy = this.getWorkPolicy();
     let isLate = false;
-    let earlyOvertimeHours = 0;
-    let lateOvertimeHours = 0;
-    let effectiveInMinutes = 0;
-    let effectiveOutMinutes = 0;
-
-    const [stdInH, stdInM] = stdIn.split(':').map(Number);
-    const stdInTotalMin = stdInH * 60 + stdInM;
-
-    const [stdOutH, stdOutM] = stdOut.split(':').map(Number);
-    const stdOutTotalMin = stdOutH * 60 + stdOutM;
-
-    // Evaluasi Jam Masuk & Early Overtime
-    if (inTime) {
-      const [hIn, mIn] = inTime.split(':').map(Number);
-      const actInMin = hIn * 60 + mIn;
-
-      if (actInMin > stdInTotalMin + lateTolMin) {
+    if (inTime && policy.standardCheckInTime) {
+      const [stdH, stdM] = policy.standardCheckInTime.split(':').map(Number);
+      const [actH, actM] = inTime.split(':').map(Number);
+      const limitMinutes = stdH * 60 + stdM + (policy.lateToleranceMinutes || 0);
+      const actMinutes = actH * 60 + actM;
+      if (actMinutes > limitMinutes) {
         isLate = true;
-        effectiveInMinutes = actInMin;
-      } else if (stdInTotalMin - actInMin > thresholdMin) {
-        effectiveInMinutes = actInMin;
-        earlyOvertimeHours = (stdInTotalMin - actInMin) / 60;
-      } else {
-        effectiveInMinutes = stdInTotalMin;
       }
     }
 
-    // Evaluasi Jam Keluar & Late Overtime
-    if (outTime) {
+    if (inTime && outTime) {
+      const [hIn, mIn] = inTime.split(':').map(Number);
       const [hOut, mOut] = outTime.split(':').map(Number);
-      const actOutMin = hOut * 60 + mOut;
-      effectiveOutMinutes = actOutMin;
-
-      if (actOutMin > stdOutTotalMin + 30) {
-        lateOvertimeHours = (actOutMin - stdOutTotalMin) / 60;
-      }
+      const diffMinutes = hOut * 60 + mOut - (hIn * 60 + mIn);
+      const grossHours = Math.max(0, diffMinutes / 60);
+      const breakDeduction = policy.breakDurationHours || 0;
+      const netHours = grossHours > breakDeduction ? grossHours - breakDeduction : grossHours;
+      duration = Math.round(netHours * 10) / 10;
     }
-
-    let workDurationHours = 0;
-    let overtimeHours = 0;
-    let regularWorkHours = 0;
-
-    if (inTime && outTime && effectiveOutMinutes > effectiveInMinutes) {
-      const grossMinutes = effectiveOutMinutes - effectiveInMinutes;
-      const grossHours = Math.max(0, grossMinutes / 60);
-
-      const netHours = grossHours > breakHours ? grossHours - breakHours : grossHours;
-      workDurationHours = Math.round(netHours * 10) / 10;
-
-      const totalOvertime = Math.round((earlyOvertimeHours + lateOvertimeHours) * 10) / 10;
-      overtimeHours = Math.min(workDurationHours, totalOvertime);
-      regularWorkHours = Math.max(0, Math.round((workDurationHours - overtimeHours) * 10) / 10);
-    }
-
-    let autoShiftCategory: WorkShiftCategory = 'normal';
-    if (earlyOvertimeHours > 0 && lateOvertimeHours > 0) {
-      autoShiftCategory = 'lembur_penuh';
-    } else if (earlyOvertimeHours > 0) {
-      autoShiftCategory = 'lembur_awal';
-    } else if (lateOvertimeHours > 0) {
-      autoShiftCategory = 'lembur_akhir';
-    }
-
-    const shiftCategory: WorkShiftCategory =
-      payload.shiftCategory ||
-      (existingIndex >= 0 && records[existingIndex].shiftCategory) ||
-      autoShiftCategory;
-
-    const shiftNotes =
-      payload.shiftNotes !== undefined
-        ? payload.shiftNotes
-        : existingIndex >= 0
-        ? records[existingIndex].shiftNotes
-        : autoShiftCategory !== 'normal'
-        ? `Lembur terdeteksi (${overtimeHours > 0 ? `${overtimeHours} Jam` : ''})`
-        : 'Shift kerja normal';
-
-    const checkInPhoto =
-      payload.checkInPhoto !== undefined
-        ? payload.checkInPhoto
-        : existingIndex >= 0
-        ? records[existingIndex].checkInPhoto
-        : null;
-
-    const checkInLocation =
-      payload.checkInLocation !== undefined
-        ? payload.checkInLocation
-        : existingIndex >= 0
-        ? records[existingIndex].checkInLocation
-        : null;
-
-    const checkOutPhoto =
-      payload.checkOutPhoto !== undefined
-        ? payload.checkOutPhoto
-        : existingIndex >= 0
-        ? records[existingIndex].checkOutPhoto
-        : null;
-
-    const checkOutLocation =
-      payload.checkOutLocation !== undefined
-        ? payload.checkOutLocation
-        : existingIndex >= 0
-        ? records[existingIndex].checkOutLocation
-        : null;
 
     const now = new Date().toISOString();
     let updatedItem: AttendanceRecord;
@@ -827,16 +802,8 @@ export const db = {
         type: payload.type,
         checkInTime: inTime,
         checkOutTime: outTime,
-        workDurationHours: payload.type === 'hadir' ? workDurationHours : 0,
-        regularWorkHours: payload.type === 'hadir' ? regularWorkHours : 0,
-        overtimeHours: payload.type === 'hadir' ? overtimeHours : 0,
-        shiftCategory,
-        shiftNotes,
+        workDurationHours: payload.type === 'hadir' ? duration : 0,
         isLate: payload.type === 'hadir' ? isLate : false,
-        checkInPhoto,
-        checkInLocation,
-        checkOutPhoto,
-        checkOutLocation,
         notes: payload.notes !== undefined ? payload.notes : records[existingIndex].notes,
         updatedAt: now,
       };
@@ -851,16 +818,12 @@ export const db = {
         type: payload.type,
         checkInTime: inTime,
         checkOutTime: outTime,
-        workDurationHours: payload.type === 'hadir' ? workDurationHours : 0,
-        regularWorkHours: payload.type === 'hadir' ? regularWorkHours : 0,
-        overtimeHours: payload.type === 'hadir' ? overtimeHours : 0,
-        shiftCategory,
-        shiftNotes,
+        workDurationHours: payload.type === 'hadir' ? duration : 0,
+        regularWorkHours: payload.type === 'hadir' ? duration : 0,
+        overtimeHours: 0,
+        shiftCategory: 'normal',
+        shiftNotes: 'Shift normal',
         isLate: payload.type === 'hadir' ? isLate : false,
-        checkInPhoto,
-        checkInLocation,
-        checkOutPhoto,
-        checkOutLocation,
         notes: payload.notes || (payload.type === 'hadir' ? 'Check-in hadir harian.' : ''),
         createdAt: now,
         updatedAt: now,
@@ -880,12 +843,6 @@ export const db = {
         check_in_time: updatedItem.checkInTime,
         check_out_time: updatedItem.checkOutTime,
         work_duration_hours: updatedItem.workDurationHours,
-        regular_work_hours: updatedItem.regularWorkHours,
-        overtime_hours: updatedItem.overtimeHours,
-        shift_category: updatedItem.shiftCategory,
-        shift_notes: updatedItem.shiftNotes,
-        check_in_location: updatedItem.checkInLocation,
-        check_out_location: updatedItem.checkOutLocation,
         notes: updatedItem.notes,
         updated_at: now,
       };
@@ -1010,13 +967,9 @@ export const db = {
     this.saveReminders(updated);
 
     if (supabase) {
-      supabase
-        .from('reminders')
-        .delete()
-        .eq('id', id)
-        .then(({ error }) => {
-          if (error) console.warn('Supabase delete reminder notice:', error.message);
-        });
+      supabase.from('reminders').delete().eq('id', id).then(({ error }) => {
+        if (error) console.warn('Supabase delete reminder notice:', error.message);
+      });
     }
 
     return updated;

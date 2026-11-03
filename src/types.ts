@@ -8,6 +8,7 @@ export interface UserProfile {
   phone: string;
   email: string;
   createdAt?: string;
+  avatarUrl?: string; // Foto profil atau avatar inisial
 }
 
 // Cabang Program di dalam sebuah Proyek (contoh: Proyek 'abc' -> Program 'abc 1', 'abc 2')
@@ -52,8 +53,8 @@ export interface AttendanceRecord {
   checkInTime: string | null; // Format HH:mm (contoh: "08:15")
   checkOutTime: string | null; // Format HH:mm (contoh: "17:20")
   workDurationHours: number; // Total durasi jam kerja bersih dalam desimal (setelah potong istirahat)
-  regularWorkHours?: number; // Jam kerja reguler (maksimal target standar, misal 8 jam)
-  overtimeHours?: number; // Jam lembur (pekerjaan di luar jam reguler)
+  regularWorkHours: number; // Jam kerja reguler (maksimal target standar, misal 8 jam)
+  overtimeHours: number; // Jam lembur (pekerjaan di luar jam reguler)
   shiftCategory?: WorkShiftCategory; // 'normal' | 'lembur_awal' | 'lembur_akhir' | 'lembur_penuh'
   shiftNotes?: string; // Keterangan lembur atau catatan shift
   isLate?: boolean; // Menandai apakah clock-in melewati jam baku + toleransi
