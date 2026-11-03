@@ -76,13 +76,19 @@ import type {
   ReminderItem,
 
   ProjectProgram,
-  ScheduleEntry,
+  ScheduleEntry as BaseScheduleEntry,
   UserProfile,
   AttendanceRecord,
   AttendanceType,
   AIPerformanceRecord,
 } from './types';
 import { db, isSupabaseConfigured } from './db';
+
+// Ekstensi lokal ScheduleEntry agar selalu mengenali completedDate & durationDays
+export interface ScheduleEntry extends BaseScheduleEntry {
+  completedDate?: string | null;
+  durationDays?: number;
+}
 
 // ============================================================================
 // UTILITAS TANGGAL & FORMATTER
@@ -231,6 +237,42 @@ function getHolidayInfo(dateStr: string): HolidayInfo | null {
     return FIXED_ANNUAL_HOLIDAYS[mmDd];
   }
   return null;
+}
+
+// ============================================================================
+// HELPER PERHITUNGAN DURASI HARI & RENTANG PROYEK MENYAMBUNG
+// ============================================================================
+function getCalendarDaySpan(startDateStr: string, endDateStr: string): number {
+  if (!startDateStr || !endDateStr) return 1;
+  const s = new Date(startDateStr + 'T00:00:00');
+  const e = new Date(endDateStr + 'T00:00:00');
+  const diff = Math.round((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24));
+  return Math.max(1, diff + 1); // Inklusif: misal 1 Nov s/d 1 Nov = 1 hari
+}
+
+function getEntryDateRange(
+  e: ScheduleEntry,
+  today: string
+): { startDate: string; endDate: string; totalDays: number; isOngoing: boolean } {
+  const startDate = e.date;
+  let endDate = startDate;
+  let isOngoing = false;
+
+  if (e.status === 'selesai') {
+    endDate = (e as any).completedDate || startDate;
+    if (endDate < startDate) endDate = startDate;
+  } else {
+    // Jika belum selesai dan tanggal mulai <= hari ini, proyek otomatis MENYAMBUNG setiap hari sampai hari ini!
+    if (startDate < today) {
+      endDate = today;
+      isOngoing = true;
+    } else {
+      endDate = startDate;
+    }
+  }
+
+  const totalDays = getCalendarDaySpan(startDate, endDate);
+  return { startDate, endDate, totalDays, isOngoing };
 }
 // ============================================================================
 // HELPER AUDIO ALARM & SINTESIS NADA WEB AUDIO API
@@ -1014,10 +1056,17 @@ export default function App() {
     return `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
   }, [currentYear, currentMonth]);
 
-  // ENTRI BULAN BERJALAN (KALENDER)
+  // ENTRI BULAN BERJALAN (KALENDER) — Mendukung Proyek Menyambung ke Hari Selanjutnya
   const monthEntries = useMemo(() => {
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const firstDayOfMonth = `${currentMonthPrefix}-01`;
+    const lastDayOfMonth = `${currentMonthPrefix}-${String(daysInMonth).padStart(2, '0')}`;
+
     return entries.filter((e) => {
-      if (!e.date.startsWith(currentMonthPrefix)) return false;
+      const range = getEntryDateRange(e, todayStr);
+      // Tugas aktif di bulan ini jika rentang pengerjaannya [startDate, endDate] bersinggungan dengan bulan yang dilihat
+      if (range.startDate > lastDayOfMonth || range.endDate < firstDayOfMonth) return false;
+
       if (currentUser && currentUser.id !== 'owner-demo-1' && e.ownerId === 'owner-demo-1') {
         return false;
       }
@@ -1029,7 +1078,7 @@ export default function App() {
       }
       return true;
     });
-  }, [entries, currentMonthPrefix, ownerFilter, currentUser]);
+  }, [entries, currentMonthPrefix, currentYear, currentMonth, ownerFilter, currentUser, todayStr]);
 
   // KPI JADWAL BULAN BERJALAN
   const kpiStats = useMemo(() => {
@@ -1092,11 +1141,23 @@ export default function App() {
   const entriesByDate = useMemo(() => {
     const grouped: Record<string, ScheduleEntry[]> = {};
     filteredMonthEntries.forEach((e) => {
-      if (!grouped[e.date]) grouped[e.date] = [];
-      grouped[e.date].push(e);
+      const range = getEntryDateRange(e, todayStr);
+      // Proyeksikan tugas ke SETIAP tanggal dari startDate sampai endDate
+      const start = new Date(range.startDate + 'T00:00:00');
+      const end = new Date(range.endDate + 'T00:00:00');
+      const cur = new Date(start);
+
+      while (cur <= end) {
+        const dStr = toDateStr(cur.getFullYear(), cur.getMonth(), cur.getDate());
+        if (!grouped[dStr]) grouped[dStr] = [];
+        if (!grouped[dStr].some((item) => item.id === e.id)) {
+          grouped[dStr].push(e);
+        }
+        cur.setDate(cur.getDate() + 1);
+      }
     });
     return grouped;
-  }, [filteredMonthEntries]);
+  }, [filteredMonthEntries, todayStr]);
 
   // Daftar pengingat aktif/jadwal acara yang jatuh pada bulan yang sedang dilihat di kalender
   const monthReminders = useMemo(() => {
@@ -1309,6 +1370,11 @@ export default function App() {
       (e) => e.date < todayStr && e.status !== 'selesai'
     ).length;
 
+    const totalFinishedDays = userEntries
+      .filter((e) => e.status === 'selesai')
+      .reduce((sum, e) => sum + ((e as any).durationDays || getCalendarDaySpan(e.date, (e as any).completedDate || e.date)), 0);
+    const avgDurationDays = finishedTasks > 0 ? (totalFinishedDays / finishedTasks).toFixed(1) : '-';
+
     // KALKULASI PERSENTASE KONTRIBUSI BEBAN KERJA & TINGKAT PENYELESAIAN SETIAP PROYEK & CABANG PROGRAM
     const projectBreakdown: Array<{
       projectId: string;
@@ -1510,19 +1576,20 @@ export default function App() {
     return cells;
   }, [currentYear, currentMonth]);
 
-  // Catatan tanggal terpilih yang muncul saat tanggal di kalender diklik
+  // Catatan tanggal terpilih yang muncul saat tanggal di kalender diklik (termasuk tugas menyambung)
   const selectedDateEntries = useMemo(() => {
     if (!selectedDate) return [];
     return entries
       .filter((e) => {
-        if (e.date !== selectedDate) return false;
+        const range = getEntryDateRange(e, todayStr);
+        if (selectedDate < range.startDate || selectedDate > range.endDate) return false;
         if (currentUser && currentUser.id !== 'owner-demo-1') {
           return e.ownerId === currentUser.id;
         }
         return true;
       })
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  }, [entries, selectedDate, currentUser]);
+      .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
+  }, [entries, selectedDate, currentUser, todayStr]);
 
   // Pengingat khusus pada tanggal yang sedang dibuka di Drawer Detail
   const selectedDateReminders = useMemo(() => {
@@ -1600,16 +1667,24 @@ export default function App() {
     if (!selectedDate || !entryTitle.trim()) return;
 
     if (editingEntryId) {
+      const existing = entries.find((item) => item.id === editingEntryId);
+      const isCompleted = entryStatus === 'selesai';
+      const finishDate = isCompleted ? ((existing as any)?.completedDate || selectedDate || todayStr) : null;
+      const durationDays = isCompleted ? getCalendarDaySpan(existing?.date || selectedDate, finishDate!) : undefined;
+
       const updated = db.updateEntry(editingEntryId, {
         title: entryTitle.trim(),
         projectId: entryProjectId || null,
         programId: entryProgramId || null,
         status: entryStatus,
         notes: entryNotes.trim(),
-      });
+        completedDate: finishDate,
+        durationDays,
+      } as any);
       setEntries(updated);
-      showToast('Catatan berhasil diperbarui');
+      showToast(isCompleted ? `Catatan diperbarui (Selesai dalam ${durationDays} hari)` : 'Catatan berhasil diperbarui');
     } else {
+      const isCompleted = entryStatus === 'selesai';
       const updated = db.createEntry(
         {
           date: selectedDate,
@@ -1618,7 +1693,9 @@ export default function App() {
           programId: entryProgramId || null,
           status: entryStatus,
           notes: entryNotes.trim(),
-        },
+          completedDate: isCompleted ? selectedDate : null,
+          durationDays: isCompleted ? 1 : undefined,
+        } as any,
         currentUser
       );
       setEntries(updated);
@@ -1630,9 +1707,21 @@ export default function App() {
   const handleQuickCycleStatus = (entry: ScheduleEntry) => {
     const order: EntryStatus[] = ['belum_mulai', 'berjalan', 'selesai'];
     const nextStatus = order[(order.indexOf(entry.status) + 1) % order.length];
-    const updated = db.updateEntry(entry.id, { status: nextStatus });
+    const isCompleted = nextStatus === 'selesai';
+    const finishDate = isCompleted ? (selectedDate || todayStr) : null;
+    const durationDays = isCompleted ? getCalendarDaySpan(entry.date, finishDate!) : undefined;
+
+    const updated = db.updateEntry(entry.id, {
+      status: nextStatus,
+      completedDate: finishDate,
+      durationDays,
+    } as any);
     setEntries(updated);
-    showToast(`Status diubah ke "${STATUS_META[nextStatus].label}"`);
+    if (isCompleted) {
+      showToast(`🎉 Proyek selesai! Dikerjakan selama ${durationDays} hari (${formatDateShortIndo(entry.date)} – ${formatDateShortIndo(finishDate!)}).`);
+    } else {
+      showToast(`Status diubah ke "${STATUS_META[nextStatus].label}"`);
+    }
   };
 
   const handleConfirmDeleteEntry = (id: string) => {
@@ -3050,29 +3139,46 @@ export default function App() {
                               </div>
                             ))}
 
-                            {/* TUGAS PROYEK DI CELL KALENDER */}
+                            {/* TUGAS PROYEK DI CELL KALENDER (Mendukung Visual Proyek Menyambung) */}
                             {visibleEntries.map((entry) => {
                               const proj = entry.projectId ? projectMap[entry.projectId] : null;
                               const chipColor = proj ? proj.color : '#64748b';
                               const prog = proj?.programs?.find((p) => p.id === entry.programId);
+                              const range = getEntryDateRange(entry, todayStr);
+                              const isContinuing = cell.dateStr > range.startDate;
+                              const dayIndex = getCalendarDaySpan(range.startDate, cell.dateStr);
+                              const isFinishedHere = cell.dateStr === range.endDate && entry.status === 'selesai';
                               const isOverdue =
-                                entry.date < todayStr && entry.status !== 'selesai';
+                                range.endDate < todayStr && entry.status !== 'selesai';
 
                               return (
                                 <div
                                   key={entry.id}
-                                  className="flex items-center gap-1.5 px-1.5 py-1 rounded-md text-[11px] font-medium truncate border transition-transform group-hover:translate-x-0.5"
+                                  className={`flex items-center gap-1.5 px-1.5 py-1 rounded-md text-[11px] font-medium truncate border transition-transform group-hover:translate-x-0.5 ${
+                                    isContinuing ? 'border-dashed' : ''
+                                  }`}
                                   style={{
                                     backgroundColor: `${chipColor}15`,
                                     borderColor: `${chipColor}40`,
                                     color: '#1e293b',
                                   }}
-                                  title={`${entry.title} • Proyek: ${proj?.name || 'Tanpa proyek'}${prog ? ` • Program: ${prog.name}` : ''}`}
+                                  title={`${entry.title} • Proyek: ${proj?.name || 'Tanpa proyek'}${prog ? ` • Program: ${prog.name}` : ''} • ${
+                                    entry.status === 'selesai'
+                                      ? `Selesai dalam ${range.totalDays} hari (${range.startDate} s/d ${range.endDate})`
+                                      : `Hari ke-${dayIndex} (${range.totalDays} hari berjalan • Belum selesai)`
+                                  }`}
                                 >
                                   <span
                                     className="w-2 h-2 rounded-full shrink-0"
                                     style={{ backgroundColor: chipColor }}
                                   />
+
+                                  {isContinuing && (
+                                    <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-amber-100 text-amber-800 shrink-0">
+                                      ↳ H-{dayIndex}
+                                    </span>
+                                  )}
+
                                   <span
                                     className={`truncate flex-1 ${
                                       entry.status === 'selesai'
@@ -3082,6 +3188,13 @@ export default function App() {
                                   >
                                     {entry.title}
                                   </span>
+
+                                  {isFinishedHere && (
+                                    <span className="text-[9px] font-bold px-1 rounded bg-emerald-100 text-emerald-800 shrink-0">
+                                      ✓ {range.totalDays}h
+                                    </span>
+                                  )}
+
                                   {prog && (
                                     <span className="hidden xl:inline-block text-[9px] font-medium px-1 rounded bg-white text-indigo-700 border border-indigo-200 shrink-0">
                                       {prog.name}
@@ -4238,7 +4351,9 @@ export default function App() {
                     <table className="min-w-[800px] w-full text-left text-xs">
                       <thead className="sticky top-0 z-10 bg-slate-100 border-b border-slate-200 text-slate-700 uppercase font-bold text-[11px] tracking-wider shadow-2xs">
                         <tr>
-                          <th className="py-2.5 px-3">Tanggal</th>
+                          <th className="py-2.5 px-3">Mulai</th>
+                          <th className="py-2.5 px-3">Selesai</th>
+                          <th className="py-2.5 px-3">Durasi Pengerjaan</th>
                           <th className="py-2.5 px-3">Proyek &amp; Program</th>
                           <th className="py-2.5 px-3">Judul Tugas</th>
                           <th className="py-2.5 px-3">Status</th>
@@ -4261,6 +4376,25 @@ export default function App() {
                               <tr key={e.id} className="hover:bg-slate-50/60">
                                 <td className="py-2.5 px-3 font-semibold text-slate-800 whitespace-nowrap">
                                   {e.date}
+                                </td>
+                                <td className="py-2.5 px-3 font-semibold text-slate-700 whitespace-nowrap">
+                                  {e.status === 'selesai' ? ((e as any).completedDate || e.date) : (
+                                    <span className="text-amber-600 font-medium">Sedang Berjalan</span>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3 whitespace-nowrap">
+                                  {(() => {
+                                    const r = getEntryDateRange(e, todayStr);
+                                    return e.status === 'selesai' ? (
+                                      <span className="px-2 py-0.5 rounded-full font-bold text-xs bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                        {r.totalDays} Hari (Selesai)
+                                      </span>
+                                    ) : (
+                                      <span className="px-2 py-0.5 rounded-full font-bold text-xs bg-amber-50 text-amber-800 border border-amber-300">
+                                        {r.totalDays} Hari (Berjalan)
+                                      </span>
+                                    );
+                                  })()}
                                 </td>
                                 <td className="py-2.5 px-3 whitespace-nowrap">
                                   {p ? (
@@ -4849,6 +4983,34 @@ export default function App() {
                               >
                                 {entry.title}
                               </h5>
+
+                              {/* Informasi Durasi & Rentang Hari Pengerjaan */}
+                              {(() => {
+                                const range = getEntryDateRange(entry, todayStr);
+                                const dayIndex = getCalendarDaySpan(range.startDate, selectedDate);
+                                return (
+                                  <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px]">
+                                    {entry.status === 'selesai' ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold text-emerald-800 bg-emerald-50 border border-emerald-200">
+                                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                        <span>
+                                          Selesai dalam {range.totalDays} hari ({formatDateShortIndo(range.startDate)} – {formatDateShortIndo(range.endDate)})
+                                        </span>
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold text-amber-900 bg-amber-50 border border-amber-300">
+                                        <Clock className="w-3 h-3 text-amber-600" />
+                                        <span>
+                                          {selectedDate > range.startDate
+                                            ? `Hari ke-${dayIndex} • Menyambung dari ${formatDateShortIndo(range.startDate)}`
+                                            : `Hari ke-1 (Mulai)`}{' '}
+                                          ({range.totalDays} hari berjalan • Belum selesai)
+                                        </span>
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </div>
 
                             <div className="flex items-center gap-1 shrink-0">
