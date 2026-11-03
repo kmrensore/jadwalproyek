@@ -269,13 +269,20 @@ function captureAndWatermarkSnapshot(
 ): string {
   const canvas = document.createElement('canvas');
   const targetWidth = 640;
-  const targetHeight = Math.round((video.videoHeight / (video.videoWidth || 1)) * targetWidth) || 480;
+  const vidW = video.videoWidth || 640;
+  const vidH = video.videoHeight || 480;
+  const targetHeight = Math.round((vidH / vidW) * targetWidth) || 480;
   canvas.width = targetWidth;
   canvas.height = targetHeight;
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
 
+  // Mirror selfie horizontal agar orientasi foto sama seperti tampilan di layar
+  ctx.save();
+  ctx.translate(targetWidth, 0);
+  ctx.scale(-1, 1);
   ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+  ctx.restore();
 
   // Banner Watermark gelap elegan di bagian bawah
   const bannerH = 76;
@@ -456,6 +463,22 @@ export default function App() {
   const [cameraMode, setCameraMode] = useState<'in' | 'out'>('in');
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+
+  // Pastikan stream video otomatis tersambung ke elemen video saat modal aktif
+  useEffect(() => {
+    if (isCameraModalOpen && cameraStream && videoElemRef.current) {
+      const vid = videoElemRef.current;
+      if (vid.srcObject !== cameraStream) {
+        vid.srcObject = cameraStream;
+      }
+      vid.muted = true;
+      vid.play().then(() => {
+        setIsCameraActive(true);
+      }).catch((err) => {
+        console.warn('Video auto-play interrupted:', err);
+      });
+    }
+  }, [cameraStream, isCameraModalOpen]);
   const [currentGPSLocation, setCurrentGPSLocation] = useState<string>('Mendeteksi koordinat GPS...');
   const [isGPSLoading, setIsGPSLoading] = useState<boolean>(false);
   const [detectedShiftInfo, setDetectedShiftInfo] = useState<{ category: WorkShiftCategory; note: string }>({
@@ -626,6 +649,70 @@ export default function App() {
   }, [currentUser]);
 
 
+  // Helper Pengiriman Notifikasi Pop-up (Hybrid: Tauri Native macOS + Service Worker Background + Web Notification)
+  const sendPopUpNotification = async (title: string, options: { body?: string; icon?: string }) => {
+    // 1. Cek lingkungan Desktop Tauri (Versi DMG macOS)
+    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
+      try {
+        const tauri = (window as any).__TAURI__;
+        if (tauri.notification) {
+          let isGranted = await tauri.notification.isPermissionGranted();
+          if (!isGranted) {
+            const perm = await tauri.notification.requestPermission();
+            isGranted = perm === 'granted';
+          }
+          if (isGranted) {
+            tauri.notification.sendNotification({ title, body: options.body || '' });
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('Tauri native notification error:', e);
+      }
+    }
+
+    // 2. Cek Service Worker (Notifikasi tetap pop-up di macOS/Windows meski aplikasi diminimize)
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg && reg.showNotification) {
+          await (reg.showNotification as any)(title, {
+            body: options.body,
+            icon: options.icon || '/favicon.ico',
+            badge: '/favicon.ico',
+            vibrate: [200, 100, 200, 100, 400],
+            tag: 'jadwalpro-reminder',
+            renotify: true,
+          });
+          return;
+        }
+      } catch (e) {
+        console.warn('Service worker notification error:', e);
+      }
+    }
+
+    // 3. Fallback Standar Web Notification API
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification(title, {
+          body: options.body,
+          icon: options.icon || '/favicon.ico',
+        });
+      } catch (e) {
+        console.warn('Standard Web Notification error:', e);
+      }
+    }
+  };
+
+  // Daftarkan Service Worker saat aplikasi pertama kali dibuka untuk background notification
+  useEffect(() => {
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch((err) => {
+        console.warn('SW register info:', err);
+      });
+    }
+  }, []);
+
   // Interval Pengecekan Jadwal Pengingat & Pemicu Alarm
   useEffect(() => {
     const checkReminders = () => {
@@ -646,17 +733,11 @@ export default function App() {
           // 1. Bunyikan nada alarm merdu Web Audio API
           playHarmonicAlarmChime();
 
-          // 2. Kirim Web Notification ke perangkat jika ada izin
-          if ('Notification' in window && Notification.permission === 'granted') {
-            try {
-              new Notification(`⏰ Pengingat: ${rem.title}`, {
-                body: `Pukul ${rem.startTime} - ${rem.notes || 'Siapkan agenda kegiatan Anda.'}`,
-                icon: '/favicon.ico',
-              });
-            } catch (e) {
-              console.warn('Web notification error:', e);
-            }
-          }
+          // 2. Kirim Notifikasi Pop-up (Tauri Native / Service Worker / Web Notification)
+          sendPopUpNotification(`⏰ Pengingat: ${rem.title}`, {
+            body: `Pukul ${rem.startTime} - ${rem.notes || 'Siapkan agenda kegiatan Anda.'}`,
+            icon: '/favicon.ico',
+          });
 
           // 3. Getar perangkat jika didukung
           if (typeof navigator !== 'undefined' && navigator.vibrate) {
@@ -678,18 +759,50 @@ export default function App() {
   }, [reminders]);
 
   const requestNotificationAccess = async () => {
-    if ('Notification' in window) {
-      const perm = await Notification.requestPermission();
-      setHasNotificationPermission(perm === 'granted');
-      if (perm === 'granted') {
-        showToast('Izin notifikasi perangkat berhasil diaktifkan! 🔔');
-        // Tes nada alarm merdu
-        playHarmonicAlarmChime();
-      } else {
-        showToast('Izin notifikasi perangkat ditolak');
+    // 1. Cek aplikasi desktop Tauri (DMG macOS)
+    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
+      try {
+        const tauri = (window as any).__TAURI__;
+        if (tauri.notification) {
+          const perm = await tauri.notification.requestPermission();
+          const granted = perm === 'granted';
+          setHasNotificationPermission(granted);
+          if (granted) {
+            showToast('Izin notifikasi native macOS berhasil aktif! 🔔');
+            playHarmonicAlarmChime();
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('Tauri request notification permission error:', e);
+      }
+    }
+
+    // 2. Cek browser standar (Chrome, Safari, Arc, Edge)
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      try {
+        const perm = await Notification.requestPermission();
+        const granted = perm === 'granted';
+        setHasNotificationPermission(granted);
+        if (granted) {
+          showToast('Izin notifikasi pop-up berhasil diaktifkan! 🔔');
+          playHarmonicAlarmChime();
+
+          // Registrasikan Service Worker jika didukung browser
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').catch((err) => {
+              console.warn('SW register error:', err);
+            });
+          }
+        } else {
+          showToast('Izin notifikasi ditolak. Silakan aktifkan via Pengaturan Browser atau System Settings Mac.');
+        }
+      } catch (err) {
+        console.warn('Request notification error:', err);
+        showToast('Gagal meminta izin notifikasi.');
       }
     } else {
-      showToast('Perangkat/browser Anda tidak mendukung Web Notification');
+      showToast('Browser membatasi notifikasi. Pastikan dibuka via HTTPS atau cek System Settings macOS.');
     }
   };
 
@@ -1626,16 +1739,18 @@ export default function App() {
         })
         .then((stream) => {
           setCameraStream(stream);
-          setIsCameraActive(true);
           if (videoElemRef.current) {
             videoElemRef.current.srcObject = stream;
-            videoElemRef.current.play().catch((e) => console.warn(e));
+            videoElemRef.current.muted = true;
+            videoElemRef.current.play().then(() => {
+              setIsCameraActive(true);
+            }).catch((e) => console.warn('Play error:', e));
           }
         })
         .catch((err) => {
           console.warn('Camera access error:', err);
           setIsCameraActive(false);
-          showToast('Kamera tidak dapat diakses atau diblokir browser');
+          showToast('Kamera tidak dapat diakses atau izin diblokir browser');
         });
     }
   };
@@ -5468,24 +5583,43 @@ export default function App() {
 
             <div className="p-5 overflow-y-auto space-y-4">
               {/* Live Video Camera / Preview */}
-              <div className="relative rounded-2xl overflow-hidden bg-slate-900 aspect-video flex items-center justify-center border border-slate-800 shadow-inner">
-                {isCameraActive ? (
-                  <video
-                    ref={videoElemRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full h-full object-cover scale-x-[-1]"
-                  />
-                ) : (
-                  <div className="text-center text-slate-400 p-4 space-y-2">
-                    <Camera className="w-8 h-8 mx-auto text-slate-500 animate-pulse" />
-                    <p className="text-xs">Menyiapkan kamera live...</p>
+              <div className="relative rounded-2xl overflow-hidden bg-slate-950 aspect-video flex items-center justify-center border border-slate-800 shadow-inner">
+                <video
+                  ref={(node) => {
+                    videoElemRef.current = node;
+                    if (node && cameraStream && node.srcObject !== cameraStream) {
+                      node.srcObject = cameraStream;
+                      node.muted = true;
+                      node.play().then(() => {
+                        setIsCameraActive(true);
+                      }).catch((e) => console.warn('Play error:', e));
+                    }
+                  }}
+                  autoPlay
+                  playsInline
+                  muted
+                  className={`w-full h-full object-cover scale-x-[-1] transition-opacity duration-300 ${
+                    isCameraActive ? 'opacity-100' : 'opacity-0'
+                  }`}
+                  onLoadedMetadata={(e) => {
+                    const vid = e.currentTarget;
+                    vid.muted = true;
+                    vid.play().then(() => {
+                      setIsCameraActive(true);
+                    }).catch((err) => console.warn(err));
+                  }}
+                />
+
+                {!isCameraActive && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-center text-slate-400 p-4 space-y-2 bg-slate-900/95">
+                    <Camera className="w-8 h-8 mx-auto text-indigo-400 animate-pulse" />
+                    <p className="text-xs font-semibold text-slate-200">Menghubungkan ke lensa kamera...</p>
+                    <p className="text-[11px] text-slate-400">Pastikan izin kamera sudah diizinkan</p>
                   </div>
                 )}
 
                 {/* Badge Waktu Real di Pojok Kamera */}
-                <div className="absolute top-2.5 left-2.5 bg-slate-900/80 backdrop-blur-xs px-2.5 py-1 rounded-full text-[11px] font-bold text-white flex items-center gap-1.5">
+                <div className="absolute top-2.5 left-2.5 bg-slate-900/80 backdrop-blur-xs px-2.5 py-1 rounded-full text-[11px] font-bold text-white flex items-center gap-1.5 shadow-sm">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
                   <span>{getNowTimeStr()} WIB</span>
                 </div>
