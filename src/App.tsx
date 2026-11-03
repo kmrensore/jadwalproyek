@@ -2304,8 +2304,8 @@ export default function App() {
 
       {/* Top Navigation Bar */}
       <header className="fixed top-0 left-0 right-0 z-30 bg-white border-b border-slate-200 print:hidden transition-all shadow-xs pt-[max(env(safe-area-inset-top,0px),12px)] sm:pt-0">
-        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
+        <div className="w-full px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4">
+          <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
             <button
               type="button"
               onClick={() => setIsMobileSidebarOpen(true)}
@@ -2314,97 +2314,97 @@ export default function App() {
             >
               <Menu className="w-5 h-5" />
             </button>
-            <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-sm">
+            <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-sm shrink-0">
               <CalendarIcon className="w-5 h-5" />
             </div>
-            <div>
+            <div className="shrink-0">
               <div className="flex items-center gap-2">
                 <h1 className="font-bold text-base sm:text-lg tracking-tight text-slate-900">
                   JadwalPro
                 </h1>
-                <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                  Proyek • Program • Absensi • AI
+                <span className="hidden 2xl:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  Proyek • Absensi • AI
                 </span>
               </div>
-              <p className="text-xs text-slate-500 hidden sm:block">
-                Workspace Kinerja &amp; Evaluasi Terpadu
+              <p className="text-[11px] text-slate-500 hidden xl:block leading-tight">
+                Workspace Kinerja Terpadu
               </p>
             </div>
           </div>
 
-          {/* TAB NAVIGASI UTAMA DI HEADER */}
-          <div className="hidden md:flex items-center bg-slate-100 p-1 rounded-xl">
+          {/* TAB NAVIGASI UTAMA DI HEADER (RESPONSIF & FLEKSIBEL) */}
+          <div className="hidden md:flex items-center bg-slate-100 p-1 rounded-xl shrink-0 overflow-x-auto">
             <button
               type="button"
               onClick={() => setActiveMainTab('calendar')}
-              className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
                 activeMainTab === 'calendar'
                   ? 'bg-white text-indigo-600 shadow-sm'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <CalendarIcon className="w-4 h-4" />
-              <span>Jadwal Proyek</span>
+              <CalendarIcon className="w-3.5 h-3.5" />
+              <span>Jadwal<span className="hidden xl:inline"> Proyek</span></span>
             </button>
             <button
               type="button"
               onClick={() => setActiveMainTab('attendance')}
-              className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
                 activeMainTab === 'attendance'
                   ? 'bg-white text-indigo-600 shadow-sm'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Timer className="w-4 h-4" />
-              <span>Absensi &amp; Kehadiran</span>
+              <Timer className="w-3.5 h-3.5" />
+              <span>Absensi<span className="hidden xl:inline"> &amp; Kehadiran</span></span>
             </button>
             <button
               type="button"
               onClick={() => setActiveMainTab('reminders')}
-              className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
                 activeMainTab === 'reminders'
                   ? 'bg-white text-indigo-600 shadow-sm'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Bell className="w-4 h-4" />
-              <span>Pengingat &amp; Alarm</span>
+              <Bell className="w-3.5 h-3.5" />
+              <span>Pengingat<span className="hidden xl:inline"> &amp; Alarm</span></span>
               {reminders.filter((r) => r.isActive && r.date === todayStr).length > 0 && (
-                <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
               )}
             </button>
             <button
               type="button"
               onClick={() => setActiveMainTab('report')}
-              className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
                 activeMainTab === 'report'
                   ? 'bg-white text-indigo-600 shadow-sm'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <FileSpreadsheet className="w-4 h-4" />
-              <span>Laporan Kinerja</span>
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Laporan<span className="hidden xl:inline"> Kinerja</span></span>
             </button>
             <button
               type="button"
               onClick={() => setActiveMainTab('ai_performance')}
-              className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
                 activeMainTab === 'ai_performance'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <BrainCircuit className="w-4 h-4" />
-              <span>Performa AI &amp; Saran</span>
+              <BrainCircuit className="w-3.5 h-3.5" />
+              <span>Performa AI<span className="hidden xl:inline"> &amp; Saran</span></span>
             </button>
           </div>
 
           {/* Profil User, Setingan Akun & Tombol Keluar */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
               onClick={openAccountModal}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs transition-colors cursor-pointer group text-left"
+              className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs transition-colors cursor-pointer group text-left"
               title="Klik untuk membuka Pengaturan Akun & Profil Pribadi"
             >
               <div className="w-7 h-7 rounded-full bg-indigo-600 group-hover:bg-indigo-700 text-white font-bold flex items-center justify-center text-xs shrink-0 shadow-2xs transition-colors overflow-hidden">
@@ -2419,11 +2419,11 @@ export default function App() {
                 )}
               </div>
               <div className="leading-tight hidden sm:block">
-                <div className="font-bold text-slate-900 truncate max-w-[120px] group-hover:text-indigo-600 transition-colors">
+                <div className="font-bold text-slate-900 truncate max-w-[80px] lg:max-w-[120px] group-hover:text-indigo-600 transition-colors">
                   {currentUser.fullName}
                 </div>
                 <div className="text-[10px] text-slate-500 font-mono">
-                  {currentUser.id.slice(0, 10)}
+                  {currentUser.id.slice(0, 8)}
                 </div>
               </div>
             </button>
@@ -2435,13 +2435,13 @@ export default function App() {
               title="Setingan Akun Pribadi"
             >
               <Settings className="w-4 h-4 text-slate-600" />
-              <span className="hidden md:inline">Setingan Akun</span>
+              <span className="hidden xl:inline">Setingan Akun</span>
             </button>
 
             <button
               type="button"
               onClick={handleLogout}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition-colors"
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition-colors"
               title="Keluar"
             >
               <LogOut className="w-4 h-4" />
@@ -2500,8 +2500,8 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content Layout (Padding disesuaikan agar tidak tertutup header yang fixed) */}
-      <div className="max-w-[1440px] w-full mx-auto flex-1 flex relative pt-[calc(116px+max(env(safe-area-inset-top,0px),12px))] md:pt-16">
+      {/* Main Content Layout (Maksimal Layar Penuh Ujung ke Ujung) */}
+      <div className="w-full flex-1 flex relative pt-[calc(116px+max(env(safe-area-inset-top,0px),12px))] md:pt-16">
         {isMobileSidebarOpen && (
           <div
             className="fixed inset-0 bg-slate-900/40 z-40 lg:hidden"
@@ -2511,7 +2511,7 @@ export default function App() {
 
         {/* SIDEBAR PROYEK & CABANG PROGRAM */}
         <aside
-          className={`fixed lg:static inset-y-0 left-0 z-40 w-72 bg-white border-r border-slate-200 flex flex-col transition-transform duration-200 ease-in-out print:hidden pt-[max(env(safe-area-inset-top,0px),12px)] lg:pt-0 pb-[max(env(safe-area-inset-bottom,0px),12px)] lg:pb-0 ${
+          className={`fixed lg:static inset-y-0 left-0 z-40 w-64 xl:w-72 bg-white border-r border-slate-200 flex flex-col shrink-0 transition-transform duration-200 ease-in-out print:hidden pt-[max(env(safe-area-inset-top,0px),12px)] lg:pt-0 pb-[max(env(safe-area-inset-bottom,0px),12px)] lg:pb-0 ${
             isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
           }`}
         >
@@ -2787,8 +2787,8 @@ export default function App() {
           </div>
         </aside>
 
-        {/* AREA KONTEN UTAMA */}
-        <main className="flex-1 min-w-0 p-4 sm:p-6 space-y-5">
+        {/* AREA KONTEN UTAMA (MAKSIMAL SAMPAI SUDUT KANAN) */}
+        <main className="flex-1 min-w-0 p-3 sm:p-5 lg:p-6 space-y-5">
           {/* TAB 1: KALENDER JADWAL PROYEK */}
           {activeMainTab === 'calendar' && (
             <>
