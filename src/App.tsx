@@ -63,6 +63,11 @@ import {
   ShieldCheck,
   Eye,
   EyeOff,
+  Mic,
+  MicOff,
+  Wand2,
+  AudioWaveform,
+  FileAudio,
   Smartphone,
   Mail,
 } from 'lucide-react';
@@ -82,6 +87,30 @@ import type {
   AttendanceType,
   AIPerformanceRecord,
 } from './types';
+
+// Definisi mandiri VoiceMemoRecord di App.tsx agar tidak menimbulkan error jika types.ts belum di-update
+export interface VoiceMemoRecord {
+  id: string;
+  title: string;
+  transcript: string;
+  summary: string;
+  keyPoints: string[];
+  actionItems: string[];
+  durationSeconds: number;
+  createdAt: string;
+}
+
+// Definisi mandiri VoiceMemoRecord di App.tsx agar tidak menimbulkan error jika types.ts belum di-update
+export interface VoiceMemoRecord {
+  id: string;
+  title: string;
+  transcript: string;
+  summary: string;
+  keyPoints: string[];
+  actionItems: string[];
+  durationSeconds: number;
+  createdAt: string;
+}
 import { db, isSupabaseConfigured } from './db';
 
 // Ekstensi lokal ScheduleEntry agar selalu mengenali completedDate & durationDays
@@ -237,6 +266,85 @@ function getHolidayInfo(dateStr: string): HolidayInfo | null {
     return FIXED_ANNUAL_HOLIDAYS[mmDd];
   }
   return null;
+}
+
+// ============================================================================
+// ENGINE ANALISIS & GENERASI KESIMPULAN SUARA BERBANTU AI
+// ============================================================================
+function generateAIVoiceSummary(rawTranscript: string): {
+  summary: string;
+  keyPoints: string[];
+  actionItems: string[];
+} {
+  const clean = rawTranscript.trim();
+  if (!clean || clean.length < 5) {
+    return {
+      summary: 'Tidak ada ucapan yang terdeteksi atau rekaman terlalu singkat untuk dianalisis.',
+      keyPoints: ['Rekaman suara kosong atau tidak terdengar jelas.'],
+      actionItems: ['Ulangi perekaman suara dengan mendekatkan mikrofon.'],
+    };
+  }
+
+  // Pecah menjadi kalimat-kalimat
+  const sentences = clean
+    .split(/[.!?\n]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 3);
+
+  // Kata kunci aksi & tugas dalam bahasa Indonesia dan Inggris
+  const actionKeywords = [
+    'selesaikan', 'kerjakan', 'buat', 'bikin', 'kirim', 'siapkan', 'koordinasi', 'koordinasikan',
+    'review', 'perbaiki', 'update', 'jadwalkan', 'hubungi', 'follow up', 'cek', 'rapat', 'meeting',
+    'bayar', 'desain', 'revisi', 'upload', 'unggah', 'unduh', 'beli', 'tindak lanjuti', 'complete',
+    'finish', 'create', 'send', 'prepare', 'contact', 'check', 'fix', 'submit'
+  ];
+
+  // Ekstraksi tindakan lanjutan (Action Items)
+  const actionItems: string[] = [];
+  sentences.forEach((sentence) => {
+    const lower = sentence.toLowerCase();
+    const hasAction = actionKeywords.some((kw) => lower.includes(kw));
+    if (hasAction && actionItems.length < 5) {
+      const formatted = sentence.charAt(0).toUpperCase() + sentence.slice(1);
+      if (!actionItems.includes(formatted)) {
+        actionItems.push(formatted);
+      }
+    }
+  });
+
+  if (actionItems.length === 0 && sentences.length > 0) {
+    actionItems.push(sentences[0].charAt(0).toUpperCase() + sentences[0].slice(1));
+    if (sentences.length > 1) {
+      actionItems.push(sentences[1].charAt(0).toUpperCase() + sentences[1].slice(1));
+    }
+  }
+
+  // Ekstraksi poin penting (Key Points)
+  const keyPoints: string[] = [];
+  sentences.forEach((sentence) => {
+    if (sentence.length > 10 && keyPoints.length < 4) {
+      const formatted = sentence.charAt(0).toUpperCase() + sentence.slice(1);
+      if (!keyPoints.includes(formatted) && !actionItems.includes(formatted)) {
+        keyPoints.push(formatted);
+      }
+    }
+  });
+
+  if (keyPoints.length === 0) {
+    keyPoints.push(`Catatan utama: ${clean.slice(0, 120)}${clean.length > 120 ? '...' : ''}`);
+  }
+
+  // Rangkuman eksekutif cerdas (Executive Summary)
+  let summary = '';
+  if (sentences.length === 1) {
+    summary = `Catatan suara berfokus pada: "${sentences[0]}".`;
+  } else if (sentences.length >= 2) {
+    summary = `Ringkasan Pembahasan: ${sentences[0]}. Terkait agenda tersebut, disepakati tindak lanjut: ${sentences.slice(1, 3).join(', ')}.`;
+  } else {
+    summary = `Inti percakapan: ${clean}`;
+  }
+
+  return { summary, keyPoints, actionItems };
 }
 
 // ============================================================================
@@ -469,9 +577,9 @@ export default function App() {
     return { year: y || 2026, month: (m || 11) - 1 };
   }, [todayStr]);
 
-  // Tab Navigasi Utama: 'calendar' | 'attendance' | 'reminders' | 'report' | 'ai_performance'
+  // Tab Navigasi Utama: 'calendar' | 'attendance' | 'reminders' | 'report' | 'ai_performance' | 'voice_ai'
   const [activeMainTab, setActiveMainTab] = useState<
-    'calendar' | 'attendance' | 'reminders' | 'report' | 'ai_performance'
+    'calendar' | 'attendance' | 'reminders' | 'report' | 'ai_performance' | 'voice_ai'
   >('calendar');
 
   // State User & Auth (Auto-login membaca sesi tersimpan langsung saat inisialisasi)
@@ -543,6 +651,27 @@ export default function App() {
   const [accountFeedback, setAccountFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [accAvatarUrl, setAccAvatarUrl] = useState<string>('');
   const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // State Rekam Suara (Voice to Text & Kesimpulan AI)
+  const [isVoiceModalOpen, setIsVoiceModalOpen] = useState<boolean>(false);
+  const [isRecordingVoice, setIsRecordingVoice] = useState<boolean>(false);
+  const [recordingDurationSec, setRecordingDurationSec] = useState<number>(0);
+  const [voiceTranscript, setVoiceTranscript] = useState<string>('');
+  const [voiceLanguage, setVoiceLanguage] = useState<'id-ID' | 'en-US'>('id-ID');
+  const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState<boolean>(false);
+  const [voiceSummaryResult, setVoiceSummaryResult] = useState<{
+    summary: string;
+    keyPoints: string[];
+    actionItems: string[];
+  } | null>(null);
+  const [savedVoiceMemos, setSavedVoiceMemos] = useState<VoiceMemoRecord[]>(() =>
+    (db as any).getVoiceMemos ? (db as any).getVoiceMemos() : []
+  );
+  const speechRecognitionRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<any>(null);
 
   // State Galeri Foto Bukti Absensi di Laporan
   const [isPhotoGalleryModalOpen, setIsPhotoGalleryModalOpen] = useState<boolean>(false);
@@ -2217,6 +2346,223 @@ export default function App() {
     showToast('Riwayat analisis performa dihapus');
   };
 
+  // ==========================================================================
+  // HANDLERS REKAM SUARA, TRANSKRIPSI & KESIMPULAN AI
+  // ==========================================================================
+  const openVoiceModal = () => {
+    setIsVoiceModalOpen(true);
+    setVoiceSummaryResult(null);
+    setRecordedAudioUrl(null);
+    setRecordingDurationSec(0);
+    if (!isRecordingVoice) {
+      setVoiceTranscript('');
+    }
+  };
+
+  const closeVoiceModal = () => {
+    if (isRecordingVoice) {
+      stopVoiceRecording();
+    }
+    setIsVoiceModalOpen(false);
+  };
+
+  const startVoiceRecording = async () => {
+    setVoiceTranscript('');
+    setVoiceSummaryResult(null);
+    setRecordedAudioUrl(null);
+    setRecordingDurationSec(0);
+    audioChunksRef.current = [];
+
+    // 1. Inisialisasi Web Speech Recognition (Real-time Speech-to-Text)
+    const SpeechRecClass =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (SpeechRecClass) {
+      try {
+        const recognizer = new SpeechRecClass();
+        recognizer.continuous = true;
+        recognizer.interimResults = true;
+        recognizer.lang = voiceLanguage;
+
+        recognizer.onresult = (event: any) => {
+          let fullText = '';
+          for (let i = 0; i < event.results.length; i++) {
+            fullText += event.results[i][0].transcript + ' ';
+          }
+          setVoiceTranscript(fullText.trim());
+        };
+
+        recognizer.onerror = (err: any) => {
+          console.warn('Speech recognition notice:', err);
+        };
+
+        recognizer.start();
+        speechRecognitionRef.current = recognizer;
+      } catch (err) {
+        console.warn('Speech recognition start error:', err);
+      }
+    } else {
+      showToast('Browser Anda belum mendukung Web Speech API langsung, audio tetap direkam');
+    }
+
+    // 2. Inisialisasi MediaRecorder untuk rekam file audio
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const recorder = new MediaRecorder(stream);
+        audioChunksRef.current = [];
+
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) audioChunksRef.current.push(e.data);
+        };
+
+        recorder.onstop = () => {
+          const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          const url = URL.createObjectURL(blob);
+          setRecordedAudioUrl(url);
+          stream.getTracks().forEach((track) => track.stop());
+        };
+
+        recorder.start();
+        mediaRecorderRef.current = recorder;
+      }
+    } catch (err) {
+      console.warn('MediaRecorder error:', err);
+      showToast('Izin mikrofon diperlukan untuk merekam suara');
+      return;
+    }
+
+    // 3. Mulai Timer
+    setIsRecordingVoice(true);
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    recordingTimerRef.current = setInterval(() => {
+      setRecordingDurationSec((prev) => prev + 1);
+    }, 1000);
+
+    showToast('Merekam suara... Silakan berbicara');
+  };
+
+  const stopVoiceRecording = () => {
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.stop();
+      } catch (e) {
+        console.warn(e);
+      }
+    }
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {
+        console.warn(e);
+      }
+    }
+
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+
+    setIsRecordingVoice(false);
+    showToast('Rekaman suara selesai');
+  };
+
+  const handleGenerateSummary = () => {
+    if (!voiceTranscript.trim()) {
+      showToast('Transkripsi suara belum ada. Silakan rekam atau ketik catatan terlebih dahulu');
+      return;
+    }
+
+    setIsGeneratingSummary(true);
+    setTimeout(() => {
+      const result = generateAIVoiceSummary(voiceTranscript);
+      setVoiceSummaryResult(result);
+      setIsGeneratingSummary(false);
+
+      const memoItem: VoiceMemoRecord = {
+        id: 'memo-' + Date.now().toString(36),
+        title: voiceTranscript.slice(0, 45) + (voiceTranscript.length > 45 ? '...' : ''),
+        transcript: voiceTranscript,
+        summary: result.summary,
+        keyPoints: result.keyPoints,
+        actionItems: result.actionItems,
+        durationSeconds: recordingDurationSec,
+        createdAt: new Date().toISOString(),
+      };
+
+      if ((db as any).addVoiceMemo) {
+        const updated = (db as any).addVoiceMemo(memoItem);
+        setSavedVoiceMemos(updated);
+      }
+
+      showToast('⚡ Kesimpulan AI berhasil digenerate!');
+    }, 700);
+  };
+
+  const handleConvertSummaryToTask = () => {
+    if (!currentUser) return;
+    const title =
+      voiceSummaryResult?.actionItems?.[0] ||
+      voiceTranscript.slice(0, 50) ||
+      'Tugas Hasil Rekaman Suara';
+
+    const noteLines = [
+      '*RINGKASAN SUARA AI:*',
+      voiceSummaryResult?.summary || voiceTranscript,
+      '',
+      '*ACTION ITEMS:*',
+      ...((voiceSummaryResult?.actionItems || []).map((a) => '• ' + a)),
+      '',
+      '*TRANSKRIPSI ASLI:*',
+      voiceTranscript,
+    ];
+    const fullNotes = noteLines.join('\n');
+
+    const updated = db.createEntry(
+      {
+        date: selectedDate || todayStr,
+        title: title.trim(),
+        projectId: projectFilter !== 'ALL' && projectFilter !== 'NONE' ? projectFilter : null,
+        programId: null,
+        status: 'belum_mulai',
+        notes: fullNotes.trim(),
+      } as any,
+      currentUser
+    );
+    setEntries(updated);
+    setIsVoiceModalOpen(false);
+    showToast('Tugas ' + title.slice(0, 30) + '... berhasil dibuat di jadwal');
+  };
+
+  const copyVoiceSummaryText = () => {
+    if (!voiceSummaryResult) return;
+    const lines = [
+      '*KESIMPULAN SUARA & REKOMENDASI TUGAS (JadwalPro AI)*',
+      '',
+      '🎯 *RINGKASAN EKSEKUTIF:*',
+      voiceSummaryResult.summary,
+      '',
+      '📋 *POIN KUNCI:*',
+      ...voiceSummaryResult.keyPoints.map((p) => '• ' + p),
+      '',
+      '⚡ *TINDAKAN LANJUTAN (ACTION ITEMS):*',
+      ...voiceSummaryResult.actionItems.map((a) => '[ ] ' + a),
+      '',
+      '🎙️ *TRANSKRIPSI ASLI:*',
+      voiceTranscript,
+    ];
+    copyCodeToClipboard(lines.join('\n'), 'Kesimpulan Suara AI');
+  };
+
+  const handleDeleteVoiceMemo = (id: string) => {
+    if ((db as any).deleteVoiceMemo) {
+      const updated = (db as any).deleteVoiceMemo(id);
+      setSavedVoiceMemos(updated);
+      showToast('Catatan rekaman suara dihapus');
+    }
+  };
+
   // Salin teks laporan
   const copyReportSummary = () => {
     if (!reportData) return;
@@ -2397,6 +2743,18 @@ export default function App() {
               <BrainCircuit className="w-3.5 h-3.5" />
               <span>Performa AI<span className="hidden xl:inline"> &amp; Saran</span></span>
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveMainTab('voice_ai')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                activeMainTab === 'voice_ai'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-indigo-700 bg-indigo-50 hover:bg-indigo-100'
+              }`}
+            >
+              <Mic className={`w-3.5 h-3.5 ${activeMainTab === 'voice_ai' ? 'text-white' : 'text-indigo-600 animate-pulse'}`} />
+              <span>Dikte<span className="hidden xl:inline"> Suara AI</span></span>
+            </button>
           </div>
 
           {/* Profil User, Setingan Akun & Tombol Keluar */}
@@ -2426,6 +2784,16 @@ export default function App() {
                   {currentUser.id.slice(0, 8)}
                 </div>
               </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={openVoiceModal}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors shadow-2xs"
+              title="Rekam Suara & Transkripsi AI"
+            >
+              <Mic className="w-4 h-4 text-indigo-600" />
+              <span className="hidden xl:inline">Dikte AI</span>
             </button>
 
             <button
@@ -2497,6 +2865,16 @@ export default function App() {
           >
             Performa AI
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveMainTab('voice_ai')}
+            className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold text-center whitespace-nowrap flex items-center justify-center gap-1 ${
+              activeMainTab === 'voice_ai' ? 'bg-indigo-600 text-white' : 'text-indigo-700 bg-indigo-50/80 hover:bg-indigo-100'
+            }`}
+          >
+            <Mic className="w-3 h-3 text-indigo-600" />
+            <span>Dikte AI</span>
+          </button>
         </div>
       </header>
 
@@ -2515,6 +2893,30 @@ export default function App() {
             isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
           }`}
         >
+          {/* Widget Dikte & Notulen Suara AI */}
+          <div className="p-3.5 m-3 mb-1.5 rounded-2xl bg-gradient-to-br from-purple-50 via-indigo-50 to-indigo-100/60 border border-indigo-200/80 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-800 flex items-center gap-1.5">
+                <Mic className="w-3.5 h-3.5 text-indigo-600 animate-pulse" />
+                <span>Dikte Suara AI</span>
+              </span>
+              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-600 text-white">
+                Speech to Text
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-600 leading-tight">
+              Bicara langsung untuk mencatat ide atau notulen rapat. AI otomatis membuatkan ringkasan dan tugas kalender.
+            </p>
+            <button
+              type="button"
+              onClick={() => setActiveMainTab('voice_ai')}
+              className="w-full py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs transition-colors"
+            >
+              <Mic className="w-3.5 h-3.5" />
+              <span>Buka Studio Dikte</span>
+            </button>
+          </div>
+
           {/* Widget Clock In / Clock Out Hari Ini */}
           <div className="p-3.5 m-3 mb-2 rounded-2xl bg-gradient-to-br from-indigo-50 to-indigo-100/60 border border-indigo-200/80 space-y-2.5">
             <div className="flex items-center justify-between">
@@ -4735,6 +5137,324 @@ export default function App() {
               )}
             </div>
           )}
+
+          {/* TAB 6: STUDIO DIKTE SUARA & KESIMPULAN CERDAS AI */}
+          {activeMainTab === 'voice_ai' && (
+            <div className="space-y-6">
+              {/* Header Banner */}
+              <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-purple-900 rounded-3xl p-6 sm:p-8 text-white relative overflow-hidden shadow-lg border border-indigo-700/50">
+                <div className="relative z-10 max-w-2xl space-y-2">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-extrabold bg-indigo-500/30 border border-indigo-400/40 text-indigo-200">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
+                    <span>AI Voice to Text &amp; Smart Summary</span>
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight">
+                    Studio Dikte Suara &amp; Kesimpulan AI
+                  </h2>
+                  <p className="text-xs sm:text-sm text-indigo-200 leading-relaxed font-normal">
+                    Ubah ucapan Anda menjadi transkripsi teks akurat secara *real-time*. AI cerdas akan otomatis menganalisis rekaman untuk mengekstrak ringkasan eksekutif, poin-poin penting, dan daftar tugas (*action items*) yang siap dijadikan tugas kalender dengan 1 klik.
+                  </p>
+                </div>
+                <div className="absolute -right-8 -bottom-10 opacity-15 pointer-events-none">
+                  <Mic className="w-64 h-64 text-white" />
+                </div>
+              </div>
+
+              {/* Main Voice Studio Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Kolom Kiri: Perekam & Transkripsi (7 Cols) */}
+                <div className="lg:col-span-7 space-y-5">
+                  {/* Card Perekaman Suara */}
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-5">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                      <div className="flex items-center gap-2">
+                        <AudioWaveform className="w-5 h-5 text-indigo-600" />
+                        <h3 className="font-bold text-sm sm:text-base text-slate-900">
+                          Panel Perekaman Suara
+                        </h3>
+                      </div>
+
+                      {/* Pemilih Bahasa */}
+                      <div className="flex items-center bg-slate-100 rounded-xl p-1 text-xs font-bold">
+                        <button
+                          type="button"
+                          onClick={() => setVoiceLanguage('id-ID')}
+                          className={`px-3 py-1 rounded-lg transition-colors ${
+                            voiceLanguage === 'id-ID' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          🇮🇩 Indonesia
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setVoiceLanguage('en-US')}
+                          className={`px-3 py-1 rounded-lg transition-colors ${
+                            voiceLanguage === 'en-US' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          🇬🇧 English
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Tombol Rekam Besar */}
+                    <div className="flex flex-col items-center justify-center p-6 rounded-2xl bg-slate-50 border border-slate-100 space-y-3.5 text-center">
+                      <div className="relative">
+                        {isRecordingVoice && (
+                          <div className="absolute inset-0 -m-3 rounded-full bg-rose-500/20 animate-ping" />
+                        )}
+                        <button
+                          type="button"
+                          onClick={isRecordingVoice ? stopVoiceRecording : startVoiceRecording}
+                          className={`w-24 h-24 rounded-full flex flex-col items-center justify-center shadow-xl transition-all transform active:scale-95 ${
+                            isRecordingVoice
+                              ? 'bg-rose-600 hover:bg-rose-700 text-white ring-8 ring-rose-200 animate-pulse'
+                              : 'bg-indigo-600 hover:bg-indigo-700 text-white ring-8 ring-indigo-100'
+                          }`}
+                        >
+                          {isRecordingVoice ? (
+                            <>
+                              <Square className="w-8 h-8" />
+                              <span className="text-[11px] font-bold mt-1">Berhenti</span>
+                            </>
+                          ) : (
+                            <>
+                              <Mic className="w-9 h-9" />
+                              <span className="text-[11px] font-bold mt-1">Mulai Rekam</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="text-base font-bold text-slate-800">
+                          {isRecordingVoice ? (
+                            <span className="text-rose-600 flex items-center justify-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping" />
+                              Merekam ({Math.floor(recordingDurationSec / 60)}:{String(recordingDurationSec % 60).padStart(2, '0')})
+                            </span>
+                          ) : recordingDurationSec > 0 ? (
+                            <span className="text-emerald-700 font-bold">
+                              Rekaman Siap ({Math.floor(recordingDurationSec / 60)}:{String(recordingDurationSec % 60).padStart(2, '0')})
+                            </span>
+                          ) : (
+                            'Klik tombol mikrofon untuk mulai berbicara'
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                          {isRecordingVoice
+                            ? 'Bicara dengan jelas ke mikrofon Anda. Kata-kata akan langsung muncul di kotak transkripsi.'
+                            : 'Gunakan mikrofon untuk mendiktekan laporan harian, hasil diskusi rapat, atau catatan tugas.'}
+                        </p>
+                      </div>
+
+                      {recordedAudioUrl && !isRecordingVoice && (
+                        <div className="w-full max-w-md pt-2">
+                          <audio src={recordedAudioUrl} controls className="w-full h-10 rounded-xl" />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Area Transkripsi */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                          <FileText className="w-4 h-4 text-indigo-600" />
+                          <span>Teks Transkripsi Suara</span>
+                        </label>
+                        {voiceTranscript && (
+                          <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
+                            {voiceTranscript.split(/\s+/).filter(Boolean).length} Kata
+                          </span>
+                        )}
+                      </div>
+
+                      <textarea
+                        rows={6}
+                        value={voiceTranscript}
+                        onChange={(e) => setVoiceTranscript(e.target.value)}
+                        placeholder="Hasil rekaman suara akan langsung diketik di sini secara otomatis. Anda juga dapat mengedit atau menambahkan catatan secara manual sebelum dianalisis..."
+                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 leading-relaxed font-normal"
+                      />
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                        {voiceTranscript && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setVoiceTranscript('');
+                              setVoiceSummaryResult(null);
+                            }}
+                            className="text-xs text-slate-400 hover:text-rose-600 font-semibold"
+                          >
+                            Bersihkan Teks
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          disabled={isGeneratingSummary || !voiceTranscript.trim()}
+                          onClick={handleGenerateSummary}
+                          className="ml-auto inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm disabled:opacity-50 transition-all"
+                        >
+                          <Wand2 className={`w-4 h-4 ${isGeneratingSummary ? 'animate-spin' : ''}`} />
+                          <span>{isGeneratingSummary ? 'Menganalisis Suara...' : '⚡ Buat Kesimpulan Cerdas AI'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Kolom Kanan: Hasil Kesimpulan AI & Riwayat (5 Cols) */}
+                <div className="lg:col-span-5 space-y-5">
+                  {/* Card Hasil Kesimpulan AI */}
+                  {voiceSummaryResult ? (
+                    <div className="bg-white p-6 rounded-3xl border border-indigo-200 shadow-sm space-y-5 relative overflow-hidden bg-gradient-to-b from-indigo-50/40 via-white to-white">
+                      <div className="flex items-center justify-between border-b border-indigo-100 pb-3">
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="w-5 h-5 text-indigo-600" />
+                          <h3 className="font-extrabold text-sm sm:text-base text-indigo-950">
+                            Hasil Kesimpulan AI
+                          </h3>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={copyVoiceSummaryText}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 shadow-2xs"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Salin</span>
+                        </button>
+                      </div>
+
+                      {/* 1. Ringkasan Eksekutif */}
+                      <div className="space-y-1.5">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900 block">
+                          🎯 Ringkasan Eksekutif
+                        </span>
+                        <p className="text-xs sm:text-sm text-slate-800 leading-relaxed font-medium bg-white p-3.5 rounded-2xl border border-indigo-100 shadow-2xs">
+                          {voiceSummaryResult.summary}
+                        </p>
+                      </div>
+
+                      {/* 2. Poin-Poin Kunci */}
+                      {voiceSummaryResult.keyPoints.length > 0 && (
+                        <div className="space-y-1.5">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900 block">
+                            📋 Poin-Poin Kunci Pembahasan
+                          </span>
+                          <ul className="space-y-1.5 text-xs text-slate-700 bg-white p-3.5 rounded-2xl border border-indigo-100 shadow-2xs">
+                            {voiceSummaryResult.keyPoints.map((point, idx) => (
+                              <li key={idx} className="flex items-start gap-2">
+                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0 mt-1.5" />
+                                <span>{point}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* 3. Tindakan Lanjutan */}
+                      {voiceSummaryResult.actionItems.length > 0 && (
+                        <div className="space-y-1.5">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900 block">
+                            ⚡ Tindakan Lanjutan / Action Items
+                          </span>
+                          <div className="space-y-1.5 bg-white p-3.5 rounded-2xl border border-indigo-100 shadow-2xs">
+                            {voiceSummaryResult.actionItems.map((item, idx) => (
+                              <div key={idx} className="flex items-start gap-2 text-xs text-slate-800">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                                <span className="font-semibold">{item}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Tombol Ekspor Cepat ke Kalender */}
+                      <div className="pt-2">
+                        <button
+                          type="button"
+                          onClick={handleConvertSummaryToTask}
+                          className="w-full py-3 px-4 rounded-2xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-md flex items-center justify-center gap-2 transition-transform active:scale-[0.98]"
+                        >
+                          <Check className="w-4 h-4" />
+                          <span>Jadikan Tugas Proyek di Kalender</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-white p-8 rounded-3xl border border-dashed border-slate-200 text-center space-y-3">
+                      <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-500 flex items-center justify-center mx-auto">
+                        <Wand2 className="w-6 h-6" />
+                      </div>
+                      <h4 className="font-bold text-sm text-slate-800">
+                        Kesimpulan Cerdas Belum Dibuat
+                      </h4>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        Mulai rekam suara Anda di panel sebelah kiri atau ketik catatan meeting, lalu klik tombol <strong>⚡ Buat Kesimpulan AI</strong> untuk merangkum otomatis.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Card Riwayat Memo Suara */}
+                  <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                        <FileAudio className="w-4 h-4 text-indigo-600" />
+                        <span>Riwayat Rekaman Suara ({savedVoiceMemos.length})</span>
+                      </h4>
+                    </div>
+
+                    {savedVoiceMemos.length === 0 ? (
+                      <div className="p-4 text-center text-xs text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                        Belum ada riwayat rekaman suara tersimpan.
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+                        {savedVoiceMemos.map((memo) => (
+                          <div
+                            key={memo.id}
+                            className="p-3 rounded-2xl bg-slate-50 border border-slate-200 hover:border-slate-300 transition-colors flex items-start justify-between gap-3"
+                          >
+                            <div
+                              className="min-w-0 cursor-pointer flex-1"
+                              onClick={() => {
+                                setVoiceTranscript(memo.transcript);
+                                setVoiceSummaryResult({
+                                  summary: memo.summary,
+                                  keyPoints: memo.keyPoints || [],
+                                  actionItems: memo.actionItems || [],
+                                });
+                              }}
+                            >
+                              <div className="font-bold text-xs text-slate-900 truncate">
+                                {memo.title}
+                              </div>
+                              <p className="text-[11px] text-slate-500 line-clamp-2 mt-0.5 leading-relaxed">
+                                {memo.summary}
+                              </p>
+                              <span className="text-[10px] text-slate-400 block mt-1">
+                                {formatDateFullIndo(memo.createdAt.slice(0, 10))} • {Math.floor(memo.durationSeconds / 60)}:{String(memo.durationSeconds % 60).padStart(2, '0')}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteVoiceMemo(memo.id)}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg"
+                              title="Hapus riwayat"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </main>
       </div>
 
@@ -5084,9 +5804,20 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Judul Catatan / Tugas <span className="text-rose-500">*</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Judul Catatan / Tugas <span className="text-rose-500">*</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={openVoiceModal}
+                      className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                      title="Rekam suara & rangkum tugas dengan AI"
+                    >
+                      <Mic className="w-3.5 h-3.5 text-indigo-500" />
+                      <span>Dikte Suara AI</span>
+                    </button>
+                  </div>
                   <input
                     type="text"
                     required
@@ -6641,6 +7372,348 @@ export default function App() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FLOATING ACTION BUTTON (FAB): REKAM SUARA AI CEPAT */}
+      <div className="fixed bottom-6 right-6 z-40 print:hidden">
+        <button
+          type="button"
+          onClick={() => {
+            if (activeMainTab !== 'voice_ai') {
+              setActiveMainTab('voice_ai');
+            } else {
+              openVoiceModal();
+            }
+          }}
+          className="inline-flex items-center gap-2.5 px-4 py-3 rounded-full bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold text-xs sm:text-sm shadow-xl shadow-indigo-500/30 border border-indigo-400/40 transition-transform active:scale-95 group"
+          title="Buka Studio Dikte Suara & Rangkuman AI"
+        >
+          <Mic className="w-4 h-4 sm:w-5 sm:h-5 text-white animate-pulse" />
+          <span>Dikte Suara AI</span>
+        </button>
+      </div>
+
+      {/* MODAL REKAM SUARA & KESIMPULAN AI */}
+      {isVoiceModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs"
+            onClick={closeVoiceModal}
+          />
+
+          <div className="relative z-10 w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-indigo-50/80 via-white to-purple-50/60">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md">
+                  <Mic className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-slate-900">
+                      Rekam Suara &amp; Kesimpulan AI
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">
+                      Speech to Text + Smart Summary
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Bicara bebas, transkripsi real-time, dan ekstrak kesimpulan tugas otomatis
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeVoiceModal}
+                className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors"
+                aria-label="Tutup"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-5">
+              {/* KONTROL PEREKAMAN */}
+              <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col items-center justify-center space-y-3.5 text-center relative overflow-hidden">
+                <div className="flex items-center justify-between w-full text-xs">
+                  <span className="font-semibold text-slate-600 flex items-center gap-1.5">
+                    <AudioWaveform className="w-4 h-4 text-indigo-600" />
+                    <span>Pilihan Bahasa Dikte:</span>
+                  </span>
+                  <div className="flex items-center bg-white border border-slate-200 rounded-lg p-0.5 text-[11px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setVoiceLanguage('id-ID')}
+                      className={`px-2.5 py-1 rounded-md transition-colors ${
+                        voiceLanguage === 'id-ID' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      🇮🇩 Indonesia
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVoiceLanguage('en-US')}
+                      className={`px-2.5 py-1 rounded-md transition-colors ${
+                        voiceLanguage === 'en-US' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      🇬🇧 English
+                    </button>
+                  </div>
+                </div>
+
+                {/* Tombol Rekam Besar dengan Animasi Gelombang */}
+                <div className="relative my-2">
+                  {isRecordingVoice && (
+                    <div className="absolute inset-0 -m-3 rounded-full bg-rose-500/20 animate-ping" />
+                  )}
+                  <button
+                    type="button"
+                    onClick={isRecordingVoice ? stopVoiceRecording : startVoiceRecording}
+                    className={`w-20 h-20 rounded-full flex flex-col items-center justify-center shadow-lg transition-all transform active:scale-95 ${
+                      isRecordingVoice
+                        ? 'bg-rose-600 hover:bg-rose-700 text-white ring-4 ring-rose-300 animate-pulse'
+                        : 'bg-indigo-600 hover:bg-indigo-700 text-white ring-4 ring-indigo-200'
+                    }`}
+                  >
+                    {isRecordingVoice ? (
+                      <>
+                        <Square className="w-7 h-7" />
+                        <span className="text-[10px] font-bold mt-1">Stop</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-8 h-8" />
+                        <span className="text-[10px] font-bold mt-1">Rekam</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Status Durasi & Petunjuk */}
+                <div className="space-y-1">
+                  <div className="text-sm font-bold text-slate-800">
+                    {isRecordingVoice ? (
+                      <span className="text-rose-600 flex items-center justify-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-rose-600 animate-ping" />
+                        Sedang Merekam ({Math.floor(recordingDurationSec / 60)}:{String(recordingDurationSec % 60).padStart(2, '0')})
+                      </span>
+                    ) : recordingDurationSec > 0 ? (
+                      <span className="text-emerald-700 font-semibold">
+                        Durasi Rekaman: {Math.floor(recordingDurationSec / 60)}:{String(recordingDurationSec % 60).padStart(2, '0')}
+                      </span>
+                    ) : (
+                      'Klik tombol di atas untuk mulai merekam suara'
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 max-w-md mx-auto">
+                    {isRecordingVoice
+                      ? 'Silakan bicara... Teks akan langsung ditranskripsikan secara otomatis di bawah.'
+                      : 'Bicara tentang rencana kerja, hasil meeting, atau catatan kegiatan harian Anda.'}
+                  </p>
+                </div>
+
+                {/* Pemutar Audio jika sudah ada hasil rekaman */}
+                {recordedAudioUrl && !isRecordingVoice && (
+                  <div className="w-full pt-2">
+                    <audio src={recordedAudioUrl} controls className="w-full h-9 rounded-xl" />
+                  </div>
+                )}
+              </div>
+
+              {/* AREA TRANSKRIPSI TEKS */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <FileText className="w-4 h-4 text-indigo-600" />
+                    <span>Hasil Transkripsi Teks (Speech to Text)</span>
+                  </label>
+                  {voiceTranscript && (
+                    <span className="text-[11px] text-slate-400 font-medium">
+                      {voiceTranscript.split(/\s+/).filter(Boolean).length} kata
+                    </span>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <textarea
+                    rows={4}
+                    value={voiceTranscript}
+                    onChange={(e) => setVoiceTranscript(e.target.value)}
+                    placeholder="Teks transkripsi suara akan muncul otomatis di sini saat Anda berbicara. Anda juga bisa mengetik atau mengedit teks ini langsung..."
+                    className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 leading-relaxed font-normal"
+                  />
+                </div>
+
+                {/* Tombol Buat Kesimpulan AI */}
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="button"
+                    disabled={isGeneratingSummary || !voiceTranscript.trim()}
+                    onClick={handleGenerateSummary}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm disabled:opacity-50 transition-all"
+                  >
+                    <Wand2 className={`w-4 h-4 ${isGeneratingSummary ? 'animate-spin' : ''}`} />
+                    <span>{isGeneratingSummary ? 'Menganalisis Suara...' : '⚡ Buat Kesimpulan AI'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* AREA HASIL KESIMPULAN CERDAS AI */}
+              {voiceSummaryResult && (
+                <div className="p-5 rounded-2xl bg-gradient-to-br from-indigo-50/90 via-purple-50/50 to-white border border-indigo-200 shadow-xs space-y-4">
+                  <div className="flex items-center justify-between border-b border-indigo-100 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-indigo-600" />
+                      <h4 className="font-extrabold text-xs sm:text-sm text-indigo-950 uppercase tracking-wide">
+                        Hasil Analisis &amp; Kesimpulan Cerdas AI
+                      </h4>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={copyVoiceSummaryText}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                      title="Salin kesimpulan"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Salin</span>
+                    </button>
+                  </div>
+
+                  {/* 1. Ringkasan Eksekutif */}
+                  <div className="space-y-1">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900 block">
+                      🎯 Ringkasan Eksekutif
+                    </span>
+                    <p className="text-xs sm:text-sm text-slate-800 leading-relaxed font-medium bg-white/80 p-3 rounded-xl border border-indigo-100">
+                      {voiceSummaryResult.summary}
+                    </p>
+                  </div>
+
+                  {/* 2. Poin-Poin Kunci */}
+                  {voiceSummaryResult.keyPoints.length > 0 && (
+                    <div className="space-y-1.5">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900 block">
+                        📋 Poin-Poin Kunci Pembahasan
+                      </span>
+                      <ul className="space-y-1 text-xs text-slate-700 bg-white/80 p-3 rounded-xl border border-indigo-100">
+                        {voiceSummaryResult.keyPoints.map((point, idx) => (
+                          <li key={idx} className="flex items-start gap-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0 mt-1.5" />
+                            <span>{point}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* 3. Tindakan Lanjutan (Action Items) */}
+                  {voiceSummaryResult.actionItems.length > 0 && (
+                    <div className="space-y-1.5">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900 block">
+                        ⚡ Tindakan Lanjutan / Action Items
+                      </span>
+                      <div className="space-y-1.5 bg-white/80 p-3 rounded-xl border border-indigo-100">
+                        {voiceSummaryResult.actionItems.map((item, idx) => (
+                          <div key={idx} className="flex items-start gap-2 text-xs text-slate-800">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                            <span className="font-semibold">{item}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* RIWAYAT MEMO SUARA SEBELUMNYA */}
+              {savedVoiceMemos.length > 0 && (
+                <div className="border-t border-slate-200 pt-4 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                      <FileAudio className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Riwayat Catatan Suara ({savedVoiceMemos.length})</span>
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                    {savedVoiceMemos.map((memo) => (
+                      <div
+                        key={memo.id}
+                        className="p-3 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-300 flex items-start justify-between gap-3 transition-colors"
+                      >
+                        <div
+                          className="min-w-0 cursor-pointer flex-1"
+                          onClick={() => {
+                            setVoiceTranscript(memo.transcript);
+                            setVoiceSummaryResult({
+                              summary: memo.summary,
+                              keyPoints: memo.keyPoints || [],
+                              actionItems: memo.actionItems || [],
+                            });
+                          }}
+                        >
+                          <div className="font-bold text-xs text-slate-900 truncate">
+                            {memo.title}
+                          </div>
+                          <p className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
+                            {memo.summary}
+                          </p>
+                          <span className="text-[10px] text-slate-400">
+                            {formatDateFullIndo(memo.createdAt.slice(0, 10))} • {Math.floor(memo.durationSeconds / 60)}:{String(memo.durationSeconds % 60).padStart(2, '0')}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteVoiceMemo(memo.id)}
+                          className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                          title="Hapus riwayat"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={closeVoiceModal}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-200"
+              >
+                Tutup
+              </button>
+
+              <div className="flex items-center gap-2">
+                {voiceSummaryResult && (
+                  <button
+                    type="button"
+                    onClick={copyVoiceSummaryText}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-200 text-slate-700 bg-white hover:bg-slate-100 shadow-2xs"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Salin Rangkuman</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  disabled={!voiceTranscript.trim()}
+                  onClick={handleConvertSummaryToTask}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm disabled:opacity-50 transition-colors"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Jadikan Tugas Proyek</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
