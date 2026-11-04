@@ -4,7 +4,7 @@ import type {
   EntryStatus,
   Project,
   ProjectProgram,
-  ScheduleEntry,
+  ScheduleEntry as BaseScheduleEntry,
   UserProfile,
   AttendanceRecord,
   AttendanceType,
@@ -13,6 +13,12 @@ import type {
   WorkShiftCategory,
   ReminderItem,
 } from './types';
+
+// Ekstensi lokal ScheduleEntry agar selalu mengenali completedDate & durationDays di db.ts
+export interface ScheduleEntry extends BaseScheduleEntry {
+  completedDate?: string | null;
+  durationDays?: number;
+}
 
 // ============================================================================
 // MODUL DATA LAYER (src/db.ts — Jadwal, Proyek, Cabang Program, Absensi, Performa AI & Supabase)
@@ -363,7 +369,7 @@ export const db = {
       let entQuery = supabase
         .from('schedule_entries')
         .select(
-          'id, date:entry_date, title, projectId:project_id, programId:program_id, status, notes, ownerId:owner_id, ownerName:owner_name, ownerPhone:owner_phone, ownerEmail:owner_email, createdAt:created_at, updatedAt:updated_at'
+          'id, date:entry_date, completedDate:completed_date, durationDays:duration_days, title, projectId:project_id, programId:program_id, status, notes, ownerId:owner_id, ownerName:owner_name, ownerPhone:owner_phone, ownerEmail:owner_email, createdAt:created_at, updatedAt:updated_at'
         )
         .order('entry_date', { ascending: true })
         .order('created_at', { ascending: true });
@@ -371,7 +377,7 @@ export const db = {
       let attQuery = supabase
         .from('attendance')
         .select(
-          'id, ownerId:owner_id, ownerName:owner_name, date:entry_date, type, checkInTime:check_in_time, checkOutTime:check_out_time, workDurationHours:work_duration_hours, notes, createdAt:created_at, updatedAt:updated_at'
+          'id, ownerId:owner_id, ownerName:owner_name, date:entry_date, type, checkInTime:check_in_time, checkOutTime:check_out_time, workDurationHours:work_duration_hours, regularWorkHours:regular_work_hours, overtimeHours:overtime_hours, shiftCategory:shift_category, shiftNotes:shift_notes, checkInPhoto:check_in_photo, checkInLocation:check_in_location, checkOutPhoto:check_out_photo, checkOutLocation:check_out_location, notes, createdAt:created_at, updatedAt:updated_at'
         )
         .order('entry_date', { ascending: false });
 
@@ -607,6 +613,8 @@ export const db = {
       programId?: string | null;
       status: EntryStatus;
       notes: string;
+      completedDate?: string | null;
+      durationDays?: number;
     },
     owner?: UserProfile | null
   ): ScheduleEntry[] {
@@ -615,6 +623,8 @@ export const db = {
     const newEntry: ScheduleEntry = {
       id: 'ent-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6),
       date: payload.date,
+      completedDate: payload.completedDate || (payload.status === 'selesai' ? payload.date : null),
+      durationDays: payload.durationDays || (payload.status === 'selesai' ? 1 : undefined),
       title: payload.title.trim(),
       projectId: payload.projectId,
       programId: payload.programId || null,
@@ -636,6 +646,8 @@ export const db = {
         .insert({
           id: newEntry.id,
           entry_date: newEntry.date,
+          completed_date: newEntry.completedDate,
+          duration_days: newEntry.durationDays,
           title: newEntry.title,
           project_id: newEntry.projectId,
           program_id: newEntry.programId,
@@ -676,6 +688,8 @@ export const db = {
       if (payload.programId !== undefined) dbUpdate.program_id = payload.programId;
       if (payload.status !== undefined) dbUpdate.status = payload.status;
       if (payload.notes !== undefined) dbUpdate.notes = payload.notes;
+      if ((payload as any).completedDate !== undefined) dbUpdate.completed_date = (payload as any).completedDate;
+      if ((payload as any).durationDays !== undefined) dbUpdate.duration_days = (payload as any).durationDays;
 
       supabase
         .from('schedule_entries')
@@ -743,6 +757,14 @@ export const db = {
       type: AttendanceType;
       checkInTime?: string | null;
       checkOutTime?: string | null;
+      checkInPhoto?: string | null;
+      checkInLocation?: string | null;
+      checkOutPhoto?: string | null;
+      checkOutLocation?: string | null;
+      regularWorkHours?: number;
+      overtimeHours?: number;
+      shiftCategory?: WorkShiftCategory;
+      shiftNotes?: string;
       notes?: string;
     },
     owner?: UserProfile | null
@@ -796,15 +818,28 @@ export const db = {
     let updatedItem: AttendanceRecord;
     let updatedList: AttendanceRecord[];
 
+    const targetHours = policy.targetDailyWorkHours || 8.0;
+    const regHours = Math.min(duration, targetHours);
+    const otHours = Math.max(0, Math.round((duration - regHours) * 10) / 10);
+
     if (existingIndex >= 0) {
+      const prev = records[existingIndex];
       updatedItem = {
-        ...records[existingIndex],
+        ...prev,
         type: payload.type,
         checkInTime: inTime,
         checkOutTime: outTime,
         workDurationHours: payload.type === 'hadir' ? duration : 0,
+        regularWorkHours: payload.type === 'hadir' ? (payload.regularWorkHours !== undefined ? payload.regularWorkHours : regHours) : 0,
+        overtimeHours: payload.type === 'hadir' ? (payload.overtimeHours !== undefined ? payload.overtimeHours : otHours) : 0,
+        shiftCategory: payload.shiftCategory || prev.shiftCategory || 'normal',
+        shiftNotes: payload.shiftNotes !== undefined ? payload.shiftNotes : prev.shiftNotes || '',
+        checkInPhoto: payload.checkInPhoto !== undefined ? payload.checkInPhoto : prev.checkInPhoto,
+        checkInLocation: payload.checkInLocation !== undefined ? payload.checkInLocation : prev.checkInLocation,
+        checkOutPhoto: payload.checkOutPhoto !== undefined ? payload.checkOutPhoto : prev.checkOutPhoto,
+        checkOutLocation: payload.checkOutLocation !== undefined ? payload.checkOutLocation : prev.checkOutLocation,
         isLate: payload.type === 'hadir' ? isLate : false,
-        notes: payload.notes !== undefined ? payload.notes : records[existingIndex].notes,
+        notes: payload.notes !== undefined ? payload.notes : prev.notes,
         updatedAt: now,
       };
       updatedList = [...records];
@@ -819,10 +854,14 @@ export const db = {
         checkInTime: inTime,
         checkOutTime: outTime,
         workDurationHours: payload.type === 'hadir' ? duration : 0,
-        regularWorkHours: payload.type === 'hadir' ? duration : 0,
-        overtimeHours: 0,
-        shiftCategory: 'normal',
-        shiftNotes: 'Shift normal',
+        regularWorkHours: payload.type === 'hadir' ? (payload.regularWorkHours !== undefined ? payload.regularWorkHours : regHours) : 0,
+        overtimeHours: payload.type === 'hadir' ? (payload.overtimeHours !== undefined ? payload.overtimeHours : otHours) : 0,
+        shiftCategory: payload.shiftCategory || 'normal',
+        shiftNotes: payload.shiftNotes || 'Shift normal',
+        checkInPhoto: payload.checkInPhoto || null,
+        checkInLocation: payload.checkInLocation || null,
+        checkOutPhoto: payload.checkOutPhoto || null,
+        checkOutLocation: payload.checkOutLocation || null,
         isLate: payload.type === 'hadir' ? isLate : false,
         notes: payload.notes || (payload.type === 'hadir' ? 'Check-in hadir harian.' : ''),
         createdAt: now,
@@ -843,6 +882,14 @@ export const db = {
         check_in_time: updatedItem.checkInTime,
         check_out_time: updatedItem.checkOutTime,
         work_duration_hours: updatedItem.workDurationHours,
+        regular_work_hours: updatedItem.regularWorkHours,
+        overtime_hours: updatedItem.overtimeHours,
+        shift_category: updatedItem.shiftCategory,
+        shift_notes: updatedItem.shiftNotes,
+        check_in_photo: updatedItem.checkInPhoto,
+        check_in_location: updatedItem.checkInLocation,
+        check_out_photo: updatedItem.checkOutPhoto,
+        check_out_location: updatedItem.checkOutLocation,
         notes: updatedItem.notes,
         updated_at: now,
       };
