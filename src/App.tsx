@@ -7,6 +7,8 @@ import {
   Filter,
   CheckCircle2,
   Clock,
+  ExternalLink,
+  BarChart3,
   AlertCircle,
   FolderKanban,
   ChevronLeft,
@@ -90,21 +92,31 @@ import type {
 } from './types';
 
 // Definisi mandiri VoiceMemoRecord di App.tsx agar tidak menimbulkan error jika types.ts belum di-update
-export interface VoiceMemoRecord {
+export interface WorkAppraisalRecord {
   id: string;
-  title: string;
-  transcript: string;
-  summary: string;
-  keyPoints: string[];
-  actionItems: string[];
-  durationSeconds: number;
+  ownerId: string;
+  ownerName: string;
+  jobRole: string;
+  jobRoleLabel: string;
+  division: string;
+  reportTitle: string;
+  periodDate: string;
+  metrics: Record<string, string | number>;
+  linkUrl?: string;
+  screenshotUrl?: string;
+  screenshotName?: string;
+  notes?: string;
+  score: number;
+  grade: 'A+' | 'A' | 'B+' | 'B' | 'C';
+  executiveSummary: string;
+  industryBenchmarkReview: string;
+  strengths: string[];
+  improvements: string[];
+  tacticalRecommendations: string[];
   createdAt: string;
-  category?: string;
-  riskMitigation?: string[];
-  operationalContext?: string;
 }
 
-// Definisi mandiri VoiceMemoRecord di App.tsx agar tidak menimbulkan error jika types.ts belum di-update
+// Definisi mandiri VoiceMemoRecord di App.tsx (lengkap dengan audioUrl)
 export interface VoiceMemoRecord {
   id: string;
   title: string;
@@ -117,6 +129,7 @@ export interface VoiceMemoRecord {
   category?: string;
   riskMitigation?: string[];
   operationalContext?: string;
+  audioUrl?: string;
 }
 import { db, isSupabaseConfigured } from './db';
 
@@ -274,6 +287,21 @@ function getHolidayInfo(dateStr: string): HolidayInfo | null {
   }
   return null;
 }
+
+// ============================================================================
+// KONFIGURASI ROLE & TOLAK UKUR SISTEM REPORT HASIL PEKERJAAN AI PRO
+// ============================================================================
+export const APPRAISAL_ROLES = [
+  { id: 'video_editor', label: 'Editor Video & Motion Animator', defaultDivision: 'Media Sosial & Konten Kreatif' },
+  { id: 'sales_marketing', label: 'Sales & Business Development', defaultDivision: 'Marketing & Penjualan Komersial' },
+  { id: 'site_engineer', label: 'Site Supervisor & Pelaksana Proyek', defaultDivision: 'Operasional & Konstruksi Lapangan' },
+  { id: 'software_dev', label: 'Software Engineer & Developer', defaultDivision: 'IT & Digital Engineering' },
+  { id: 'content_creator', label: 'Content Creator & Copywriter', defaultDivision: 'Kreatif & Komunikasi Digital' },
+  { id: 'graphic_designer', label: 'Graphic & Brand Designer', defaultDivision: 'Desain & Komunikasi Visual' },
+  { id: 'admin_operations', label: 'Administrasi, Keuangan & HR', defaultDivision: 'Operasional & Tata Kelola' },
+  { id: 'customer_service', label: 'Customer Service & Client Care', defaultDivision: 'Pelayanan Pelanggan' },
+  { id: 'custom', label: 'Jabatan Kustom (Tulis Sendiri)', defaultDivision: 'Divisi Bebas' },
+];
 
 // ============================================================================
 // ENGINE ANALISIS & GENERASI KESIMPULAN SUARA BERBANTU AI PRO
@@ -710,6 +738,58 @@ export default function App() {
   const [accAvatarUrl, setAccAvatarUrl] = useState<string>('');
   const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // ==========================================================================
+  // STATE SISTEM REPORT HASIL PEKERJAAN & PENILAIAN KINERJA AI PRO
+  // ==========================================================================
+  const [reportActiveView, setReportActiveView] = useState<'work_appraisal' | 'attendance_summary'>('work_appraisal');
+  const [appraisalJobRole, setAppraisalJobRole] = useState<string>('video_editor');
+  const [appraisalCustomRole, setAppraisalCustomRole] = useState<string>('');
+  const [appraisalDivision, setAppraisalDivision] = useState<string>('Media Sosial & Konten Kreatif');
+  const [appraisalTitle, setAppraisalTitle] = useState<string>('Report Hasil Video Reels/Shorts Kampanye');
+  const [appraisalPeriodDate, setAppraisalPeriodDate] = useState<string>(() => getTodayDateStr());
+  const [appraisalLinkUrl, setAppraisalLinkUrl] = useState<string>('https://instagram.com/reels/');
+  const [appraisalScreenshotUrl, setAppraisalScreenshotUrl] = useState<string | null>(null);
+  const [appraisalScreenshotName, setAppraisalScreenshotName] = useState<string>('');
+  const [appraisalNotes, setAppraisalNotes] = useState<string>('Video menggunakan teknik pacing cut cepat, hook 3 detik awal, dan visual color grading kontras.');
+  const appraisalFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Metrik Spesifik Per Role
+  // 1. Video Editor
+  const [apprVideoViews, setApprVideoViews] = useState<string>('245000');
+  const [apprVideoRetention, setApprVideoRetention] = useState<string>('68');
+  const [apprVideoCTR, setApprVideoCTR] = useState<string>('34');
+  const [apprVideoDuration, setApprVideoDuration] = useState<string>('45 detik');
+  const [apprVideoPlatform, setApprVideoPlatform] = useState<string>('TikTok & IG Reels');
+
+  // 2. Sales & Marketing
+  const [apprSalesTarget, setApprSalesTarget] = useState<string>('50000000');
+  const [apprSalesActual, setApprSalesActual] = useState<string>('58500000');
+  const [apprSalesLeads, setApprSalesLeads] = useState<string>('42');
+  const [apprSalesDeals, setApprSalesDeals] = useState<string>('9');
+
+  // 3. Site Supervisor
+  const [apprSiteProgressPlanned, setApprSiteProgressPlanned] = useState<string>('75');
+  const [apprSiteProgressActual, setApprSiteProgressActual] = useState<string>('78');
+  const [apprSiteVolume, setApprSiteVolume] = useState<string>('Pemasangan hebel 220 m2 & plesteran lantai 2');
+  const [apprSiteWorkers, setApprSiteWorkers] = useState<string>('12 Tukang');
+
+  // 4. Software Dev
+  const [apprDevCoverage, setApprDevCoverage] = useState<string>('88');
+  const [apprDevBugs, setApprDevBugs] = useState<string>('0');
+  const [apprDevDeployStatus, setApprDevDeployStatus] = useState<string>('Production Ready / Live');
+
+  // 5. Custom
+  const [apprCustomMetric1Label, setApprCustomMetric1Label] = useState<string>('Target KPI Deliverable');
+  const [apprCustomMetric1Val, setApprCustomMetric1Val] = useState<string>('100% Tepat Waktu');
+  const [apprCustomMetric2Label, setApprCustomMetric2Label] = useState<string>('Tingkat Kepuasan Klien');
+  const [apprCustomMetric2Val, setApprCustomMetric2Val] = useState<string>('Sangat Puas (9.5/10)');
+
+  const [isEvaluatingAppraisal, setIsEvaluatingAppraisal] = useState<boolean>(false);
+  const [currentAppraisal, setCurrentAppraisal] = useState<WorkAppraisalRecord | null>(null);
+  const [savedAppraisals, setSavedAppraisals] = useState<WorkAppraisalRecord[]>(() =>
+    (db as any).getWorkAppraisals ? (db as any).getWorkAppraisals() : []
+  );
+
   // State Crop & Scale Foto Profil Rasio 4:5
   const [isCroppingAvatar, setIsCroppingAvatar] = useState<boolean>(false);
   const [rawCropImage, setRawCropImage] = useState<string | null>(null);
@@ -724,6 +804,8 @@ export default function App() {
   const [voiceTranscript, setVoiceTranscript] = useState<string>('');
   const [voiceLanguage, setVoiceLanguage] = useState<'id-ID' | 'en-US'>('id-ID');
   const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
+  const [recordedAudioBase64, setRecordedAudioBase64] = useState<string | null>(null);
+  const transcriptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState<boolean>(false);
   const [voiceSummaryResult, setVoiceSummaryResult] = useState<{
     summary: string;
@@ -2478,6 +2560,340 @@ export default function App() {
   // ==========================================================================
   // HANDLERS REKAM SUARA, TRANSKRIPSI & KESIMPULAN AI
   // ==========================================================================
+  // ==========================================================================
+  // HANDLERS SISTEM REPORT HASIL PEKERJAAN & PENILAIAN AI PRO
+  // ==========================================================================
+  const handleRoleSelectionChange = (newRole: string) => {
+    setAppraisalJobRole(newRole);
+    const found = APPRAISAL_ROLES.find((r) => r.id === newRole);
+    if (found && newRole !== 'custom') {
+      setAppraisalDivision(found.defaultDivision);
+      if (newRole === 'video_editor') {
+        setAppraisalTitle('Report Hasil Video Reels/Shorts Kampanye');
+        setAppraisalLinkUrl('https://instagram.com/reels/');
+        setAppraisalNotes('Pacing video dinamis dengan retention rate tinggi di atas rata-rata benchmark.');
+      } else if (newRole === 'sales_marketing') {
+        setAppraisalTitle('Closing Kontrak Penjualan Produk Komersial');
+        setAppraisalLinkUrl('https://crm.company.com/deal/8842');
+        setAppraisalNotes('Negosiasi berhasil menghasilkan closing di atas target bulanan.');
+      } else if (newRole === 'site_engineer') {
+        setAppraisalTitle('Laporan Progres Fisik Pekerjaan Lapangan');
+        setAppraisalLinkUrl('https://drive.google.com/drive/folders/dokumentasi-proyek');
+        setAppraisalNotes('Pekerjaan fisik selesai lebih cepat dari jadwal rencana kurva-S.');
+      } else if (newRole === 'software_dev') {
+        setAppraisalTitle('Deployment Fitur Modul & Optimasi Sistem');
+        setAppraisalLinkUrl('https://github.com/company/project/pull/42');
+        setAppraisalNotes('Modul teruji stabil dengan automated testing dan zero critical bugs.');
+      }
+    }
+  };
+
+  const handleAppraisalScreenshotUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('File harus berupa gambar (JPG, PNG, WEBP)');
+      return;
+    }
+    setAppraisalScreenshotName(file.name);
+    const reader = new FileReader();
+    reader.onload = (uploadEvent) => {
+      const result = uploadEvent.target?.result as string;
+      setAppraisalScreenshotUrl(result);
+      showToast(`Bukti gambar "${file.name}" berhasil diunggah!`);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRunWorkAppraisal = () => {
+    if (!currentUser) return;
+    setIsEvaluatingAppraisal(true);
+    showToast('AI PRO sedang menganalisis metrik tolak ukur, deliverable, dan standar industri...');
+
+    setTimeout(() => {
+      let score = 88;
+      let grade: 'A+' | 'A' | 'B+' | 'B' | 'C' = 'A';
+      let executiveSummary = '';
+      let industryBenchmarkReview = '';
+      const strengths: string[] = [];
+      const improvements: string[] = [];
+      const tacticalRecommendations: string[] = [];
+      const metrics: Record<string, string | number> = {};
+
+      const title = appraisalTitle.trim() || `Report Kerja ${getTodayDateStr()}`;
+      const roleName = appraisalJobRole === 'custom'
+        ? (appraisalCustomRole.trim() || 'Spesialis Kustom')
+        : APPRAISAL_ROLES.find((r) => r.id === appraisalJobRole)?.label || 'Pekerja Profesional';
+
+      if (appraisalJobRole === 'video_editor') {
+        const views = parseInt(apprVideoViews.replace(/\D/g, '') || '0', 10);
+        const retention = parseFloat(apprVideoRetention) || 50;
+        const ctr = parseFloat(apprVideoCTR) || 20;
+
+        metrics['Platform Publikasi'] = apprVideoPlatform;
+        metrics['Durasi Video'] = apprVideoDuration;
+        metrics['Total Tayangan (Views)'] = views.toLocaleString('id-ID');
+        metrics['Rata-Rata Retensi Video'] = `${retention}%`;
+        metrics['Hook Rate (3s CTR)'] = `${ctr}%`;
+
+        let baseScore = 75;
+        if (retention >= 65) baseScore += 12;
+        else if (retention >= 50) baseScore += 6;
+        if (ctr >= 30) baseScore += 8;
+        if (views >= 100000) baseScore += 5;
+        score = Math.min(98, Math.max(70, Math.round(baseScore)));
+        grade = score >= 93 ? 'A+' : score >= 85 ? 'A' : score >= 78 ? 'B+' : score >= 70 ? 'B' : 'C';
+
+        executiveSummary = `Karya video "${title}" menunjukkan performa sangat impresif dengan total ${views.toLocaleString('id-ID')} tayangan dan rata-rata retensi penonton mencapai ${retention}%. Hook visual pada 3 detik pertama terbukti memikat dengan CTR awal ${ctr}%, mencerminkan pemahaman mendalam terhadap psikologi algoritma video modern.`;
+        
+        industryBenchmarkReview = `Standar Industri Video Kreatif 2026: Benchmark retensi video durasi <60 detik di platform vertikal (TikTok/Reels/Shorts) adalah 55–60%. Capaian Anda sebesar ${retention}% berada di atas rata-rata industri (Top 15% tier). Pacing cut cepat dan visual storytelling berhasil menahan drop-off rate pada detik-detik krusial.`;
+
+        strengths.push(`Hook Visual Efektif: Rasio tonton awal 3 detik mencapai ${ctr}%, memicu amplifikasi FYP/Explore.`);
+        strengths.push(`Retensi Tinggi: Mempertahankan ${retention}% penonton hingga bagian Call To Action (CTA) akhir.`);
+        strengths.push(`Kualitas Audio & Pacing: Transisi dinamis tanpa dead-air dan sound design yang memperkuat emosi.`);
+
+        improvements.push(`Eksperimen Cover Frame: Gunakan kontras tipografi lebih tebal untuk mendongkrak CTR feed.`);
+        improvements.push(`Optimasi UI Safe-Zone: Pastikan teks penting tidak tertutup ikon like/comment di sisi kanan HP.`);
+
+        tacticalRecommendations.push(`Terapkan teknik 'Pattern Interrupt' tiap 4–5 detik untuk mendorong re-watch rate (putar ulang) lebih tinggi.`);
+        tacticalRecommendations.push(`Tambahkan subtitle animasi dengan kata kunci bergradien warna untuk audiens yang menonton tanpa suara.`);
+        tacticalRecommendations.push(`Gunakan analytics drop-off graph di YouTube Studio/TikTok untuk memotong 2 detik bagian yang paling banyak di-skip.`);
+      } else if (appraisalJobRole === 'sales_marketing') {
+        const target = parseFloat(apprSalesTarget.replace(/\D/g, '') || '1');
+        const actual = parseFloat(apprSalesActual.replace(/\D/g, '') || '0');
+        const leads = parseInt(apprSalesLeads || '1', 10);
+        const deals = parseInt(apprSalesDeals || '0', 10);
+        const closingRate = leads > 0 ? Math.round((deals / leads) * 100) : 0;
+        const targetAchieved = Math.round((actual / target) * 100);
+
+        metrics['Target Omzet'] = `Rp ${target.toLocaleString('id-ID')}`;
+        metrics['Realisasi Closing'] = `Rp ${actual.toLocaleString('id-ID')}`;
+        metrics['Pencapaian Target'] = `${targetAchieved}%`;
+        metrics['Leads Dihubungi'] = `${leads} Calon Klien`;
+        metrics['Deals Berhasil'] = `${deals} Kontrak`;
+        metrics['Conversion Closing Rate'] = `${closingRate}%`;
+
+        score = Math.min(99, Math.max(65, Math.round(targetAchieved >= 100 ? 88 + (targetAchieved - 100) * 0.3 : targetAchieved * 0.85)));
+        grade = score >= 93 ? 'A+' : score >= 85 ? 'A' : score >= 78 ? 'B+' : score >= 70 ? 'B' : 'C';
+
+        executiveSummary = `Performa penjualan mencatatkan realisasi Rp ${actual.toLocaleString('id-ID')} (${targetAchieved}% dari target Rp ${target.toLocaleString('id-ID')}) dengan tingkat closing rate ${closingRate}%. Kemampuan mengonversi ${deals} kontrak dari total ${leads} prospek menunjukkan kualitas negosiasi dan pipeline velocity yang sangat solid.`;
+        
+        industryBenchmarkReview = `Standar Industri Penjualan B2B/B2C 2026: Rata-rata conversion rate dari qualified leads ke closing deal di sektor komersial berkisar antara 15% – 20%. Hasil kerja Anda sebesar ${closingRate}% membuktikan efektivitas teknik pendekatan dan penawaran solusi bernilai tinggi.`;
+
+        strengths.push(`Melampaui Target: Realisasi omzet melampaui target dengan persentase ketercapaian ${targetAchieved}%.`);
+        strengths.push(`Tingkat Closing Efisien: Menghasilkan ${deals} pelanggan baru dengan konversi closing ${closingRate}%.`);
+        strengths.push(`Dokumentasi Transaksi: Bukti pembayaran dan invoice terorganisir rapi dalam pipeline pelaporan.`);
+
+        improvements.push(`Lead Nurturing Prospek Dingin: Lakukan follow-up terjadwal pada ${leads - deals} prospek yang belum closing.`);
+        improvements.push(`Up-selling Klien Eksisting: Manfaatkan kepuasan ${deals} klien baru untuk menawarkan paket lanjutan.`);
+
+        tacticalRecommendations.push(`Gunakan sales playbook terstandar dengan studi kasus ROI nyata untuk mempersingkat siklus negosiasi.`);
+        tacticalRecommendations.push(`Jadwalkan panggilan review 14 hari pasca-closing untuk menjaga loyalitas dan memicu rujukan (referral).`);
+      } else if (appraisalJobRole === 'site_engineer') {
+        const planned = parseFloat(apprSiteProgressPlanned) || 0;
+        const actual = parseFloat(apprSiteProgressActual) || 0;
+        const deviasi = actual - planned;
+
+        metrics['Rencana Progres'] = `${planned}%`;
+        metrics['Realisasi Fisik Lapangan'] = `${actual}%`;
+        metrics['Deviasi Kemajuan'] = `${deviasi >= 0 ? '+' : ''}${deviasi.toFixed(1)}%`;
+        metrics['Volume Pekerjaan Selesai'] = apprSiteVolume;
+        metrics['Tenaga Kerja Aktif'] = apprSiteWorkers;
+
+        score = Math.min(98, Math.max(68, Math.round(85 + deviasi * 2.5)));
+        grade = score >= 93 ? 'A+' : score >= 85 ? 'A' : score >= 78 ? 'B+' : score >= 70 ? 'B' : 'C';
+
+        executiveSummary = `Pekerjaan lapangan "${title}" terealisasi pada capaian fisik ${actual}% (deviasi ${deviasi >= 0 ? '+' : ''}${deviasi.toFixed(1)}% dari target rencana ${planned}%). Penyelesaian volume "${apprSiteVolume}" terlaksana tepat jadwal dengan koordinasi ${apprSiteWorkers} yang disiplin dan aman.`;
+
+        industryBenchmarkReview = `Standar Industri Manajemen Proyek 2026: Deviasi progres fisik yang berada di rentang 0% hingga +5% merupakan kategori performa hijau (On-Track & Ahead of Schedule). Standar dokumentasi foto lapangan dan kontrol material memenuhi regulasi K3 dan SPM (Standar Pelayanan Minimal).`;
+
+        strengths.push(`Progres Di Depan Jadwal: Realisasi fisik melampaui kurva-S rencana sebesar +${Math.max(0, deviasi).toFixed(1)}%.`);
+        strengths.push(`Penyelesaian Volume Riil: Berhasil menuntaskan ${apprSiteVolume} dengan kepatuhan spesifikasi teknis.`);
+        strengths.push(`Zero Accident & Ketertiban: Tidak ada catatan insiden kerja dan tenaga kerja termonitor tertib.`);
+
+        improvements.push(`Proteksi Cuaca: Antisipasi cuaca hujan dengan penyiapan terpal pelindung material dan drainase kerja.`);
+        improvements.push(`Logbook Digital: Pastikan bukti foto dilengkapi watermark koordinat GPS dan jam pelaksanaan.`);
+
+        tacticalRecommendations.push(`Lakukan 'Toolbox Meeting' 10 menit setiap pagi untuk sinkronisasi target volume harian tiap regu.`);
+        tacticalRecommendations.push(`Susun jadwal opname mingguan bersama pengawas agar berita acara progres disahkan tanpa kendala administrasi.`);
+      } else if (appraisalJobRole === 'software_dev') {
+        const coverage = parseFloat(apprDevCoverage) || 80;
+        const bugs = parseInt(apprDevBugs || '0', 10);
+
+        metrics['Status Deploy'] = apprDevDeployStatus;
+        metrics['Test Coverage'] = `${coverage}%`;
+        metrics['Bug Kritis'] = `${bugs} Bug`;
+        metrics['Repository / PR'] = appraisalLinkUrl || 'Tautan Git Terlampir';
+
+        score = Math.min(98, Math.max(70, Math.round(78 + (coverage - 70) * 0.5 - bugs * 5)));
+        grade = score >= 93 ? 'A+' : score >= 85 ? 'A' : score >= 78 ? 'B+' : score >= 70 ? 'B' : 'C';
+
+        executiveSummary = `Deliverable software "${title}" berhasil dideploy dengan status ${apprDevDeployStatus}. Modul kode memenuhi standar keandalan tinggi dengan test coverage ${coverage}% dan ${bugs} bug kritis, mencerminkan implementasi arsitektur bersih (*clean architecture*).`;
+
+        industryBenchmarkReview = `Standar Industri Rekayasa Perangkat Lunak 2026: Benchmark test coverage industri untuk modul inti berkisar pada 80% – 85% dengan tingkat *zero downtime deployment*. Arsitektur yang Anda serahkan lolos uji audit fungsional dan performa lintas perangkat.`;
+
+        strengths.push(`Cakupan Uji Stabil: Test coverage mencapai ${coverage}%, menjamin pencegahan regresi pada update mendatang.`);
+        strengths.push(`Zero Critical Defect: Tidak ada bug fatal yang menghambat alur kerja pengguna utama.`);
+        strengths.push(`Dokumentasi Kode: Pull request dan commit message terstruktur rapi mengikuti konvensi git modern.`);
+
+        improvements.push(`Optimasi Bundle Size: Lakukan tree-shaking dan lazy loading pada modul berat untuk mempercepat initial load.`);
+        improvements.push(`Pencatatan Telemetri: Tambahkan logging terpusat untuk memantau waktu respons query di production.`);
+
+        tacticalRecommendations.push(`Pasang automated CI/CD pipeline dengan linting dan automated security scan sebelum merge ke production.`);
+        tacticalRecommendations.push(`Tulis dokumentasi API/komponen di README agar pengembang lain dapat mengadopsi modul dengan cepat.`);
+      } else {
+        score = 88;
+        grade = 'A';
+        metrics['Jabatan'] = roleName;
+        metrics['Divisi'] = appraisalDivision;
+        if (apprCustomMetric1Label && apprCustomMetric1Val) metrics[apprCustomMetric1Label] = apprCustomMetric1Val;
+        if (apprCustomMetric2Label && apprCustomMetric2Val) metrics[apprCustomMetric2Label] = apprCustomMetric2Val;
+        if (appraisalLinkUrl) metrics['Tautan Bukti Deliverable'] = appraisalLinkUrl;
+
+        executiveSummary = `Laporan hasil pekerjaan "${title}" untuk jabatan ${roleName} (${appraisalDivision}) telah diverifikasi dengan standar kinerja ${score}% (Predikat ${grade}). Seluruh bukti deliverable dan catatan pelaksanaan menunjukkan kepatuhan target dan etos kerja yang sangat profesional.`;
+
+        industryBenchmarkReview = `Standar Industri Terkini 2026: Penilaian mencakup parameter ketepatan waktu serah terima, kelengkapan berkas pendukung, dan dampak langsung terhadap target divisi. Capaian Anda berada pada kategori performa unggul (High Performer).`;
+
+        strengths.push(`Penyelesaian Target Utama: Deliverable "${title}" berhasil diserahkan sesuai target periode kerja.`);
+        strengths.push(`Akuntabilitas Terbuka: Menyertakan bukti visual/tautan yang dapat diverifikasi secara transparan.`);
+        strengths.push(`Inisiatif Mandiri: Menghasilkan output dengan nilai tambah di luar standar operasional minimal.`);
+
+        improvements.push(`Penyeragaman Format Laporan: Gunakan metrik kuantitatif terukur pada setiap item capaian harian.`);
+        improvements.push(`Manajemen Waktu: Tingkatkan efisiensi jeda transisi antar sesi pekerjaan.`);
+
+        tacticalRecommendations.push(`Petakan pencapaian ini ke dalam KPI kuartalan untuk bahan evaluasi promosi atau review karir.`);
+        tacticalRecommendations.push(`Diskusikan hasil evaluasi AI ini bersama pimpinan divisi sebagai bukti kontribusi riil.`);
+      }
+
+      const newRecord: WorkAppraisalRecord = {
+        id: 'appraisal-' + Date.now().toString(36),
+        ownerId: currentUser.id,
+        ownerName: currentUser.fullName,
+        jobRole: appraisalJobRole,
+        jobRoleLabel: roleName,
+        division: appraisalDivision,
+        reportTitle: title,
+        periodDate: appraisalPeriodDate,
+        metrics,
+        linkUrl: appraisalLinkUrl || undefined,
+        screenshotUrl: appraisalScreenshotUrl || undefined,
+        screenshotName: appraisalScreenshotName || undefined,
+        notes: appraisalNotes || undefined,
+        score,
+        grade,
+        executiveSummary,
+        industryBenchmarkReview,
+        strengths,
+        improvements,
+        tacticalRecommendations,
+        createdAt: new Date().toISOString(),
+      };
+
+      if ((db as any).addWorkAppraisal) {
+        const updated = (db as any).addWorkAppraisal(newRecord);
+        setSavedAppraisals(updated);
+      }
+      setCurrentAppraisal(newRecord);
+      setIsEvaluatingAppraisal(false);
+      showToast('⚡ Penilaian Kinerja AI PRO berhasil diterbitkan!');
+    }, 1500);
+  };
+
+  const handleDeleteAppraisal = (id: string) => {
+    if ((db as any).deleteWorkAppraisal) {
+      const updated = (db as any).deleteWorkAppraisal(id);
+      setSavedAppraisals(updated);
+      if (currentAppraisal?.id === id) {
+        setCurrentAppraisal(null);
+      }
+      showToast('Riwayat penilaian kerja dihapus');
+    }
+  };
+
+  // Fungsi Salin Transkripsi: menyalin teks yang diblok/diseleksi, atau salin semua jika tidak ada yang diblok
+  const handleCopyTranscript = () => {
+    if (!voiceTranscript.trim()) {
+      showToast('Belum ada teks transkripsi untuk disalin');
+      return;
+    }
+
+    let textToCopy = '';
+    let isPartial = false;
+
+    // Cek seleksi teks di dalam textarea
+    if (transcriptTextareaRef.current) {
+      const ta = transcriptTextareaRef.current;
+      if (ta.selectionStart !== ta.selectionEnd) {
+        textToCopy = ta.value.substring(ta.selectionStart, ta.selectionEnd).trim();
+        isPartial = true;
+      }
+    }
+
+    // Jika tidak ada di textarea, cek seleksi global window
+    if (!textToCopy && typeof window !== 'undefined' && window.getSelection) {
+      const sel = window.getSelection()?.toString().trim();
+      if (sel) {
+        textToCopy = sel;
+        isPartial = true;
+      }
+    }
+
+    // Jika tidak ada bagian teks yang diblok, salin seluruh teks
+    if (!textToCopy) {
+      textToCopy = voiceTranscript;
+      isPartial = false;
+    }
+
+    navigator.clipboard.writeText(textToCopy);
+    showToast(
+      isPartial
+        ? `Teks yang diblok (${textToCopy.length} karakter) berhasil disalin!`
+        : `Seluruh teks transkripsi (${voiceTranscript.split(/\s+/).filter(Boolean).length} kata) berhasil disalin!`
+    );
+  };
+
+  const handleSelectVoiceMemo = (memo: VoiceMemoRecord) => {
+    setVoiceTranscript(memo.transcript);
+    setRecordingDurationSec(memo.durationSeconds || 0);
+    if (memo.audioUrl) {
+      setRecordedAudioUrl(memo.audioUrl);
+      setRecordedAudioBase64(memo.audioUrl);
+    }
+    setVoiceSummaryResult({
+      summary: memo.summary,
+      keyPoints: memo.keyPoints || [],
+      actionItems: memo.actionItems || [],
+      category: memo.category,
+      riskMitigation: memo.riskMitigation,
+      operationalContext: memo.operationalContext,
+    });
+    showToast(`Rekaman "${memo.title}" berhasil dimuat! Audio & transkripsi siap.`);
+  };
+
+  const handleSaveVoiceDraft = () => {
+    if (!voiceTranscript.trim()) {
+      showToast('Transkripsi suara masih kosong. Rekam atau ketik catatan terlebih dahulu');
+      return;
+    }
+    const draftMemo: VoiceMemoRecord = {
+      id: 'draft-' + Date.now().toString(36),
+      title: `[Draft] ${voiceTranscript.slice(0, 35)}${voiceTranscript.length > 35 ? '...' : ''}`,
+      transcript: voiceTranscript,
+      summary: voiceSummaryResult?.summary || 'Draft rekaman belum dirangkum oleh AI.',
+      keyPoints: voiceSummaryResult?.keyPoints || [],
+      actionItems: voiceSummaryResult?.actionItems || [],
+      durationSeconds: recordingDurationSec,
+      createdAt: new Date().toISOString(),
+      category: voiceSummaryResult?.category || 'Draft Notulen',
+      audioUrl: recordedAudioBase64 || recordedAudioUrl || undefined,
+    };
+    if ((db as any).addVoiceMemo) {
+      const updated = (db as any).addVoiceMemo(draftMemo);
+      setSavedVoiceMemos(updated);
+    }
+    showToast('💾 Draft rekaman & audio berhasil disimpan ke riwayat!');
+  };
+
   const openVoiceModal = () => {
     setIsVoiceModalOpen(true);
     setVoiceSummaryResult(null);
@@ -2549,6 +2965,12 @@ export default function App() {
           const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
           const url = URL.createObjectURL(blob);
           setRecordedAudioUrl(url);
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const b64 = reader.result as string;
+            setRecordedAudioBase64(b64);
+          };
+          reader.readAsDataURL(blob);
           stream.getTracks().forEach((track) => track.stop());
         };
 
@@ -2621,6 +3043,7 @@ export default function App() {
         category: result.category,
         riskMitigation: result.riskMitigation,
         operationalContext: result.operationalContext,
+        audioUrl: recordedAudioBase64 || recordedAudioUrl || undefined,
       };
 
       if ((db as any).addVoiceMemo) {
@@ -4431,10 +4854,922 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 3: LAPORAN KINERJA DENGAN FILTER PERIODE KUSTOM & PERSENTASE KONTRIBUSI PROYEK */}
+          {/* TAB 3: LAPORAN KINERJA & SISTEM REPORT HASIL PEKERJAAN FULL AI PRO */}
           {activeMainTab === 'report' && reportData && (
             <div className="space-y-6">
-              {/* Toolbar Filter Periode Kustom (Print: Hidden) */}
+              {/* SUB-NAVBAR MENU LAPORAN: REPORT HASIL PEKERJAAN (AI PRO) VS REKAP ABSENSI */}
+              <div className="bg-white p-2.5 rounded-2xl border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-3 print:hidden">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setReportActiveView('work_appraisal')}
+                    className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                      reportActiveView === 'work_appraisal'
+                        ? 'bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 text-white shadow-md'
+                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
+                    }`}
+                  >
+                    <Sparkles className={`w-4 h-4 ${reportActiveView === 'work_appraisal' ? 'text-amber-300' : 'text-indigo-600'}`} />
+                    <span>Report Hasil Pekerjaan (Penilaian AI PRO)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReportActiveView('attendance_summary')}
+                    className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                      reportActiveView === 'attendance_summary'
+                        ? 'bg-indigo-600 text-white shadow-md'
+                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
+                    }`}
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
+                    <span>Rekap Absensi &amp; Jam Kerja Harian</span>
+                  </button>
+                </div>
+
+                <div className="text-[11px] text-slate-500 hidden sm:flex items-center gap-1.5 font-medium px-2">
+                  <Award className="w-4 h-4 text-amber-500" />
+                  <span>Sistem Evaluasi Kerja Berbasis AI Terkini 2026</span>
+                </div>
+              </div>
+
+              {/* VIEW 1: SISTEM REPORT HASIL PEKERJAAN (PENILAIAN FULL AI PRO ADAPTIF) */}
+              {reportActiveView === 'work_appraisal' && (
+                <div className="space-y-6">
+                  {/* Banner Utama */}
+                  <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-purple-950 rounded-3xl p-6 sm:p-8 text-white relative overflow-hidden shadow-xl border border-indigo-800/40">
+                    <div className="relative z-10 max-w-3xl space-y-2.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-indigo-500/30 border border-indigo-400/40 text-indigo-200">
+                          <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                          <span>Dynamic Role &amp; Division Adaptive AI Appraisal</span>
+                        </div>
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/30 border border-purple-400/40 text-purple-200">
+                          Tolak Ukur Standar Industri 2026
+                        </div>
+                      </div>
+                      <h2 className="text-xl sm:text-2xl lg:text-3xl font-extrabold tracking-tight">
+                        Sistem Report Hasil Pekerjaan &amp; Penilaian AI PRO
+                      </h2>
+                      <p className="text-xs sm:text-sm text-indigo-200 leading-relaxed font-normal">
+                        Wadah pelaporan dan penilaian hasil kerja yang sepenuhnya adaptif. Pilih jabatan dan divisi kerja Anda, maka sistem langsung menyesuaikan tolak ukur, metrik pencapaian (link karya, screenshot analitik, closing sales, progres fisik), dan mengeluarkan rapor penilaian AI PRO secara komparatif dengan standar industri terkini.
+                      </p>
+                    </div>
+                    <div className="absolute -right-6 -bottom-8 opacity-15 pointer-events-none">
+                      <Award className="w-60 h-60 text-white" />
+                    </div>
+                  </div>
+
+                  {/* Grid Utama: Form Input Dinamis (7 Cols) & Rapor AI PRO (5 Cols) */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    {/* KOLOM KIRI: FORM REPORT DINAMIS MENGIKUTI PEKERJAAN */}
+                    <div className="lg:col-span-7 space-y-5">
+                      {/* Card Identitas Pekerjaan & Divisi */}
+                      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+                        <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+                          <Briefcase className="w-4 h-4 text-indigo-600" />
+                          <h3 className="font-bold text-sm sm:text-base text-slate-900">
+                            1. Identitas Profesi &amp; Divisi Kerja
+                          </h3>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1">
+                              Profesi / Jabatan Kerja <span className="text-rose-500">*</span>
+                            </label>
+                            <select
+                              value={appraisalJobRole}
+                              onChange={(e) => handleRoleSelectionChange(e.target.value)}
+                              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                            >
+                              {APPRAISAL_ROLES.map((r) => (
+                                <option key={r.id} value={r.id}>
+                                  {r.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1">
+                              Divisi Kerja <span className="text-rose-500">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              value={appraisalDivision}
+                              onChange={(e) => setAppraisalDivision(e.target.value)}
+                              placeholder="Contoh: Media Sosial, Marketing, Proyek Lapangan"
+                              className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-medium"
+                            />
+                          </div>
+                        </div>
+
+                        {appraisalJobRole === 'custom' && (
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1">
+                              Nama Jabatan Kustom Anda <span className="text-rose-500">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={appraisalCustomRole}
+                              onChange={(e) => setAppraisalCustomRole(e.target.value)}
+                              placeholder="Misal: UI/UX Designer, Barista, Staff Gudang, Copywriter"
+                              className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                            />
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                          <div className="sm:col-span-2">
+                            <label className="block text-xs font-bold text-slate-700 mb-1">
+                              Judul Deliverable / Hasil Karya <span className="text-rose-500">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              value={appraisalTitle}
+                              onChange={(e) => setAppraisalTitle(e.target.value)}
+                              placeholder="Contoh: Video Kampanye Produk X, Closing Deal Klien PT ABC"
+                              className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-medium"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1">
+                              Tanggal Periode <span className="text-rose-500">*</span>
+                            </label>
+                            <input
+                              type="date"
+                              required
+                              value={appraisalPeriodDate}
+                              onChange={(e) => setAppraisalPeriodDate(e.target.value)}
+                              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Card Form Adaptif Tolak Ukur Khusus Profesi */}
+                      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                          <div className="flex items-center gap-2">
+                            <Target className="w-4 h-4 text-indigo-600" />
+                            <h3 className="font-bold text-sm sm:text-base text-slate-900">
+                              2. Tolak Ukur &amp; Metrik Kerja (Adaptif: {APPRAISAL_ROLES.find(r => r.id === appraisalJobRole)?.label || 'Spesialis'})
+                            </h3>
+                          </div>
+                          <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
+                            KPI Terkini 2026
+                          </span>
+                        </div>
+
+                        {/* A. FORM SPESIFIK EDITOR VIDEO */}
+                        {appraisalJobRole === 'video_editor' && (
+                          <div className="space-y-4">
+                            <div className="p-3.5 rounded-2xl bg-purple-50/70 border border-purple-200/80 text-xs text-purple-950 space-y-1">
+                              <span className="font-bold block flex items-center gap-1.5">
+                                <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                                <span>Tolak Ukur Standar Video Editor Zaman Now</span>
+                              </span>
+                              <p className="text-[11px] text-purple-900/90 leading-relaxed">
+                                AI mengevaluasi retensi penonton (benchmark 55–65%), hook 3 detik awal (CTR &gt; 30%), kualitas pacing visual, serta konsistensi rasio tayangan di platform video pendek (TikTok, IG Reels, YouTube Shorts).
+                              </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                  Platform Penayangan
+                                </label>
+                                <input
+                                  type="text"
+                                  value={apprVideoPlatform}
+                                  onChange={(e) => setApprVideoPlatform(e.target.value)}
+                                  placeholder="TikTok, IG Reels, YouTube Shorts, YouTube Panjang"
+                                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                  Durasi Video
+                                </label>
+                                <input
+                                  type="text"
+                                  value={apprVideoDuration}
+                                  onChange={(e) => setApprVideoDuration(e.target.value)}
+                                  placeholder="Misal: 30 detik, 60 detik, 8 menit"
+                                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm font-medium"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                  Total Tayangan (Views)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={apprVideoViews}
+                                  onChange={(e) => setApprVideoViews(e.target.value)}
+                                  placeholder="Contoh: 150000"
+                                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm font-mono font-bold text-slate-900"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                  Rata-Rata Retensi (%)
+                                </label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  value={apprVideoRetention}
+                                  onChange={(e) => setApprVideoRetention(e.target.value)}
+                                  placeholder="Contoh: 65"
+                                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm font-mono font-bold text-indigo-700"
+                                />
+                                <span className="text-[10px] text-slate-400 mt-0.5 block">Target sehat: &gt;55%</span>
+                              </div>
+
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                  Hook Rate 3s CTR (%)
+                                </label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  value={apprVideoCTR}
+                                  onChange={(e) => setApprVideoCTR(e.target.value)}
+                                  placeholder="Contoh: 32"
+                                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm font-mono font-bold text-emerald-700"
+                                />
+                                <span className="text-[10px] text-slate-400 mt-0.5 block">Target sehat: &gt;25%</span>
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-bold text-slate-700 mb-1">
+                                Tautan Link Video Tayang / Postingan
+                              </label>
+                              <div className="relative">
+                                <input
+                                  type="url"
+                                  value={appraisalLinkUrl}
+                                  onChange={(e) => setAppraisalLinkUrl(e.target.value)}
+                                  placeholder="https://www.tiktok.com/@akun/video/... atau link IG Reels"
+                                  className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800"
+                                />
+                                <ExternalLink className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* B. FORM SPESIFIK SALES & MARKETING */}
+                        {appraisalJobRole === 'sales_marketing' && (
+                          <div className="space-y-4">
+                            <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200/80 text-xs text-emerald-950 space-y-1">
+                              <span className="font-bold block flex items-center gap-1.5">
+                                <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Tolak Ukur Standar Sales &amp; Business Development</span>
+                              </span>
+                              <p className="text-[11px] text-emerald-900/90 leading-relaxed">
+                                AI mengevaluasi rasio realisasi closing vs target omzet, tingkat konversi qualified leads (benchmark 15–20%), dan kecepatan siklus negosiasi transaksi.
+                              </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                  Target Omzet Penjualan (Rp)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={apprSalesTarget}
+                                  onChange={(e) => setApprSalesTarget(e.target.value)}
+                                  placeholder="Misal: 50000000"
+                                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm font-mono font-bold"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                  Realisasi Closing Tercapai (Rp)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={apprSalesActual}
+                                  onChange={(e) => setApprSalesActual(e.target.value)}
+                                  placeholder="Misal: 58500000"
+                                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm font-mono font-bold text-emerald-700"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                  Jumlah Prospek / Leads Dihubungi
+                                </label>
+                                <input
+                                  type="number"
+                                  value={apprSalesLeads}
+                                  onChange={(e) => setApprSalesLeads(e.target.value)}
+                                  placeholder="Contoh: 40"
+                                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm font-mono font-bold"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                  Jumlah Deals / Kontrak Closing
+                                </label>
+                                <input
+                                  type="number"
+                                  value={apprSalesDeals}
+                                  onChange={(e) => setApprSalesDeals(e.target.value)}
+                                  placeholder="Contoh: 8"
+                                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm font-mono font-bold text-indigo-700"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-bold text-slate-700 mb-1">
+                                Tautan CRM / Pipeline / Invoice
+                              </label>
+                              <div className="relative">
+                                <input
+                                  type="url"
+                                  value={appraisalLinkUrl}
+                                  onChange={(e) => setAppraisalLinkUrl(e.target.value)}
+                                  placeholder="https://crm.company.com/deal/..."
+                                  className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800"
+                                />
+                                <ExternalLink className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* C. FORM SPESIFIK SITE ENGINEER / PROYEK LAPANGAN */}
+                        {appraisalJobRole === 'site_engineer' && (
+                          <div className="space-y-4">
+                            <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200/80 text-xs text-amber-950 space-y-1">
+                              <span className="font-bold block flex items-center gap-1.5">
+                                <Target className="w-3.5 h-3.5 text-amber-600" />
+                                <span>Tolak Ukur Standar Site Supervisor Lapangan</span>
+                              </span>
+                              <p className="text-[11px] text-amber-900/90 leading-relaxed">
+                                AI mengevaluasi deviasi fisik aktual vs rencana kurva-S, volume ketercapaian deliverable harian, kepatuhan K3 keselamatan kerja, serta efisiensi manajemen tukang.
+                              </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                  Target Rencana Fisik (%)
+                                </label>
+                                <input
+                                  type="number"
+                                  value={apprSiteProgressPlanned}
+                                  onChange={(e) => setApprSiteProgressPlanned(e.target.value)}
+                                  placeholder="Contoh: 75"
+                                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm font-mono font-bold"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                  Realisasi Fisik Aktual (%)
+                                </label>
+                                <input
+                                  type="number"
+                                  value={apprSiteProgressActual}
+                                  onChange={(e) => setApprSiteProgressActual(e.target.value)}
+                                  placeholder="Contoh: 78"
+                                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm font-mono font-bold text-emerald-700"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                  Volume Pekerjaan Tuntas
+                                </label>
+                                <input
+                                  type="text"
+                                  value={apprSiteVolume}
+                                  onChange={(e) => setApprSiteVolume(e.target.value)}
+                                  placeholder="Contoh: Pemasangan hebel 140 m2"
+                                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                  Tenaga Kerja / Tukang
+                                </label>
+                                <input
+                                  type="text"
+                                  value={apprSiteWorkers}
+                                  onChange={(e) => setApprSiteWorkers(e.target.value)}
+                                  placeholder="Contoh: 12 Tukang + 1 Mandor"
+                                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-bold text-slate-700 mb-1">
+                                Tautan Dokumentasi Cloud / Folder Proyek
+                              </label>
+                              <div className="relative">
+                                <input
+                                  type="url"
+                                  value={appraisalLinkUrl}
+                                  onChange={(e) => setAppraisalLinkUrl(e.target.value)}
+                                  placeholder="https://drive.google.com/drive/folders/..."
+                                  className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800"
+                                />
+                                <ExternalLink className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* D. FORM SPESIFIK SOFTWARE DEVELOPER */}
+                        {appraisalJobRole === 'software_dev' && (
+                          <div className="space-y-4">
+                            <div className="p-3.5 rounded-2xl bg-indigo-50/70 border border-indigo-200/80 text-xs text-indigo-950 space-y-1">
+                              <span className="font-bold block flex items-center gap-1.5">
+                                <Code2 className="w-3.5 h-3.5 text-indigo-600" />
+                                <span>Tolak Ukur Standar Software Engineering</span>
+                              </span>
+                              <p className="text-[11px] text-indigo-900/90 leading-relaxed">
+                                AI mengevaluasi stabilitas deployment, test coverage (benchmark &gt; 80%), kebersihan kode pada pull request, serta ketiadaan bug kritis saat rilis.
+                              </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                  Status Deployment
+                                </label>
+                                <input
+                                  type="text"
+                                  value={apprDevDeployStatus}
+                                  onChange={(e) => setApprDevDeployStatus(e.target.value)}
+                                  placeholder="Production Live, Staging QA"
+                                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm font-medium"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                  Test Coverage (%)
+                                </label>
+                                <input
+                                  type="number"
+                                  value={apprDevCoverage}
+                                  onChange={(e) => setApprDevCoverage(e.target.value)}
+                                  placeholder="Contoh: 85"
+                                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm font-mono font-bold text-indigo-700"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                  Bug Kritis Ditemukan
+                                </label>
+                                <input
+                                  type="number"
+                                  value={apprDevBugs}
+                                  onChange={(e) => setApprDevBugs(e.target.value)}
+                                  placeholder="Contoh: 0"
+                                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm font-mono font-bold text-emerald-700"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-bold text-slate-700 mb-1">
+                                Tautan Pull Request / Commit / Demo Live
+                              </label>
+                              <div className="relative">
+                                <input
+                                  type="url"
+                                  value={appraisalLinkUrl}
+                                  onChange={(e) => setAppraisalLinkUrl(e.target.value)}
+                                  placeholder="https://github.com/org/repo/pull/..."
+                                  className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800"
+                                />
+                                <ExternalLink className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* E. FORM ROLE LAIN / KUSTOM */}
+                        {['content_creator', 'graphic_designer', 'admin_operations', 'customer_service', 'custom'].includes(appraisalJobRole) && (
+                          <div className="space-y-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                  Nama Indikator / Metrik 1
+                                </label>
+                                <input
+                                  type="text"
+                                  value={apprCustomMetric1Label}
+                                  onChange={(e) => setApprCustomMetric1Label(e.target.value)}
+                                  placeholder="Misal: Total Artikel / Desain / Tiket"
+                                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs mb-1 font-semibold"
+                                />
+                                <input
+                                  type="text"
+                                  value={apprCustomMetric1Val}
+                                  onChange={(e) => setApprCustomMetric1Val(e.target.value)}
+                                  placeholder="Nilai capaian: 12 Artikel / 100% Selesai"
+                                  className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono font-bold text-indigo-700"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                  Nama Indikator / Metrik 2
+                                </label>
+                                <input
+                                  type="text"
+                                  value={apprCustomMetric2Label}
+                                  onChange={(e) => setApprCustomMetric2Label(e.target.value)}
+                                  placeholder="Misal: Tingkat Kepuasan / Efisiensi"
+                                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs mb-1 font-semibold"
+                                />
+                                <input
+                                  type="text"
+                                  value={apprCustomMetric2Val}
+                                  onChange={(e) => setApprCustomMetric2Val(e.target.value)}
+                                  placeholder="Nilai capaian: 98% Puas / Lebih Cepat"
+                                  className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono font-bold text-emerald-700"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-bold text-slate-700 mb-1">
+                                Tautan Portofolio / Berkas / Bukti Deliverable
+                              </label>
+                              <div className="relative">
+                                <input
+                                  type="url"
+                                  value={appraisalLinkUrl}
+                                  onChange={(e) => setAppraisalLinkUrl(e.target.value)}
+                                  placeholder="https://link-karya-anda.com/deliverable"
+                                  className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800"
+                                />
+                                <ExternalLink className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Upload Screenshot Analisis / Foto Fisik */}
+                        <div className="pt-2 border-t border-slate-100 space-y-2">
+                          <label className="block text-xs font-bold text-slate-700">
+                            Unggah Bukti Gambar (Screenshot Analitik / Bukti Closing / Foto Lapangan)
+                          </label>
+                          <input
+                            type="file"
+                            ref={appraisalFileInputRef}
+                            accept="image/*"
+                            onChange={handleAppraisalScreenshotUpload}
+                            className="hidden"
+                          />
+
+                          {appraisalScreenshotUrl ? (
+                            <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-14 h-14 rounded-xl overflow-hidden border border-slate-200 bg-slate-900 shrink-0 flex items-center justify-center">
+                                  <img
+                                    src={appraisalScreenshotUrl}
+                                    alt="Screenshot Bukti"
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="text-xs font-bold text-slate-800 truncate">
+                                    {appraisalScreenshotName || 'Bukti Screenshot Analitik'}
+                                  </div>
+                                  <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    Gambar bukti terlampir siap dinilai AI
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAppraisalScreenshotUrl(null);
+                                  setAppraisalScreenshotName('');
+                                }}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition-colors"
+                                title="Hapus gambar"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div
+                              onClick={() => appraisalFileInputRef.current?.click()}
+                              className="border-2 border-dashed border-slate-200 hover:border-indigo-400 p-4 rounded-2xl text-center cursor-pointer transition-colors bg-slate-50/50 hover:bg-indigo-50/20 flex items-center justify-center gap-2.5"
+                            >
+                              <Upload className="w-4 h-4 text-indigo-600" />
+                              <span className="text-xs font-bold text-slate-700">
+                                Klik untuk upload screenshot analitik (YouTube Studio, TikTok Analytics, CRM, Foto Lapangan)
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Catatan Teknis */}
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1">
+                            Catatan Teknis &amp; Deskripsi Pekerjaan (Opsional)
+                          </label>
+                          <textarea
+                            rows={3}
+                            value={appraisalNotes}
+                            onChange={(e) => setAppraisalNotes(e.target.value)}
+                            placeholder="Tuliskan tantangan pengerjaan, software yang dipakai, atau kendala yang dihadapi..."
+                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 leading-relaxed font-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                          />
+                        </div>
+
+                        {/* Tombol Evaluasi AI PRO */}
+                        <div className="pt-2">
+                          <button
+                            type="button"
+                            onClick={handleRunWorkAppraisal}
+                            disabled={isEvaluatingAppraisal}
+                            className="w-full py-3.5 px-4 rounded-2xl text-xs sm:text-sm font-extrabold bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-md flex items-center justify-center gap-2 transition-transform active:scale-[0.98] disabled:opacity-50"
+                          >
+                            {isEvaluatingAppraisal ? (
+                              <>
+                                <BrainCircuit className="w-4 h-4 animate-spin text-amber-300" />
+                                <span>AI PRO Sedang Menilai &amp; Mengaudit Standar Industri...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Zap className="w-4 h-4 fill-current text-amber-300" />
+                                <span>⚡ Evaluasi &amp; Terbitkan Penilaian Hasil Kerja AI PRO</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* KOLOM KANAN: RAPOR HASIL PENILAIAN AI PRO & RIWAYAT */}
+                    <div className="lg:col-span-5 space-y-5">
+                      {/* Card Hasil Rapor Penilaian Kerja Terkini */}
+                      {currentAppraisal ? (
+                        <div className="bg-white p-6 rounded-3xl border border-indigo-200 shadow-sm space-y-5 relative overflow-hidden bg-gradient-to-b from-indigo-50/40 via-white to-white">
+                          <div className="flex items-center justify-between border-b border-indigo-100 pb-3">
+                            <div className="flex items-center gap-2">
+                              <Award className="w-5 h-5 text-indigo-600" />
+                              <h3 className="font-extrabold text-sm sm:text-base text-indigo-950">
+                                Rapor Hasil Penilaian Kerja
+                              </h3>
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {formatDateShortIndo(currentAppraisal.createdAt.slice(0, 10))}
+                            </span>
+                          </div>
+
+                          {/* Nilai Rapor & Predikat */}
+                          <div className="p-4 rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950 text-white flex items-center justify-between shadow-sm">
+                            <div className="space-y-1">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-300 block">
+                                Skor Penilaian Kinerja AI
+                              </span>
+                              <div className="flex items-baseline gap-2">
+                                <span className="text-3xl sm:text-4xl font-black text-white">
+                                  {currentAppraisal.score}
+                                </span>
+                                <span className="text-sm font-semibold text-indigo-300">/ 100</span>
+                              </div>
+                              <span className="text-xs text-indigo-200 font-medium block">
+                                {currentAppraisal.jobRoleLabel} • {currentAppraisal.division}
+                              </span>
+                            </div>
+
+                            <div className="text-center px-4 py-2.5 rounded-2xl bg-white/10 backdrop-blur-xs border border-white/20">
+                              <span className="text-[9px] uppercase font-bold text-indigo-300 block">
+                                Predikat
+                              </span>
+                              <span className="text-2xl sm:text-3xl font-black text-amber-300">
+                                {currentAppraisal.grade}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Ulasan Tolak Ukur Standar Industri 2026 */}
+                          <div className="space-y-1.5">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900 block flex items-center gap-1.5">
+                              <TrendingUp className="w-3.5 h-3.5 text-indigo-600" />
+                              <span>Audit Tolak Ukur Standar Industri Terkini</span>
+                            </span>
+                            <p className="text-xs text-slate-700 leading-relaxed bg-white p-3.5 rounded-2xl border border-indigo-100 shadow-2xs">
+                              {currentAppraisal.industryBenchmarkReview}
+                            </p>
+                          </div>
+
+                          {/* Ringkasan Eksekutif Penilaian */}
+                          <div className="space-y-1.5">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900 block">
+                              🎯 Ringkasan Eksekutif Penilaian
+                            </span>
+                            <p className="text-xs text-slate-800 leading-relaxed font-medium bg-white p-3.5 rounded-2xl border border-indigo-100 shadow-2xs">
+                              {currentAppraisal.executiveSummary}
+                            </p>
+                          </div>
+
+                          {/* Rincian Metrik Terverifikasi */}
+                          <div className="space-y-1.5">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900 block">
+                              📊 Metrik Capaian Terverifikasi
+                            </span>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              {Object.entries(currentAppraisal.metrics).map(([key, val], idx) => (
+                                <div key={idx} className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                                  <div className="text-[10px] text-slate-500 font-semibold">{key}</div>
+                                  <div className="font-bold text-slate-900 truncate mt-0.5">{String(val)}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Poin Kekuatan & Keunggulan */}
+                          <div className="space-y-1.5">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-900 block flex items-center gap-1.5">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>Poin Kekuatan &amp; Nilai Tambah</span>
+                            </span>
+                            <ul className="space-y-1.5 text-xs text-slate-700 bg-emerald-50/50 p-3.5 rounded-2xl border border-emerald-200/70">
+                              {currentAppraisal.strengths.map((str, idx) => (
+                                <li key={idx} className="flex items-start gap-2">
+                                  <span className="text-emerald-600 font-bold">•</span>
+                                  <span>{str}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          {/* Area Perbaikan */}
+                          <div className="space-y-1.5">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-900 block flex items-center gap-1.5">
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                              <span>Area Optimasi &amp; Gap Analisis</span>
+                            </span>
+                            <ul className="space-y-1.5 text-xs text-slate-700 bg-amber-50/50 p-3.5 rounded-2xl border border-amber-200/70">
+                              {currentAppraisal.improvements.map((imp, idx) => (
+                                <li key={idx} className="flex items-start gap-2">
+                                  <span className="text-amber-600 font-bold">•</span>
+                                  <span>{imp}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          {/* Rekomendasi Taktis AI PRO */}
+                          <div className="space-y-1.5">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900 block flex items-center gap-1.5">
+                              <ArrowRight className="w-3.5 h-3.5 text-indigo-600" />
+                              <span>Rekomendasi Taktis Kenaikan Mutu</span>
+                            </span>
+                            <ul className="space-y-1.5 text-xs text-slate-700 bg-indigo-50/50 p-3.5 rounded-2xl border border-indigo-200/70">
+                              {currentAppraisal.tacticalRecommendations.map((rec, idx) => (
+                                <li key={idx} className="flex items-start gap-2">
+                                  <span className="text-indigo-600 font-bold">•</span>
+                                  <span>{rec}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          {/* Tombol Aksi Rapor */}
+                          <div className="pt-2 flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(
+                                  `RAPOR KINERJA AI PRO: ${currentAppraisal.reportTitle}\n` +
+                                  `Profesi: ${currentAppraisal.jobRoleLabel} (${currentAppraisal.division})\n` +
+                                  `Skor: ${currentAppraisal.score}/100 (Predikat: ${currentAppraisal.grade})\n\n` +
+                                  `RINGKASAN:\n${currentAppraisal.executiveSummary}\n\n` +
+                                  `STANDAR INDUSTRI:\n${currentAppraisal.industryBenchmarkReview}`
+                                );
+                                showToast('Rapor hasil kerja berhasil disalin ke clipboard');
+                              }}
+                              className="flex-1 py-2.5 px-3 rounded-xl border border-slate-200 hover:bg-slate-100 text-xs font-bold text-slate-700 flex items-center justify-center gap-1.5 transition-colors"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                              <span>Salin Rapor</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => window.print()}
+                              className="flex-1 py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
+                            >
+                              <Printer className="w-3.5 h-3.5" />
+                              <span>Cetak Rapor</span>
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="bg-white p-8 rounded-3xl border border-dashed border-slate-200 text-center space-y-3 flex flex-col items-center justify-center min-h-[360px]">
+                          <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                            <Award className="w-7 h-7" />
+                          </div>
+                          <h4 className="text-base font-bold text-slate-900">
+                            Rapor Hasil Kerja Belum Diterbitkan
+                          </h4>
+                          <p className="text-xs text-slate-500 max-w-sm leading-relaxed">
+                            Pilih profesi kerja Anda di panel sebelah kiri, isi data metrik serta tautan karya/screenshot, lalu klik tombol <strong>⚡ Evaluasi &amp; Terbitkan Penilaian</strong> untuk menganalisis performa Anda secara komprehensif.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Card Riwayat Rapor Penilaian Kerja Tersimpan */}
+                      <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                            <FileText className="w-4 h-4 text-indigo-600" />
+                            <span>Riwayat Rapor Penilaian ({savedAppraisals.length})</span>
+                          </h4>
+                        </div>
+
+                        {savedAppraisals.length === 0 ? (
+                          <div className="p-4 text-center text-xs text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                            Belum ada riwayat rapor penilaian yang tersimpan.
+                          </div>
+                        ) : (
+                          <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                            {savedAppraisals.map((item) => (
+                              <div
+                                key={item.id}
+                                className="p-3 rounded-2xl bg-slate-50 border border-slate-200 hover:border-indigo-300 transition-colors flex items-start justify-between gap-3 group"
+                              >
+                                <div
+                                  className="min-w-0 cursor-pointer flex-1"
+                                  onClick={() => {
+                                    setCurrentAppraisal(item);
+                                    showToast(`Rapor "${item.reportTitle}" berhasil dimuat`);
+                                  }}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-extrabold text-xs text-slate-900 truncate group-hover:text-indigo-600">
+                                      {item.reportTitle}
+                                    </span>
+                                    <span className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-black bg-indigo-100 text-indigo-800">
+                                      {item.grade} • {item.score}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                                    {item.jobRoleLabel} • {item.division}
+                                  </p>
+                                  <span className="text-[10px] text-slate-400 block mt-0.5">
+                                    {formatDateShortIndo(item.createdAt.slice(0, 10))}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteAppraisal(item.id)}
+                                  className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg"
+                                  title="Hapus rapor"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* VIEW 2: REKAP ABSENSI & JAM KERJA HARIAN (FITUR LAPORAN LAMA DENGAN UNDUH PDF) */}
+              {reportActiveView === 'attendance_summary' && (
+                <div className="space-y-6">
+                  {/* Toolbar Filter Periode Kustom (Print: Hidden) */}
               <div className="bg-white p-4 rounded-2xl border border-slate-200 flex flex-col gap-4 print:hidden">
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
@@ -4988,6 +6323,8 @@ export default function App() {
                   </div>
                 </div>
               </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -5294,10 +6631,7 @@ export default function App() {
                       <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
                       <span>AI Record Voice to Text &amp; Smart Summary PRO</span>
                     </div>
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/25 border border-emerald-400/40 text-emerald-200">
-                      <HardDrive className="w-3.5 h-3.5 text-emerald-300" />
-                      <span>Simpan di Perangkat Ini (Lokal) • Kuota Supabase 0 KB</span>
-                    </div>
+
                     <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-purple-500/30 border border-purple-400/40 text-purple-200 uppercase tracking-wider">
                       Studio HD Audio 48kHz
                     </div>
@@ -5459,41 +6793,69 @@ export default function App() {
                       )}
                     </div>
 
-                    {/* Area Transkripsi */}
+                    {/* Area Transkripsi dengan Fitur Salin Teks Tertentu / Keseluruhan */}
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                           <FileText className="w-4 h-4 text-indigo-600" />
                           <span>Teks Transkripsi Suara</span>
                         </label>
-                        {voiceTranscript && (
-                          <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
-                            {voiceTranscript.split(/\s+/).filter(Boolean).length} Kata
-                          </span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {voiceTranscript && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={handleCopyTranscript}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 shadow-2xs transition-all active:scale-95"
+                                title="Salin teks yang diblok/diseleksi, atau salin seluruh teks jika tidak ada teks yang diblok"
+                              >
+                                <Copy className="w-3.5 h-3.5 text-indigo-600" />
+                                <span>Salin Teks</span>
+                              </button>
+                              <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-200">
+                                {voiceTranscript.split(/\s+/).filter(Boolean).length} Kata
+                              </span>
+                            </>
+                          )}
+                        </div>
                       </div>
 
-                      <textarea
-                        rows={6}
-                        value={voiceTranscript}
-                        onChange={(e) => setVoiceTranscript(e.target.value)}
-                        placeholder="Hasil rekaman suara akan langsung diketik di sini secara otomatis. Anda juga dapat mengedit atau menambahkan catatan secara manual sebelum dianalisis..."
-                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 leading-relaxed font-normal"
-                      />
+                      <div className="relative">
+                        <textarea
+                          ref={transcriptTextareaRef}
+                          rows={6}
+                          value={voiceTranscript}
+                          onChange={(e) => setVoiceTranscript(e.target.value)}
+                          placeholder="Hasil rekaman suara akan langsung diketik di sini secara otomatis. Anda juga dapat mengedit atau menambahkan catatan secara manual sebelum dianalisis..."
+                          className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 leading-relaxed font-normal"
+                        />
+                      </div>
 
                       <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-                        {voiceTranscript && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setVoiceTranscript('');
-                              setVoiceSummaryResult(null);
-                            }}
-                            className="text-xs text-slate-400 hover:text-rose-600 font-semibold"
-                          >
-                            Bersihkan Teks
-                          </button>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {voiceTranscript && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setVoiceTranscript('');
+                                  setVoiceSummaryResult(null);
+                                }}
+                                className="text-xs text-slate-400 hover:text-rose-600 font-semibold px-2 py-1 rounded-lg hover:bg-rose-50"
+                              >
+                                Bersihkan Teks
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleSaveVoiceDraft}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-colors"
+                                title="Simpan sebagai draft rekaman suara"
+                              >
+                                <span>💾 Simpan Draft</span>
+                              </button>
+                            </>
+                          )}
+                        </div>
 
                         <button
                           type="button"
@@ -5647,19 +7009,23 @@ export default function App() {
                         {savedVoiceMemos.map((memo) => (
                           <div
                             key={memo.id}
-                            className="p-3 rounded-2xl bg-slate-50 border border-slate-200 hover:border-slate-300 transition-colors flex items-start justify-between gap-3"
+                            className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/20 transition-all flex items-start justify-between gap-3 shadow-2xs group"
                           >
                             <div
                               className="min-w-0 cursor-pointer flex-1"
-                              onClick={() => {
-                                setVoiceTranscript(memo.transcript);
-                                setVoiceSummaryResult({
-                                  summary: memo.summary,
-                                  keyPoints: memo.keyPoints || [],
-                                  actionItems: memo.actionItems || [],
-                                });
-                              }}
+                              onClick={() => handleSelectVoiceMemo(memo)}
                             >
+                              <div className="flex items-center gap-2">
+                                <div className="font-bold text-xs text-slate-900 truncate group-hover:text-indigo-600 transition-colors">
+                                  {memo.title}
+                                </div>
+                                {memo.audioUrl && (
+                                  <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 text-[9px] font-bold">
+                                    <AudioWaveform className="w-2.5 h-2.5" />
+                                    <span>Audio Ready</span>
+                                  </span>
+                                )}
+                              </div>
                               <div className="font-bold text-xs text-slate-900 truncate">
                                 {memo.title}
                               </div>
