@@ -135,11 +135,23 @@ export interface VoiceMemoRecord {
 }
 import { db, isSupabaseConfigured } from './db';
 
-// Ekstensi lokal ScheduleEntry agar selalu mengenali status 'tertunda', completedDate & durationDays
+// Model Item Penambahan Pekerjaan & Riwayat Catatan Revisi
+export interface ProjectAddonTask {
+  id: string;
+  type: 'revisi' | 'tambahan' | 'kendala' | 'instruksi';
+  title: string;
+  dateAdded: string; // Format YYYY-MM-DD
+  isCompleted: boolean;
+  notes?: string;
+}
+
+// Ekstensi lokal ScheduleEntry agar selalu mengenali status 'tertunda', completedDate, suspendedDate & additionalTasks
 export interface ScheduleEntry extends Omit<BaseScheduleEntry, 'status'> {
   status: EntryStatus;
   completedDate?: string | null;
+  suspendedDate?: string | null;
   durationDays?: number;
+  additionalTasks?: ProjectAddonTask[];
 }
 
 // ============================================================================
@@ -458,8 +470,10 @@ function getEntryDateRange(
     endDate = (e as any).completedDate || startDate;
     if (endDate < startDate) endDate = startDate;
   } else if (e.status === 'tertunda') {
-    // KETIKA TERTUNDA: Berhenti di hari ini saja, TIDAK otomatis lanjut ke hari selanjutnya!
-    endDate = startDate;
+    // KETIKA TERTUNDA: Proyek tetap ada di hari-hari yang sudah dijalani (misal hari 1, 2, 3),
+    // dibekukan di tanggal penundaan (suspendedDate atau today), dan TIDAK otomatis lanjut ke hari berikutnya!
+    const freezeDate = (e as any).suspendedDate || (e as any).completedDate || (startDate <= today ? today : startDate);
+    endDate = freezeDate < startDate ? startDate : freezeDate;
     isOngoing = false;
   } else {
     // Jika belum selesai dan tanggal mulai <= hari ini, proyek otomatis MENYAMBUNG setiap hari sampai hari ini!
@@ -882,6 +896,11 @@ export default function App() {
   // State Drawer Detail Hari (Jadwal)
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+
+  // State Form Cepat Penambahan Pekerjaan & Catatan Revisi
+  const [activeAddonEntryId, setActiveAddonEntryId] = useState<string | null>(null);
+  const [addonTaskType, setAddonTaskType] = useState<'revisi' | 'tambahan' | 'kendala' | 'instruksi'>('revisi');
+  const [addonTaskTitle, setAddonTaskTitle] = useState<string>('');
   const [entryTitle, setEntryTitle] = useState<string>('');
   const [entryProjectId, setEntryProjectId] = useState<string>('');
   const [entryProgramId, setEntryProgramId] = useState<string>('');
@@ -2019,7 +2038,9 @@ export default function App() {
     if (editingEntryId) {
       const existing = entries.find((item) => item.id === editingEntryId);
       const isCompleted = entryStatus === 'selesai';
+      const isTertunda = entryStatus === 'tertunda';
       const finishDate = isCompleted ? ((existing as any)?.completedDate || selectedDate || todayStr) : null;
+      const suspendedDate = isTertunda ? ((existing as any)?.suspendedDate || selectedDate || todayStr) : null;
       const durationDays = isCompleted ? getCalendarDaySpan(existing?.date || selectedDate, finishDate!) : undefined;
 
       const updated = db.updateEntry(editingEntryId, {
@@ -2029,6 +2050,7 @@ export default function App() {
         status: entryStatus,
         notes: entryNotes.trim(),
         completedDate: finishDate,
+        suspendedDate,
         durationDays,
       } as any);
       setEntries(updated);
@@ -2054,16 +2076,93 @@ export default function App() {
     resetEntryForm(projectFilter !== 'ALL' && projectFilter !== 'NONE' ? projectFilter : '');
   };
 
+  // Handlers Penambahan Pekerjaan & Catatan Revisi Proyek
+  const handleAddAddonTask = (entryId: string) => {
+    if (!addonTaskTitle.trim()) {
+      showToast('Keterangan revisi atau pekerjaan tambahan tidak boleh kosong');
+      return;
+    }
+    const targetEntry = entries.find((e) => e.id === entryId);
+    if (!targetEntry) return;
+
+    const newItem: ProjectAddonTask = {
+      id: 'addon-' + Date.now().toString(36),
+      type: addonTaskType,
+      title: addonTaskTitle.trim(),
+      dateAdded: selectedDate || todayStr,
+      isCompleted: false,
+    };
+
+    const currentList = targetEntry.additionalTasks || [];
+    const updatedList = [...currentList, newItem];
+
+    // Sertakan catatan revisi ke dalam notes proyek agar terarsip otomatis
+    const typeLabel =
+      addonTaskType === 'revisi'
+        ? '[REVISI]'
+        : addonTaskType === 'tambahan'
+        ? '[PEKERJAAN TAMBAHAN]'
+        : addonTaskType === 'kendala'
+        ? '[KENDALA LAPANGAN]'
+        : '[INSTRUKSI]';
+
+    const appendNote = `\n• ${typeLabel} (${formatDateShortIndo(selectedDate || todayStr)}): ${addonTaskTitle.trim()}`;
+    const newNotes = targetEntry.notes ? `${targetEntry.notes}${appendNote}` : appendNote.trim();
+
+    const updated = db.updateEntry(entryId, {
+      additionalTasks: updatedList,
+      notes: newNotes,
+    } as any);
+
+    setEntries(updated);
+    setAddonTaskTitle('');
+    setActiveAddonEntryId(null);
+    showToast(`Catatan ${typeLabel} berhasil ditambahkan ke proyek!`);
+  };
+
+  const handleToggleAddonTask = (entryId: string, addonId: string) => {
+    const targetEntry = entries.find((e) => e.id === entryId);
+    if (!targetEntry || !targetEntry.additionalTasks) return;
+
+    const updatedList = targetEntry.additionalTasks.map((item) =>
+      item.id === addonId ? { ...item, isCompleted: !item.isCompleted } : item
+    );
+
+    const updated = db.updateEntry(entryId, {
+      additionalTasks: updatedList,
+    } as any);
+
+    setEntries(updated);
+    showToast('Status item revisi diperbarui');
+  };
+
+  const handleDeleteAddonTask = (entryId: string, addonId: string) => {
+    const targetEntry = entries.find((e) => e.id === entryId);
+    if (!targetEntry || !targetEntry.additionalTasks) return;
+
+    const updatedList = targetEntry.additionalTasks.filter((item) => item.id !== addonId);
+    const updated = db.updateEntry(entryId, {
+      additionalTasks: updatedList,
+    } as any);
+
+    setEntries(updated);
+    showToast('Item revisi dihapus');
+  };
+
   const handleQuickCycleStatus = (entry: ScheduleEntry) => {
     const order: EntryStatus[] = ['belum_mulai', 'berjalan', 'tertunda', 'selesai'];
     const nextStatus = order[(order.indexOf(entry.status) + 1) % order.length];
     const isCompleted = nextStatus === 'selesai';
+    const isTertunda = nextStatus === 'tertunda';
     const finishDate = isCompleted ? (selectedDate || todayStr) : null;
+    // Ketika tertunda: bekukan tanggal penundaan pada hari yang dipilih atau hari ini
+    const suspendedDate = isTertunda ? (selectedDate || todayStr) : null;
     const durationDays = isCompleted ? getCalendarDaySpan(entry.date, finishDate!) : undefined;
 
     const updated = db.updateEntry(entry.id, {
       status: nextStatus,
       completedDate: finishDate,
+      suspendedDate,
       durationDays,
     } as any);
     setEntries(updated);
@@ -4205,6 +4304,16 @@ export default function App() {
                                   {prog && (
                                     <span className="hidden xl:inline-block text-[9px] font-medium px-1 rounded bg-white text-indigo-700 border border-indigo-200 shrink-0">
                                       {prog.name}
+                                    </span>
+                                  )}
+
+                                  {/* Badge Indikator Revisi & Penambahan Pekerjaan */}
+                                  {entry.additionalTasks && entry.additionalTasks.length > 0 && (
+                                    <span
+                                      className="inline-flex items-center gap-0.5 text-[8px] font-extrabold px-1 rounded bg-purple-100 text-purple-800 border border-purple-200 shrink-0"
+                                      title={`${entry.additionalTasks.length} revisi / penambahan pekerjaan`}
+                                    >
+                                      <span>+{entry.additionalTasks.length} Rev</span>
                                     </span>
                                   )}
                                   {isOverdue && (
@@ -7043,9 +7152,16 @@ export default function App() {
                                           Selesai dalam {range.totalDays} hari ({formatDateShortIndo(range.startDate)} – {formatDateShortIndo(range.endDate)})
                                         </span>
                                       </span>
+                                    ) : entry.status === 'tertunda' ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold text-amber-950 bg-amber-100 border border-amber-300 shadow-2xs">
+                                        <AlertTriangle className="w-3 h-3 text-amber-600 fill-current" />
+                                        <span>
+                                          Tertunda di Hari ke-{dayIndex} ({range.totalDays} hari berjalan • {formatDateShortIndo(range.startDate)} s/d {formatDateShortIndo(range.endDate)})
+                                        </span>
+                                      </span>
                                     ) : (
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold text-amber-900 bg-amber-50 border border-amber-300">
-                                        <Clock className="w-3 h-3 text-amber-600" />
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold text-blue-900 bg-blue-50 border border-blue-200">
+                                        <Clock className="w-3 h-3 text-blue-600" />
                                         <span>
                                           {selectedDate > range.startDate
                                             ? `Hari ke-${dayIndex} • Menyambung dari ${formatDateShortIndo(range.startDate)}`
@@ -7057,6 +7173,132 @@ export default function App() {
                                   </div>
                                 );
                               })()}
+
+                              {/* BAGIAN PENAMBAHAN PEKERJAAN & CATATAN REVISI PROYEK */}
+                              <div className="pt-2.5 mt-2 border-t border-slate-100 space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[11px] font-extrabold text-slate-700 flex items-center gap-1.5">
+                                    <Sparkles className="w-3 h-3 text-indigo-600" />
+                                    <span>Penambahan Pekerjaan &amp; Riwayat Revisi</span>
+                                    {entry.additionalTasks && entry.additionalTasks.length > 0 && (
+                                      <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-indigo-100 text-indigo-700">
+                                        {entry.additionalTasks.length}
+                                      </span>
+                                    )}
+                                  </span>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveAddonEntryId(activeAddonEntryId === entry.id ? null : entry.id);
+                                      setAddonTaskTitle('');
+                                    }}
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    <span>{activeAddonEntryId === entry.id ? 'Tutup' : 'Tambah Revisi / Kerja'}</span>
+                                  </button>
+                                </div>
+
+                                {/* Form Cepat Tambah Revisi / Pekerjaan Tambahan */}
+                                {activeAddonEntryId === entry.id && (
+                                  <div className="p-3 rounded-2xl bg-indigo-50/70 border border-indigo-200 space-y-2 animate-in fade-in zoom-in-95 duration-150">
+                                    <div className="flex items-center justify-between text-[11px] font-bold text-indigo-900">
+                                      <span>Pilih Kategori Penambahan:</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                                      {[
+                                        { id: 'revisi', label: 'Revisi Proyek', color: 'bg-rose-100 text-rose-800 border-rose-300' },
+                                        { id: 'tambahan', label: 'Pekerjaan Tambahan', color: 'bg-blue-100 text-blue-800 border-blue-300' },
+                                        { id: 'kendala', label: 'Kendala / Masalah', color: 'bg-amber-100 text-amber-900 border-amber-300' },
+                                        { id: 'instruksi', label: 'Instruksi Baru', color: 'bg-emerald-100 text-emerald-800 border-emerald-300' },
+                                      ].map((opt) => (
+                                        <button
+                                          key={opt.id}
+                                          type="button"
+                                          onClick={() => setAddonTaskType(opt.id as any)}
+                                          className={`px-2 py-1.5 rounded-xl text-[10px] font-bold text-center border transition-all ${
+                                            addonTaskType === opt.id
+                                              ? `${opt.color} ring-2 ring-indigo-500 shadow-2xs`
+                                              : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                                          }`}
+                                        >
+                                          {opt.label}
+                                        </button>
+                                      ))}
+                                    </div>
+
+                                    <div className="flex items-center gap-2 pt-1">
+                                      <input
+                                        type="text"
+                                        value={addonTaskTitle}
+                                        onChange={(e) => setAddonTaskTitle(e.target.value)}
+                                        placeholder="Keterangan rincian revisi atau pekerjaan tambahan..."
+                                        className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAddAddonTask(entry.id)}
+                                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs shrink-0"
+                                      >
+                                        Simpan
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Daftar Item Revisi / Pekerjaan Tambahan */}
+                                {entry.additionalTasks && entry.additionalTasks.length > 0 && (
+                                  <div className="space-y-1.5 pt-1">
+                                    {entry.additionalTasks.map((addon) => {
+                                      const badgeMap = {
+                                        revisi: { label: 'Revisi', bg: 'bg-rose-100 text-rose-800 border-rose-200' },
+                                        tambahan: { label: 'Tambahan', bg: 'bg-blue-100 text-blue-800 border-blue-200' },
+                                        kendala: { label: 'Kendala', bg: 'bg-amber-100 text-amber-900 border-amber-200' },
+                                        instruksi: { label: 'Instruksi', bg: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
+                                      };
+                                      const meta = badgeMap[addon.type] || badgeMap.revisi;
+
+                                      return (
+                                        <div
+                                          key={addon.id}
+                                          className={`p-2 rounded-xl border flex items-center justify-between gap-2 text-xs transition-colors ${
+                                            addon.isCompleted ? 'bg-slate-50 border-slate-200 text-slate-400' : 'bg-white border-slate-200 text-slate-800'
+                                          }`}
+                                        >
+                                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                                            <input
+                                              type="checkbox"
+                                              checked={Boolean(addon.isCompleted)}
+                                              onChange={() => handleToggleAddonTask(entry.id, addon.id)}
+                                              className="w-3.5 h-3.5 rounded text-indigo-600 cursor-pointer accent-indigo-600 shrink-0"
+                                              title="Tandai selesai"
+                                            />
+                                            <span className={`px-1.5 py-0.2 rounded text-[9px] font-extrabold border shrink-0 ${meta.bg}`}>
+                                              {meta.label}
+                                            </span>
+                                            <span className={`truncate ${addon.isCompleted ? 'line-through text-slate-400' : 'font-medium text-slate-800'}`}>
+                                              {addon.title}
+                                            </span>
+                                          </div>
+
+                                          <div className="flex items-center gap-1.5 shrink-0 text-[10px] text-slate-400">
+                                            <span>{formatDateShortIndo(addon.dateAdded)}</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleDeleteAddonTask(entry.id, addon.id)}
+                                              className="p-1 text-slate-300 hover:text-rose-600 rounded-lg transition-colors"
+                                              title="Hapus revisi"
+                                            >
+                                              <Trash2 className="w-3 h-3" />
+                                            </button>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
                             </div>
 
                             <div className="flex items-center gap-1 shrink-0">
