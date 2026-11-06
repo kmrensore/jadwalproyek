@@ -76,8 +76,10 @@ import {
 } from 'lucide-react';
 import AuthPage from './AuthPage';
 import { PROJECT_COLORS, DEFAULT_WORK_POLICY } from './types';
+// Definisi mandiri EntryStatus di App.tsx agar bebas error jika types.ts lokal belum di-update
+export type EntryStatus = 'belum_mulai' | 'berjalan' | 'tertunda' | 'selesai';
+
 import type {
-  EntryStatus,
   Project,
   WorkPolicy,
   WorkShiftCategory,
@@ -133,8 +135,9 @@ export interface VoiceMemoRecord {
 }
 import { db, isSupabaseConfigured } from './db';
 
-// Ekstensi lokal ScheduleEntry agar selalu mengenali completedDate & durationDays
-export interface ScheduleEntry extends BaseScheduleEntry {
+// Ekstensi lokal ScheduleEntry agar selalu mengenali status 'tertunda', completedDate & durationDays
+export interface ScheduleEntry extends Omit<BaseScheduleEntry, 'status'> {
+  status: EntryStatus;
   completedDate?: string | null;
   durationDays?: number;
 }
@@ -454,6 +457,10 @@ function getEntryDateRange(
   if (e.status === 'selesai') {
     endDate = (e as any).completedDate || startDate;
     if (endDate < startDate) endDate = startDate;
+  } else if (e.status === 'tertunda') {
+    // KETIKA TERTUNDA: Berhenti di hari ini saja, TIDAK otomatis lanjut ke hari selanjutnya!
+    endDate = startDate;
+    isOngoing = false;
   } else {
     // Jika belum selesai dan tanggal mulai <= hari ini, proyek otomatis MENYAMBUNG setiap hari sampai hari ini!
     if (startDate < today) {
@@ -604,10 +611,22 @@ function detectShiftCategoryInfo(
 }
 
 
+export const STATUS_SORT_WEIGHT: Record<EntryStatus, number> = {
+  tertunda: 1,    // Paling atas!
+  berjalan: 2,    // Kedua
+  belum_mulai: 3, // Ketiga
+  selesai: 4,     // Terbawah
+};
+
 const STATUS_META: Record<
   EntryStatus,
   { label: string; badgeClass: string; dotClass: string }
 > = {
+  tertunda: {
+    label: 'Tertunda',
+    badgeClass: 'bg-amber-100 text-amber-950 border-amber-300 font-extrabold',
+    dotClass: 'bg-amber-500',
+  },
   belum_mulai: {
     label: 'Belum mulai',
     badgeClass: 'bg-slate-100 text-slate-700 border-slate-200',
@@ -1448,7 +1467,16 @@ export default function App() {
         }
         return true;
       })
-      .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
+      .sort((a, b) => {
+        // 1. Tertunda selalu paling atas, lalu berjalan, belum_mulai, selesai
+        const wA = STATUS_SORT_WEIGHT[a.status] || 99;
+        const wB = STATUS_SORT_WEIGHT[b.status] || 99;
+        if (wA !== wB) return wA - wB;
+        // 2. Yang baru dibuat selalu paling atas (createdAt desc)
+        const timeComp = (b.createdAt || '').localeCompare(a.createdAt || '');
+        if (timeComp !== 0) return timeComp;
+        return (b.date || '').localeCompare(a.date || '');
+      });
   }, [monthEntries, projectFilter, statusFilter, searchQuery, todayStr, projectMap]);
 
   const entriesByDate = useMemo(() => {
@@ -1468,6 +1496,15 @@ export default function App() {
         }
         cur.setDate(cur.getDate() + 1);
       }
+    });
+    // Urutkan daftar tugas di setiap tanggal: tertunda paling atas, lalu yang baru dibuat paling atas
+    Object.values(grouped).forEach((list) => {
+      list.sort((a, b) => {
+        const wA = STATUS_SORT_WEIGHT[a.status] || 99;
+        const wB = STATUS_SORT_WEIGHT[b.status] || 99;
+        if (wA !== wB) return wA - wB;
+        return (b.createdAt || '').localeCompare(a.createdAt || '');
+      });
     });
     return grouped;
   }, [filteredMonthEntries, todayStr]);
@@ -2018,7 +2055,7 @@ export default function App() {
   };
 
   const handleQuickCycleStatus = (entry: ScheduleEntry) => {
-    const order: EntryStatus[] = ['belum_mulai', 'berjalan', 'selesai'];
+    const order: EntryStatus[] = ['belum_mulai', 'berjalan', 'tertunda', 'selesai'];
     const nextStatus = order[(order.indexOf(entry.status) + 1) % order.length];
     const isCompleted = nextStatus === 'selesai';
     const finishDate = isCompleted ? (selectedDate || todayStr) : null;
@@ -4111,11 +4148,13 @@ export default function App() {
                                   key={entry.id}
                                   className={`flex items-center gap-1.5 px-1.5 py-1 rounded-md text-[11px] font-medium truncate border transition-transform group-hover:translate-x-0.5 ${
                                     isContinuing ? 'border-dashed' : ''
+                                  } ${
+                                    entry.status === 'tertunda' ? 'ring-1 ring-amber-400 bg-amber-50/90 font-bold' : ''
                                   }`}
                                   style={{
-                                    backgroundColor: `${chipColor}15`,
-                                    borderColor: `${chipColor}40`,
-                                    color: '#1e293b',
+                                    backgroundColor: entry.status === 'tertunda' ? '#fffbeb' : `${chipColor}15`,
+                                    borderColor: entry.status === 'tertunda' ? '#f59e0b' : `${chipColor}40`,
+                                    color: entry.status === 'tertunda' ? '#78350f' : '#1e293b',
                                   }}
                                   title={`${entry.title} • Proyek: ${proj?.name || 'Tanpa proyek'}${prog ? ` • Program: ${prog.name}` : ''} • ${
                                     entry.status === 'selesai'
@@ -4134,10 +4173,23 @@ export default function App() {
                                     </span>
                                   )}
 
+                                  {/* Tanda Seru Peringatan untuk Status Tertunda */}
+                                  {entry.status === 'tertunda' && (
+                                    <span
+                                      className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded bg-amber-500 text-white text-[9px] font-black shrink-0 animate-pulse shadow-2xs"
+                                      title="Tugas Tertunda / Pending (!)"
+                                    >
+                                      <AlertTriangle className="w-2.5 h-2.5 fill-current" />
+                                      <span>!</span>
+                                    </span>
+                                  )}
+
                                   <span
                                     className={`truncate flex-1 ${
                                       entry.status === 'selesai'
                                         ? 'line-through text-slate-400'
+                                        : entry.status === 'tertunda'
+                                        ? 'font-bold text-amber-950'
                                         : ''
                                     }`}
                                   >
@@ -4166,9 +4218,18 @@ export default function App() {
                             })}
 
                             {remainingCount > 0 && (
-                              <div className="text-[11px] font-semibold text-indigo-600 px-1.5 py-0.5 rounded hover:bg-indigo-50 inline-block">
-                                +{remainingCount} lagi
-                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openDayDrawer(cell.dateStr);
+                                }}
+                                className="inline-flex items-center gap-1 text-[10px] font-black text-indigo-700 bg-indigo-50 hover:bg-indigo-100 hover:text-indigo-950 px-2 py-0.5 rounded-md border border-indigo-200/90 shadow-2xs transition-all active:scale-95 cursor-pointer"
+                                title={`Klik untuk melihat popup ringkasan lengkap ${dayEntries.length} tugas & ${dayReminders.length} pengingat pada ${formatDateShortIndo(cell.dateStr)}`}
+                              >
+                                <span>+{remainingCount} lagi</span>
+                                <ChevronRight className="w-2.5 h-2.5 text-indigo-500" />
+                              </button>
                             )}
                           </div>
                         </div>
@@ -6940,12 +7001,18 @@ export default function App() {
                                   }`}
                                   title="Klik untuk ubah status"
                                 >
+                                  {entry.status === 'tertunda' && (
+                                    <AlertTriangle className="w-3 h-3 text-amber-600 fill-current" />
+                                  )}
                                   <span
                                     className={`w-1.5 h-1.5 rounded-full ${
                                       STATUS_META[entry.status].dotClass
                                     }`}
                                   />
-                                  {STATUS_META[entry.status].label}
+                                  <span>{STATUS_META[entry.status].label}</span>
+                                  {entry.status === 'tertunda' && (
+                                    <span className="font-black text-amber-700">!</span>
+                                  )}
                                 </button>
 
                                 {isOverdue && (
@@ -7127,7 +7194,7 @@ export default function App() {
                     >
                       <option value="belum_mulai">Belum mulai</option>
                       <option value="berjalan">Berjalan</option>
-                      <option value="selesai">Selesai</option>
+                      <option value="tertunda">⚠️ Tertunda (! Stop ke hari berikutnya)</option><option value="selesai">Selesai</option>
                     </select>
                   </div>
                 </div>
