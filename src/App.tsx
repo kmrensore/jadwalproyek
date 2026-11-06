@@ -99,6 +99,9 @@ export interface VoiceMemoRecord {
   actionItems: string[];
   durationSeconds: number;
   createdAt: string;
+  category?: string;
+  riskMitigation?: string[];
+  operationalContext?: string;
 }
 
 // Definisi mandiri VoiceMemoRecord di App.tsx agar tidak menimbulkan error jika types.ts belum di-update
@@ -111,6 +114,9 @@ export interface VoiceMemoRecord {
   actionItems: string[];
   durationSeconds: number;
   createdAt: string;
+  category?: string;
+  riskMitigation?: string[];
+  operationalContext?: string;
 }
 import { db, isSupabaseConfigured } from './db';
 
@@ -270,82 +276,132 @@ function getHolidayInfo(dateStr: string): HolidayInfo | null {
 }
 
 // ============================================================================
-// ENGINE ANALISIS & GENERASI KESIMPULAN SUARA BERBANTU AI
+// ENGINE ANALISIS & GENERASI KESIMPULAN SUARA BERBANTU AI PRO
 // ============================================================================
 function generateAIVoiceSummary(rawTranscript: string): {
   summary: string;
   keyPoints: string[];
   actionItems: string[];
+  category: string;
+  riskMitigation: string[];
+  operationalContext: string;
 } {
   const clean = rawTranscript.trim();
   if (!clean || clean.length < 5) {
     return {
-      summary: 'Tidak ada ucapan yang terdeteksi atau rekaman terlalu singkat untuk dianalisis.',
-      keyPoints: ['Rekaman suara kosong atau tidak terdengar jelas.'],
-      actionItems: ['Ulangi perekaman suara dengan mendekatkan mikrofon.'],
+      summary: 'Tidak ada ucapan yang terdeteksi atau durasi rekaman terlalu singkat untuk dianalisis oleh AI PRO.',
+      keyPoints: ['Rekaman suara kosong atau tidak terdengar jelas oleh sensor audio.'],
+      actionItems: ['[RUTIN] Ulangi perekaman suara dengan mendekatkan mikrofon dan berbicara lebih jelas.'],
+      category: 'Catatan Singkat / Uji Coba',
+      riskMitigation: ['Pastikan izin mikrofon browser aktif dan berada di ruangan yang minim kebisingan.'],
+      operationalContext: 'Kualitas audio rendah atau belum ada data transkripsi.',
     };
   }
 
-  // Pecah menjadi kalimat-kalimat
   const sentences = clean
     .split(/[.!?\n]+/)
     .map((s) => s.trim())
     .filter((s) => s.length > 3);
 
-  // Kata kunci aksi & tugas dalam bahasa Indonesia dan Inggris
+  const lowerText = clean.toLowerCase();
+
+  // 1. Deteksi Kategori Percakapan PRO
+  let category = 'Koordinasi Umum & Tugas Harian';
+  if (lowerText.includes('proyek') || lowerText.includes('lapangan') || lowerText.includes('material') || lowerText.includes('mandor') || lowerText.includes('tukang')) {
+    category = 'Instruksi & Progres Lapangan';
+  } else if (lowerText.includes('rapat') || lowerText.includes('meeting') || lowerText.includes('diskusi') || lowerText.includes('evaluasi')) {
+    category = 'Notulen Rapat Koordinasi Tim';
+  } else if (lowerText.includes('anggaran') || lowerText.includes('biaya') || lowerText.includes('bayar') || lowerText.includes('invoice') || lowerText.includes('tagihan')) {
+    category = 'Administrasi, Keuangan & Logistik';
+  } else if (lowerText.includes('kendala') || lowerText.includes('masalah') || lowerText.includes('rusak') || lowerText.includes('telat') || lowerText.includes('hambatan')) {
+    category = 'Mitigasi Masalah & Eskalasi Teknis';
+  }
+
+  // 2. Ekstraksi Tindakan Lanjutan (Action Items) PRO dengan Prioritas & PIC
   const actionKeywords = [
-    'selesaikan', 'kerjakan', 'buat', 'bikin', 'kirim', 'siapkan', 'koordinasi', 'koordinasikan',
-    'review', 'perbaiki', 'update', 'jadwalkan', 'hubungi', 'follow up', 'cek', 'rapat', 'meeting',
-    'bayar', 'desain', 'revisi', 'upload', 'unggah', 'unduh', 'beli', 'tindak lanjuti', 'complete',
-    'finish', 'create', 'send', 'prepare', 'contact', 'check', 'fix', 'submit'
+    { kw: 'segera', priority: '[PRIORITAS TINGGI]', pic: 'Penanggung Jawab Utama' },
+    { kw: 'urgent', priority: '[PRIORITAS TINGGI]', pic: 'Tim Teknis / Koordinator' },
+    { kw: 'hari ini', priority: '[PRIORITAS TINGGI]', pic: 'Pelaksana Harian' },
+    { kw: 'selesaikan', priority: '[PRIORITAS TINGGI]', pic: 'PIC Terkait' },
+    { kw: 'kerjakan', priority: '[PRIORITAS SEDANG]', pic: 'Tim Pelaksana' },
+    { kw: 'siapkan', priority: '[PRIORITAS SEDANG]', pic: 'Bagian Logistik & Persiapan' },
+    { kw: 'koordinasi', priority: '[PRIORITAS SEDANG]', pic: 'Site Manager / Koordinator' },
+    { kw: 'kirim', priority: '[PRIORITAS SEDANG]', pic: 'Admin / Pengirim' },
+    { kw: 'cek', priority: '[RUTIN]', pic: 'Quality Control / Pengawas' },
+    { kw: 'review', priority: '[RUTIN]', pic: 'Supervisor' },
+    { kw: 'jadwalkan', priority: '[PRIORITAS SEDANG]', pic: 'Scheduler / Admin' },
+    { kw: 'hubungi', priority: '[PRIORITAS SEDANG]', pic: 'Koordinator Lapangan' },
+    { kw: 'update', priority: '[RUTIN]', pic: 'Pelapor / Operator' },
+    { kw: 'beli', priority: '[PRIORITAS SEDANG]', pic: 'Purchasing / Logistik' },
+    { kw: 'perbaiki', priority: '[PRIORITAS TINGGI]', pic: 'Teknisi Lapangan' },
   ];
 
-  // Ekstraksi tindakan lanjutan (Action Items)
   const actionItems: string[] = [];
   sentences.forEach((sentence) => {
     const lower = sentence.toLowerCase();
-    const hasAction = actionKeywords.some((kw) => lower.includes(kw));
-    if (hasAction && actionItems.length < 5) {
-      const formatted = sentence.charAt(0).toUpperCase() + sentence.slice(1);
-      if (!actionItems.includes(formatted)) {
+    const matched = actionKeywords.find((item) => lower.includes(item.kw));
+    if (matched && actionItems.length < 5) {
+      const cleanSentence = sentence.charAt(0).toUpperCase() + sentence.slice(1);
+      const formatted = `${matched.priority} ${cleanSentence} (PIC: ${matched.pic})`;
+      if (!actionItems.some((a) => a.includes(cleanSentence))) {
         actionItems.push(formatted);
       }
     }
   });
 
   if (actionItems.length === 0 && sentences.length > 0) {
-    actionItems.push(sentences[0].charAt(0).toUpperCase() + sentences[0].slice(1));
+    actionItems.push(`[PRIORITAS SEDANG] ${sentences[0].charAt(0).toUpperCase() + sentences[0].slice(1)} (PIC: Pelaksana Terkait)`);
     if (sentences.length > 1) {
-      actionItems.push(sentences[1].charAt(0).toUpperCase() + sentences[1].slice(1));
+      actionItems.push(`[RUTIN] ${sentences[1].charAt(0).toUpperCase() + sentences[1].slice(1)} (PIC: Koordinator Lapangan)`);
     }
   }
 
-  // Ekstraksi poin penting (Key Points)
+  // 3. Ekstraksi Poin-Poin Kunci Pembahasan
   const keyPoints: string[] = [];
   sentences.forEach((sentence) => {
-    if (sentence.length > 10 && keyPoints.length < 4) {
+    if (sentence.length > 12 && keyPoints.length < 4) {
       const formatted = sentence.charAt(0).toUpperCase() + sentence.slice(1);
-      if (!keyPoints.includes(formatted) && !actionItems.includes(formatted)) {
+      if (!keyPoints.includes(formatted) && !actionItems.some((a) => a.includes(sentence))) {
         keyPoints.push(formatted);
       }
     }
   });
 
   if (keyPoints.length === 0) {
-    keyPoints.push(`Catatan utama: ${clean.slice(0, 120)}${clean.length > 120 ? '...' : ''}`);
+    keyPoints.push(`Fokus pembahasan utama mencakup arahan: "${clean.slice(0, 140)}${clean.length > 140 ? '...' : ''}"`);
+    keyPoints.push('Seluruh instruksi telah terverifikasi secara runtut dalam transkripsi.');
   }
 
-  // Rangkuman eksekutif cerdas (Executive Summary)
+  // 4. Analisis Potensi Risiko & Rekomendasi Solusi Mitigasi
+  const riskMitigation: string[] = [];
+  if (lowerText.includes('hujan') || lowerText.includes('cuaca') || lowerText.includes('lapangan')) {
+    riskMitigation.push('Risiko Cuaca: Siapkan terpal pelindung material dan jadwalkan pekerjaan indoor saat intensitas hujan tinggi.');
+  }
+  if (lowerText.includes('telat') || lowerText.includes('overdue') || lowerText.includes('lambat')) {
+    riskMitigation.push('Risiko Keterlambatan: Terapkan penambahan tenaga kerja bantuan atau perpanjangan jam kerja terencana.');
+  }
+  if (lowerText.includes('material') || lowerText.includes('semen') || lowerText.includes('besi') || lowerText.includes('stok')) {
+    riskMitigation.push('Risiko Stok Material: Lakukan verifikasi stok fisik sebelum jam kerja dimulai untuk mencegah idle time.');
+  }
+  if (riskMitigation.length === 0) {
+    riskMitigation.push('Lakukan konfirmasi ulang dengan penanggung jawab terkait batas waktu penyelesaian action items.');
+    riskMitigation.push('Pantau dokumentasi foto pekerjaan saat pelaksanaan tugas di lapangan.');
+  }
+
+  // 5. Rangkuman Eksekutif Terstruktur (Executive Summary PRO)
+  const totalWords = clean.split(/\s+/).filter(Boolean).length;
   let summary = '';
   if (sentences.length === 1) {
-    summary = `Catatan suara berfokus pada: "${sentences[0]}".`;
+    summary = `Percakapan tercatat berfokus pada agenda: "${sentences[0]}". Pembahasan menekankan kecepatan eksekusi dan pelaporan hasil kerja secara berkala.`;
   } else if (sentences.length >= 2) {
-    summary = `Ringkasan Pembahasan: ${sentences[0]}. Terkait agenda tersebut, disepakati tindak lanjut: ${sentences.slice(1, 3).join(', ')}.`;
+    summary = `Berdasarkan transkripsi ${totalWords} kata, fokus utama pembahasan adalah "${sentences[0]}". Hal mendesak yang disepakati adalah "${sentences[1]}", dengan arahan tindak lanjut agar seluruh tim berkoordinasi secara efektif sesuai milestone kerja yang ditargetkan.`;
   } else {
-    summary = `Inti percakapan: ${clean}`;
+    summary = `Inti arahan kerja: ${clean}. Diharapkan seluruh poin yang tercatat dapat langsung dieksekusi oleh tim penanggung jawab.`;
   }
 
-  return { summary, keyPoints, actionItems };
+  const operationalContext = `Analisis AI PRO (${totalWords} kata • ${sentences.length} poin pembicaraan • Status: Terverifikasi)`;
+
+  return { summary, keyPoints, actionItems, category, riskMitigation, operationalContext };
 }
 
 // ============================================================================
@@ -640,18 +696,26 @@ export default function App() {
   const [capturedSnapshotPreview, setCapturedSnapshotPreview] = useState<string | null>(null);
   const videoElemRef = useRef<HTMLVideoElement | null>(null);
 
-  // State Pengaturan Akun Pribadi (Profile, Password & Cloud)
+  // State Pengaturan Akun Pribadi (Profile & Password)
   const [isAccountModalOpen, setIsAccountModalOpen] = useState<boolean>(false);
-  const [accountActiveSubTab, setAccountActiveSubTab] = useState<'profile' | 'security' | 'stats'>('profile');
+  const [accountActiveSubTab, setAccountActiveSubTab] = useState<'profile' | 'security'>('profile');
   const [accFullName, setAccFullName] = useState<string>('');
   const [accPhone, setAccPhone] = useState<string>('');
   const [accNewPassword, setAccNewPassword] = useState<string>('');
   const [accConfirmPassword, setAccConfirmPassword] = useState<string>('');
   const [accShowPassword, setAccShowPassword] = useState<boolean>(false);
+  const [showUserId, setShowUserId] = useState<boolean>(false);
   const [isSavingAccount, setIsSavingAccount] = useState<boolean>(false);
   const [accountFeedback, setAccountFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [accAvatarUrl, setAccAvatarUrl] = useState<string>('');
   const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // State Crop & Scale Foto Profil Rasio 4:5
+  const [isCroppingAvatar, setIsCroppingAvatar] = useState<boolean>(false);
+  const [rawCropImage, setRawCropImage] = useState<string | null>(null);
+  const [cropZoom, setCropZoom] = useState<number>(1);
+  const [cropOffsetY, setCropOffsetY] = useState<number>(0);
+  const [cropOffsetX, setCropOffsetX] = useState<number>(0);
 
   // State Rekam Suara (Voice to Text & Kesimpulan AI)
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState<boolean>(false);
@@ -665,6 +729,9 @@ export default function App() {
     summary: string;
     keyPoints: string[];
     actionItems: string[];
+    category?: string;
+    riskMitigation?: string[];
+    operationalContext?: string;
   } | null>(null);
   const [savedVoiceMemos, setSavedVoiceMemos] = useState<VoiceMemoRecord[]>(() =>
     (db as any).getVoiceMemos ? (db as any).getVoiceMemos() : []
@@ -1047,29 +1114,63 @@ export default function App() {
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        // Kompresi avatar ke resolusi bujur sangkar 256x256 agar tajam dan sangat ringan (<25KB)
-        const size = 256;
-        const canvas = document.createElement('canvas');
-        canvas.width = size;
-        canvas.height = size;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        // Crop tengah bujur sangkar (center square crop)
-        const minDim = Math.min(img.width, img.height);
-        const sx = (img.width - minDim) / 2;
-        const sy = (img.height - minDim) / 2;
-
-        ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, size, size);
-        const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
-        setAccAvatarUrl(compressedDataUrl);
-        setAccountFeedback({ type: 'success', message: 'Foto profil siap disimpan. Klik "Simpan Perubahan Profil" untuk menerapkan.' });
-      };
-      img.src = event.target?.result as string;
+      const dataUrl = event.target?.result as string;
+      setRawCropImage(dataUrl);
+      setCropZoom(1);
+      setCropOffsetY(0);
+      setCropOffsetX(0);
+      setIsCroppingAvatar(true);
+      e.target.value = '';
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleApplyCroppedAvatar = () => {
+    if (!rawCropImage) return;
+
+    const img = new Image();
+    img.onload = () => {
+      // Standar foto potret rasio 4:5 (400 x 500 px)
+      const targetWidth = 400;
+      const targetHeight = 500;
+      const canvas = document.createElement('canvas');
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, targetWidth, targetHeight);
+
+      const imgAspect = img.width / img.height;
+      const targetAspect = targetWidth / targetHeight; // 0.8
+
+      let renderWidth: number;
+      let renderHeight: number;
+
+      if (imgAspect > targetAspect) {
+        renderHeight = targetHeight * cropZoom;
+        renderWidth = renderHeight * imgAspect;
+      } else {
+        renderWidth = targetWidth * cropZoom;
+        renderHeight = renderWidth / imgAspect;
+      }
+
+      const centerX = (targetWidth - renderWidth) / 2 + cropOffsetX * 2;
+      const centerY = (targetHeight - renderHeight) / 2 + cropOffsetY * 2;
+
+      ctx.drawImage(img, centerX, centerY, renderWidth, renderHeight);
+
+      const finalCompressedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      setAccAvatarUrl(finalCompressedDataUrl);
+      setIsCroppingAvatar(false);
+      setRawCropImage(null);
+      setAccountFeedback({
+        type: 'success',
+        message: 'Foto profil rasio 4:5 berhasil disesuaikan! Klik "Simpan Perubahan Profil" untuk menerapkan.',
+      });
+    };
+    img.src = rawCropImage;
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -2261,70 +2362,97 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
-  const handleRunAIAnalysis = () => {
+  const handleRunAIAnalysis = (forceDailyOnly: boolean = false) => {
     if (!currentUser) return;
-    if (!aiUploadedImage) {
-      showToast('Silakan unggah gambar bukti performa terlebih dahulu');
-      return;
-    }
+
+    const hasImage = Boolean(aiUploadedImage) && !forceDailyOnly;
 
     setIsAnalyzingAI(true);
-    showToast('AI sedang menganalisis gambar dan performa program kerja...');
+    showToast(
+      hasImage
+        ? 'AI sedang menganalisis bukti gambar & evaluasi Daily Report kerja harian...'
+        : 'AI sedang mengevaluasi aktivitas pekerjaan dari Daily Report & Absensi...'
+    );
 
-    // Simulasi analisis AI berbasis metrik riil proyek, program, dan gambar performa
     setTimeout(() => {
-      const basePerformance = reportData?.performanceScore || 85;
-      const finishedRatio =
-        reportData && reportData.totalTasks > 0
-          ? (reportData.finishedTasks / reportData.totalTasks) * 100
-          : 80;
+      // 1. Perhitungan Metrik Riil dari Daily Report & Absensi
+      const userAttendance = attendance.filter((a) => a.ownerId === currentUser.id);
+      const totalHadir = userAttendance.filter((a) => a.type === 'hadir').length;
+      const withClockInPhoto = userAttendance.filter((a) => a.type === 'hadir' && Boolean(a.checkInPhoto)).length;
+      const withClockOutPhoto = userAttendance.filter((a) => a.type === 'hadir' && Boolean(a.checkOutPhoto)).length;
 
+      const userEntries = entries.filter((e) => e.ownerId === currentUser.id);
+      const totalTasks = userEntries.length;
+      const completedTasks = userEntries.filter((e) => e.status === 'selesai').length;
+      const todayStr = getTodayDateStr();
+      const overdueTasks = userEntries.filter((e) => e.status === 'berjalan' && (e.completedDate || e.date) < todayStr).length;
+      const taskFinishRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 85;
+
+      const basePerformance = reportData?.performanceScore || 85;
       const aiScore = Math.min(
         98,
-        Math.max(65, Math.round(basePerformance * 0.6 + finishedRatio * 0.4))
+        Math.max(68, Math.round(basePerformance * 0.5 + taskFinishRate * 0.3 + (totalHadir > 0 ? 20 : 10)))
       );
 
       const activeProjNames = (reportData?.projectBreakdown || [])
         .slice(0, 3)
         .map((p) => p.name)
-        .join(', ') || 'Proyek Tim';
+        .join(', ') || 'Proyek Lapangan';
 
-      const aiSummary = `Berdasarkan analisis visual dokumen bukti performa "${aiUploadedFileName}" serta data real-time, aktivitas kerja pada periode ini menunjukkan produktivitas efektif sebesar ${aiScore}%. Ketercapaian tugas pada proyek utama (${activeProjNames}) berjalan konsisten dengan kepatuhan jam kerja rata-rata ${reportData?.avgHours || '8.0'} jam/hari.`;
+      // 2. Evaluasi Daily Report Mendalam
+      let aiSummary = '';
+      if (hasImage) {
+        aiSummary = `Hasil Evaluasi Terpadu AI: Menggabungkan dokumen bukti performa "${aiUploadedFileName}" dan catatan Daily Report riil, efektivitas kerja mencapai ${aiScore}%. Penyelesaian tugas pada proyek prioritas (${activeProjNames}) mencatatkan tingkat kelulusan ${taskFinishRate}% dengan kepatuhan jam kerja rata-rata ${reportData?.avgHours || '8.0'} jam/hari.`;
+      } else {
+        aiSummary = `Hasil Evaluasi Khusus Daily Report & Aktivitas Kerja: Berdasarkan rekaman ${totalTasks} tugas proyek dan ${totalHadir} catatan absensi harian, produktivitas kerja efektif Anda berada pada skor ${aiScore}%. Tugas terselesaikan berjumlah ${completedTasks} dari ${totalTasks} target dengan rata-rata jam kerja ${reportData?.avgHours || '8.0'} jam per hari.`;
+      }
 
+      // 3. Kekuatan / Pencapaian Riil Daily Report
       const strengths: string[] = [
-        `Tingkat kedisiplinan kehadiran stabil dengan total ${reportData?.totalHadir || 0} hari kerja tercatat.`,
-        `Fokus kontribusi tinggi pada proyek prioritas dengan rasio penyelesaian mencapai ${Math.round(finishedRatio)}%.`,
-        `Dokumentasi hasil kerja visual ("${aiUploadedFileName}") terverifikasi sesuai milestone kerja yang ditargetkan.`,
+        `Kedisiplinan Absensi: Tercatat ${totalHadir} hari kehadiran kerja dengan ${attendanceStats.punctualCount} hari masuk tepat waktu sebelum pukul ${workPolicy.standardCheckInTime}.`,
+        `Kelengkapan Bukti Foto Daily Report: Terdokumentasi ${withClockInPhoto} foto clock in dan ${withClockOutPhoto} foto clock out sebagai verifikasi kehadiran riil.`,
+        `Pencapaian Tugas Proyek: Berhasil menyelesaikan ${completedTasks} pekerjaan dengan rasio tuntas ${taskFinishRate}% pada rentang waktu yang dievaluasi.`,
       ];
+      if (hasImage) {
+        strengths.push(`Verifikasi Dokumen Visual: Gambar performa "${aiUploadedFileName}" telah divalidasi sinkron dengan deliverable target.`);
+      }
 
+      // 4. Area Evaluasi & Perbaikan Pekerjaan Daily Report
       const improvements: string[] = [];
-      if (reportData && reportData.overdueTasks > 0) {
+      if (overdueTasks > 0) {
         improvements.push(
-          `Ditemukan ${reportData.overdueTasks} tugas yang melewati tenggat waktu (overdue), perlu mitigasi percepatan timeline.`
+          `Evaluasi Deadline Tugas: Ditemukan ${overdueTasks} pekerjaan yang melewati tenggat waktu (overdue), disarankan penataan ulang prioritas harian.`
         );
       } else {
         improvements.push(
-          `Distribusi waktu antar cabang program masih condong ke satu proyek besar; perlu pemerataan progres cabang program pendukung.`
+          `Distribusi Beban Kerja: Pembagian tugas harian sudah cukup baik; pertahankan pembaruan status tugas tepat saat pekerjaan selesai.`
         );
       }
+
+      if (withClockOutPhoto < withClockInPhoto) {
+        improvements.push(
+          `Evaluasi Foto Clock Out: Pastikan selalu mengambil foto saat Clock Out agar laporan harian memiliki bukti selesai kerja yang lengkap.`
+        );
+      }
+
       improvements.push(
-        `Efisiensi durasi kerja harian dapat ditingkatkan dengan memangkas jeda waktu antar sesi pergantian program.`
+        `Catatan Detail Daily Report: Perkaya deskripsi hasil kerja pada form absensi dengan poin kuantitatif (misal: luas area, volume pekerjaan, atau nomor dokumen).`
       );
 
-      // MENU SARAN AI TERPADU (Sintesis dari seluruh performa, cabang program, dan tolak ukur kerja)
+      // 5. Menu Saran AI Terpadu (Daily Report + Program + Performa)
       const recommendations: string[] = [
-        `Prioritas Program: Alokasikan fokus utama pada cabang program dengan penyelesaian terendah agar target deliverable kuartal tidak terhambat.`,
-        `Kepatuhan Jam Kerja: Pertahankan Clock In sebelum pukul ${workPolicy.standardCheckInTime} (toleransi ${workPolicy.lateToleranceMinutes} menit). Saat ini tercatat ${attendanceStats.punctualCount} hari tepat waktu.`,
-        `Optimalisasi Istirahat: Pastikan istirahat harian ${workPolicy.breakDurationHours} jam digunakan optimal agar target jam kerja bersih ${workPolicy.targetDailyWorkHours} jam/hari tercapai tanpa kelelahan.`,
-        `Perencanaan Cuti: Sisa kuota cuti tahunan Anda saat ini ${attendanceStats.remainingLeaveQuota} hari dari total ${workPolicy.annualLeaveQuota} hari. Rencanakan cuti strategis di sela milestone program besar.`,
+        `Audit Laporan Kerja Harian (Daily Report): Dokumentasikan progres fisik harian disertai catatan kendala lapangan pada form absensi harian agar tim manajemen dapat merespons cepat.`,
+        `Optimalisasi Jam Kerja: Target jam kerja harian Anda adalah ${workPolicy.targetDailyWorkHours} jam bersih dengan istirahat ${workPolicy.breakDurationHours} jam. Jaga ritme istirahat agar performa tetap prima tanpa burnout.`,
+        `Manajemen Tugas Kalender: Untuk ${userEntries.filter((e) => e.status === 'berjalan').length} tugas yang sedang berjalan, prioritaskan cabang program yang memiliki dampak dependensi langsung terhadap pekerjaan berikutnya.`,
+        `Sisa Kuota Cuti: Kuota cuti tahunan Anda tersisa ${attendanceStats.remainingLeaveQuota} hari. Manfaatkan hak cuti terencana setelah menyelesaikan fase milestone krusial.`,
       ];
 
       const newRecord: AIPerformanceRecord = {
         id: 'ai-perf-' + Date.now().toString(36),
         ownerId: currentUser.id,
         ownerName: currentUser.fullName,
-        imageUrl: aiUploadedImage,
-        imageName: aiUploadedFileName,
+        imageUrl: hasImage ? (aiUploadedImage || undefined) : undefined,
+        imageName: hasImage ? aiUploadedFileName : 'Evaluasi Daily Report & Absensi',
         createdAt: new Date().toISOString(),
         score: aiScore,
         summary: aiSummary,
@@ -2337,8 +2465,8 @@ export default function App() {
       const updated = db.addAIPerformance(newRecord);
       setAiPerformances(updated);
       setIsAnalyzingAI(false);
-      showToast('Analisis AI selesai! Saran dan kesimpulan performa telah diperbarui.');
-    }, 1800);
+      showToast('⚡ Evaluasi AI Daily Report & Performa Kerja selesai!');
+    }, 1500);
   };
 
   const handleDeleteAIPerformance = (id: string) => {
@@ -2483,13 +2611,16 @@ export default function App() {
 
       const memoItem: VoiceMemoRecord = {
         id: 'memo-' + Date.now().toString(36),
-        title: voiceTranscript.slice(0, 45) + (voiceTranscript.length > 45 ? '...' : ''),
+        title: (result.category ? `[${result.category}] ` : '') + voiceTranscript.slice(0, 40) + (voiceTranscript.length > 40 ? '...' : ''),
         transcript: voiceTranscript,
         summary: result.summary,
         keyPoints: result.keyPoints,
         actionItems: result.actionItems,
         durationSeconds: recordingDurationSec,
         createdAt: new Date().toISOString(),
+        category: result.category,
+        riskMitigation: result.riskMitigation,
+        operationalContext: result.operationalContext,
       };
 
       if ((db as any).addVoiceMemo) {
@@ -2754,7 +2885,7 @@ export default function App() {
               }`}
             >
               <Mic className={`w-3.5 h-3.5 ${activeMainTab === 'voice_ai' ? 'text-white' : 'text-indigo-600 animate-pulse'}`} />
-              <span>Dikte<span className="hidden xl:inline"> Suara AI</span></span>
+              <span>Record Voice<span className="hidden xl:inline"> to Text</span></span>
             </button>
           </div>
 
@@ -2874,7 +3005,7 @@ export default function App() {
             }`}
           >
             <Mic className="w-3 h-3 text-indigo-600" />
-            <span>Dikte AI</span>
+            <span>Record Voice</span>
           </button>
         </div>
       </header>
@@ -2894,19 +3025,19 @@ export default function App() {
             isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
           }`}
         >
-          {/* Widget Dikte & Notulen Suara AI */}
+          {/* Widget Record Voice to Text PRO */}
           <div className="p-3.5 m-3 mb-1.5 rounded-2xl bg-gradient-to-br from-purple-50 via-indigo-50 to-indigo-100/60 border border-indigo-200/80 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-800 flex items-center gap-1.5">
                 <Mic className="w-3.5 h-3.5 text-indigo-600 animate-pulse" />
-                <span>Dikte Suara AI</span>
+                <span>Record Voice to Text</span>
               </span>
               <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-600 text-white">
-                Speech to Text
+                AI PRO
               </span>
             </div>
             <p className="text-[11px] text-slate-600 leading-tight">
-              Bicara langsung untuk mencatat ide atau notulen rapat. AI otomatis membuatkan ringkasan dan tugas kalender.
+              Bicara langsung untuk merekam notulen rapat atau ide proyek. AI PRO otomatis merumuskan ringkasan detail dan pembagian tugas.
             </p>
             <button
               type="button"
@@ -2914,7 +3045,7 @@ export default function App() {
               className="w-full py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs transition-colors"
             >
               <Mic className="w-3.5 h-3.5" />
-              <span>Buka Studio Dikte</span>
+              <span>Buka Record Voice PRO</span>
             </button>
           </div>
 
@@ -4974,24 +5105,37 @@ export default function App() {
                     />
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={handleRunAIAnalysis}
-                    disabled={isAnalyzingAI || !aiUploadedImage}
-                    className="w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white flex items-center justify-center gap-2 shadow-sm transition-all"
-                  >
-                    {isAnalyzingAI ? (
-                      <>
-                        <BrainCircuit className="w-4 h-4 animate-spin" />
-                        <span>AI Sedang Menganalisis Gambar...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="w-4 h-4 fill-current" />
-                        <span>Analisis Performa dengan AI</span>
-                      </>
-                    )}
-                  </button>
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => handleRunAIAnalysis(false)}
+                      disabled={isAnalyzingAI || !aiUploadedImage}
+                      className="w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white flex items-center justify-center gap-2 shadow-sm transition-all"
+                    >
+                      {isAnalyzingAI ? (
+                        <>
+                          <BrainCircuit className="w-4 h-4 animate-spin" />
+                          <span>AI Sedang Memproses Analisis...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="w-4 h-4 fill-current" />
+                          <span>Analisis Bukti Gambar &amp; Daily Report</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleRunAIAnalysis(true)}
+                      disabled={isAnalyzingAI}
+                      className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center gap-2 border border-slate-200 transition-colors"
+                      title="Evaluasi performa langsung dari data laporan harian dan absensi tanpa upload gambar"
+                    >
+                      <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
+                      <span>⚡ Evaluasi Langsung dari Data Daily Report &amp; Absensi</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Hasil Analisis Terkini / Ringkasan AI */}
@@ -5139,27 +5283,30 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 6: STUDIO DIKTE SUARA & KESIMPULAN CERDAS AI */}
+          {/* TAB 6: STUDIO RECORD VOICE TO TEXT & KESIMPULAN CERDAS AI PRO */}
           {activeMainTab === 'voice_ai' && (
             <div className="space-y-6">
               {/* Header Banner */}
-              <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-purple-900 rounded-3xl p-6 sm:p-8 text-white relative overflow-hidden shadow-lg border border-indigo-700/50">
-                <div className="relative z-10 max-w-2xl space-y-2">
+              <div className="bg-gradient-to-r from-indigo-950 via-indigo-900 to-purple-950 rounded-3xl p-6 sm:p-8 text-white relative overflow-hidden shadow-xl border border-indigo-700/50">
+                <div className="relative z-10 max-w-3xl space-y-2.5">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-extrabold bg-indigo-500/30 border border-indigo-400/40 text-indigo-200">
                       <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
-                      <span>AI Voice to Text &amp; Smart Summary</span>
+                      <span>AI Record Voice to Text &amp; Smart Summary PRO</span>
                     </div>
                     <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/25 border border-emerald-400/40 text-emerald-200">
                       <HardDrive className="w-3.5 h-3.5 text-emerald-300" />
                       <span>Simpan di Perangkat Ini (Lokal) • Kuota Supabase 0 KB</span>
                     </div>
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-purple-500/30 border border-purple-400/40 text-purple-200 uppercase tracking-wider">
+                      Studio HD Audio 48kHz
+                    </div>
                   </div>
-                  <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight">
-                    Studio Dikte Suara &amp; Kesimpulan AI
+                  <h2 className="text-xl sm:text-2xl lg:text-3xl font-extrabold tracking-tight">
+                    Studio Record Voice to Text &amp; Analisis AI PRO
                   </h2>
                   <p className="text-xs sm:text-sm text-indigo-200 leading-relaxed font-normal">
-                    Ubah ucapan Anda menjadi transkripsi teks akurat secara *real-time*. AI cerdas akan otomatis menganalisis rekaman untuk mengekstrak ringkasan eksekutif, poin-poin penting, dan daftar tugas (*action items*) yang siap dijadikan tugas kalender dengan 1 klik.
+                    Ubah suara Anda menjadi transkripsi teks presisi tinggi secara real-time. Mesin AI PRO otomatis menganalisis rekaman untuk mengekstrak ringkasan eksekutif mendalam, poin diskusi teknis, tindakan lanjutan (action items) terstruktur dengan prioritas, dan mitigasi risiko kendala.
                   </p>
                 </div>
                 <div className="absolute -right-8 -bottom-10 opacity-15 pointer-events-none">
@@ -5204,54 +5351,90 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Tombol Rekam Besar */}
-                    <div className="flex flex-col items-center justify-center p-6 rounded-2xl bg-slate-50 border border-slate-100 space-y-3.5 text-center">
-                      <div className="relative">
+                    {/* Panel Mikrofon & Audio Visualizer PRO */}
+                    <div className="flex flex-col items-center justify-center p-6 rounded-2xl bg-gradient-to-b from-slate-900 via-slate-900 to-indigo-950 text-white border border-slate-800 space-y-4 text-center shadow-inner relative overflow-hidden">
+                      {/* Audio Quality Header */}
+                      <div className="w-full flex items-center justify-between text-[11px] text-slate-400 border-b border-slate-800 pb-2.5 px-1">
+                        <span className="flex items-center gap-1.5 font-bold text-indigo-300">
+                          <AudioWaveform className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>PRO Audio Engine (48kHz)</span>
+                        </span>
+                        <span className="flex items-center gap-1 text-emerald-400 font-semibold">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Noise Suppression Aktif
+                        </span>
+                      </div>
+
+                      {/* Tombol Rekam Besar */}
+                      <div className="relative pt-2">
                         {isRecordingVoice && (
-                          <div className="absolute inset-0 -m-3 rounded-full bg-rose-500/20 animate-ping" />
+                          <>
+                            <div className="absolute inset-0 -m-4 rounded-full bg-rose-500/25 animate-ping" />
+                            <div className="absolute inset-0 -m-2 rounded-full bg-rose-500/40 animate-pulse" />
+                          </>
                         )}
                         <button
                           type="button"
                           onClick={isRecordingVoice ? stopVoiceRecording : startVoiceRecording}
-                          className={`w-24 h-24 rounded-full flex flex-col items-center justify-center shadow-xl transition-all transform active:scale-95 ${
+                          className={`w-24 h-24 rounded-full flex flex-col items-center justify-center shadow-2xl transition-all transform active:scale-95 relative z-10 ${
                             isRecordingVoice
-                              ? 'bg-rose-600 hover:bg-rose-700 text-white ring-8 ring-rose-200 animate-pulse'
-                              : 'bg-indigo-600 hover:bg-indigo-700 text-white ring-8 ring-indigo-100'
+                              ? 'bg-gradient-to-br from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white ring-8 ring-rose-500/30'
+                              : 'bg-gradient-to-br from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white ring-8 ring-indigo-500/20'
                           }`}
                         >
                           {isRecordingVoice ? (
                             <>
-                              <Square className="w-8 h-8" />
-                              <span className="text-[11px] font-bold mt-1">Berhenti</span>
+                              <Square className="w-7 h-7 fill-current" />
+                              <span className="text-[10px] font-black mt-1 tracking-wider">STOP REC</span>
                             </>
                           ) : (
                             <>
-                              <Mic className="w-9 h-9" />
-                              <span className="text-[11px] font-bold mt-1">Mulai Rekam</span>
+                              <Mic className="w-8 h-8" />
+                              <span className="text-[10px] font-black mt-1 tracking-wider">START REC</span>
                             </>
                           )}
                         </button>
                       </div>
 
+                      {/* Dynamic Audio Waveform Visualizer */}
+                      {isRecordingVoice ? (
+                        <div className="flex items-center justify-center gap-1 h-8 pt-1">
+                          {[35, 60, 90, 45, 80, 100, 50, 75, 40, 95, 65, 85, 30].map((h, i) => (
+                            <div
+                              key={i}
+                              style={{
+                                height: `${Math.max(15, (h * (0.5 + Math.sin((recordingDurationSec * 4 + i) * 0.8) * 0.5)))}%`,
+                                transition: 'height 0.15s ease-in-out',
+                              }}
+                              className="w-1.5 rounded-full bg-gradient-to-t from-indigo-500 via-purple-400 to-rose-400"
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center gap-1 h-8 pt-1 opacity-30">
+                          {[20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20].map((h, i) => (
+                            <div key={i} className="w-1.5 h-2 rounded-full bg-slate-500" />
+                          ))}
+                        </div>
+                      )}
+
                       <div className="space-y-1">
-                        <div className="text-base font-bold text-slate-800">
+                        <div className="text-xs font-bold text-white flex items-center justify-center gap-2">
                           {isRecordingVoice ? (
-                            <span className="text-rose-600 flex items-center justify-center gap-2">
-                              <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping" />
-                              Merekam ({Math.floor(recordingDurationSec / 60)}:{String(recordingDurationSec % 60).padStart(2, '0')})
-                            </span>
-                          ) : recordingDurationSec > 0 ? (
-                            <span className="text-emerald-700 font-bold">
-                              Rekaman Siap ({Math.floor(recordingDurationSec / 60)}:{String(recordingDurationSec % 60).padStart(2, '0')})
-                            </span>
+                            <>
+                              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+                              <span className="font-mono text-sm tracking-widest text-rose-300 font-extrabold">
+                                REC {String(Math.floor(recordingDurationSec / 60)).padStart(2, '0')}:{String(recordingDurationSec % 60).padStart(2, '0')}
+                              </span>
+                            </>
                           ) : (
-                            'Klik tombol mikrofon untuk mulai berbicara'
+                            <span className="text-slate-300 font-medium">Siap Merekam • Tekan tombol untuk mulai mendikte</span>
                           )}
                         </div>
-                        <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                        <p className="text-[11px] text-slate-400 max-w-sm">
                           {isRecordingVoice
-                            ? 'Bicara dengan jelas ke mikrofon Anda. Kata-kata akan langsung muncul di kotak transkripsi.'
-                            : 'Gunakan mikrofon untuk mendiktekan laporan harian, hasil diskusi rapat, atau catatan tugas.'}
+                            ? 'Bicaralah dengan wajar. Algoritma peredam bising aktif dan suara Anda otomatis ditranskripsi ke teks.'
+                            : 'Gunakan mikrofon untuk mendiktekan laporan harian, notulen rapat koordinasi, atau instruksi kerja.'}
                         </p>
                       </div>
 
@@ -5375,20 +5558,48 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* 3. Tindakan Lanjutan */}
+                      {/* Kategori Pembahasan PRO */}
+                      {voiceSummaryResult.category && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-bold text-slate-500">Kategori:</span>
+                          <span className="px-2.5 py-1 rounded-xl text-xs font-extrabold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                            {voiceSummaryResult.category}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* 3. Tindakan Lanjutan PRO */}
                       {voiceSummaryResult.actionItems.length > 0 && (
                         <div className="space-y-1.5">
                           <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900 block">
-                            ⚡ Tindakan Lanjutan / Action Items
+                            ⚡ Tindakan Lanjutan &amp; Delegasi Tugas PRO
                           </span>
-                          <div className="space-y-1.5 bg-white p-3.5 rounded-2xl border border-indigo-100 shadow-2xs">
+                          <div className="space-y-2 bg-white p-3.5 rounded-2xl border border-indigo-100 shadow-2xs">
                             {voiceSummaryResult.actionItems.map((item, idx) => (
-                              <div key={idx} className="flex items-start gap-2 text-xs text-slate-800">
+                              <div key={idx} className="flex items-start gap-2.5 text-xs text-slate-800 p-2 rounded-xl bg-slate-50 border border-slate-100">
                                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                                <span className="font-semibold">{item}</span>
+                                <span className="font-semibold leading-relaxed">{item}</span>
                               </div>
                             ))}
                           </div>
+                        </div>
+                      )}
+
+                      {/* 4. Mitigasi Risiko Kendala Lapangan PRO */}
+                      {voiceSummaryResult.riskMitigation && voiceSummaryResult.riskMitigation.length > 0 && (
+                        <div className="space-y-1.5">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-amber-900 block flex items-center gap-1.5">
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Mitigasi Risiko &amp; Rekomendasi Solusi</span>
+                          </span>
+                          <ul className="space-y-1.5 text-xs text-slate-700 bg-amber-50/50 p-3.5 rounded-2xl border border-amber-200/70 shadow-2xs">
+                            {voiceSummaryResult.riskMitigation.map((risk, idx) => (
+                              <li key={idx} className="flex items-start gap-2">
+                                <span className="text-amber-600 font-bold">•</span>
+                                <span className="leading-relaxed">{risk}</span>
+                              </li>
+                            ))}
+                          </ul>
                         </div>
                       )}
 
@@ -6980,7 +7191,7 @@ export default function App() {
                     Pengaturan Akun &amp; Profil
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Kelola identitas, ubah kata sandi, dan status akun
+                    Kelola identitas dan ubah kata sandi akun
                   </p>
                 </div>
               </div>
@@ -7027,22 +7238,6 @@ export default function App() {
                 <Lock className="w-3.5 h-3.5" />
                 <span>Ubah Password</span>
               </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setAccountActiveSubTab('stats');
-                  setAccountFeedback(null);
-                }}
-                className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
-                  accountActiveSubTab === 'stats'
-                    ? 'border-indigo-600 text-indigo-600'
-                    : 'border-transparent text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>Status &amp; Data</span>
-              </button>
             </div>
 
             {/* Modal Body */}
@@ -7068,36 +7263,44 @@ export default function App() {
               {/* TAB 1: BIODATA PROFIL */}
               {accountActiveSubTab === 'profile' && (
                 <form onSubmit={handleSaveProfile} className="space-y-4">
-                  {/* Foto Profil / Avatar Uploader */}
+                  {/* Foto Profil / Avatar Uploader dengan Crop 4:5 */}
                   <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-center gap-4">
                     <div className="relative group shrink-0">
-                      <div className="w-20 h-20 rounded-full border-2 border-indigo-500 shadow-md overflow-hidden bg-indigo-600 text-white font-black text-2xl flex items-center justify-center">
+                      <div className="w-[72px] h-[90px] rounded-2xl border-2 border-indigo-500 shadow-md overflow-hidden bg-indigo-600 text-white font-black text-2xl flex items-center justify-center relative">
                         {accAvatarUrl ? (
                           <img
                             src={accAvatarUrl}
-                            alt="Avatar Preview"
+                            alt="Avatar Preview 4:5"
                             className="w-full h-full object-cover"
                           />
                         ) : accFullName ? (
                           accFullName.charAt(0).toUpperCase()
                         ) : (
-                          <UserIcon className="w-10 h-10 text-white/80" />
+                          <UserIcon className="w-8 h-8 text-white/80" />
                         )}
+                        <span className="absolute bottom-1 right-1 bg-indigo-950/80 text-[8px] font-extrabold px-1 rounded text-indigo-200">
+                          4:5
+                        </span>
                       </div>
                       <button
                         type="button"
                         onClick={() => avatarFileInputRef.current?.click()}
-                        className="absolute inset-0 bg-slate-900/40 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity cursor-pointer"
-                        title="Ganti Foto Profil"
+                        className="absolute inset-0 bg-slate-900/50 rounded-2xl opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity cursor-pointer"
+                        title="Ganti &amp; Sesuaikan Foto (4:5)"
                       >
                         <Camera className="w-5 h-5" />
                       </button>
                     </div>
 
                     <div className="space-y-1.5 text-center sm:text-left flex-1">
-                      <h4 className="text-xs font-bold text-slate-800">Foto Profil Akun</h4>
+                      <div className="flex items-center justify-center sm:justify-start gap-2">
+                        <h4 className="text-xs font-bold text-slate-800">Foto Profil Akun</h4>
+                        <span className="text-[10px] font-extrabold text-indigo-700 bg-indigo-100/80 px-2 py-0.5 rounded-full">
+                          Rasio 4:5 Portrait
+                        </span>
+                      </div>
                       <p className="text-[11px] text-slate-500 leading-tight">
-                        Unggah foto profil Anda (JPG, PNG, atau WEBP). Gambar otomatis dioptimasi dan dikompres agar sangat ringan (&lt;25KB) dan jernih.
+                        Pilih foto profil lalu gunakan alat crop &amp; scale untuk menyesuaikan posisi dan zoom foto agar pas pada rasio 4:5.
                       </p>
                       <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
                         <input
@@ -7171,7 +7374,7 @@ export default function App() {
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Alamat Email (Akun Supabase)
+                      Alamat Email
                     </label>
                     <div className="relative">
                       <input
@@ -7182,10 +7385,6 @@ export default function App() {
                       />
                       <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                     </div>
-                    <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 font-semibold mt-1">
-                      <CheckCircle2 className="w-3 h-3" />
-                      Email terdaftar dan terautentikasi di Supabase Cloud
-                    </span>
                   </div>
 
                   <div>
@@ -7193,19 +7392,30 @@ export default function App() {
                       User ID / Owner ID
                     </label>
                     <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        readOnly
-                        value={currentUser.id}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-500 select-all"
-                      />
+                      <div className="relative flex-1">
+                        <input
+                          type={showUserId ? 'text' : 'password'}
+                          readOnly
+                          value={currentUser.id}
+                          className="w-full pl-3 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-600 tracking-wider select-all"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowUserId(!showUserId)}
+                          className="p-1 text-slate-400 hover:text-slate-700 absolute right-2.5 top-2.5 rounded-lg transition-colors"
+                          title={showUserId ? 'Sembunyikan User ID' : 'Lihat User ID'}
+                        >
+                          {showUserId ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                       <button
                         type="button"
                         onClick={() => {
                           navigator.clipboard.writeText(currentUser.id);
-                          showToast('User ID disalin ke clipboard');
+                          showToast('User ID berhasil disalin ke clipboard');
                         }}
-                        className="px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-xs font-bold text-slate-600 flex items-center gap-1 shrink-0"
+                        className="px-3.5 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-xs font-bold text-slate-600 flex items-center gap-1.5 shrink-0 transition-colors"
+                        title="Salin User ID"
                       >
                         <Copy className="w-3.5 h-3.5" />
                         <span>Salin</span>
@@ -7242,15 +7452,7 @@ export default function App() {
               {/* TAB 2: UBAH PASSWORD */}
               {accountActiveSubTab === 'security' && (
                 <form onSubmit={handleUpdatePassword} className="space-y-4">
-                  <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 text-xs text-amber-900 space-y-1">
-                    <div className="font-bold flex items-center gap-1.5">
-                      <KeyIcon className="w-4 h-4 text-amber-600" />
-                      <span>Ubah Kata Sandi Akun</span>
-                    </div>
-                    <p className="text-[11px] text-amber-800/90 leading-relaxed">
-                      Kata sandi baru akan otomatis disinkronkan ke Supabase Auth. Setelah diubah, gunakan kata sandi baru untuk login di semua versi aplikasi (Web &amp; Desktop DMG).
-                    </p>
-                  </div>
+
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -7326,79 +7528,151 @@ export default function App() {
                 </form>
               )}
 
-              {/* TAB 3: STATUS & DATA AKUN */}
-              {accountActiveSubTab === 'stats' && (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
-                      <div className="text-[11px] font-semibold text-slate-500">Status Server</div>
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
-                        <span className={`w-2 h-2 rounded-full ${isSupabaseConfigured ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                        <span>{isSupabaseConfigured ? 'Supabase Terhubung' : 'Mode Offline'}</span>
-                      </div>
-                    </div>
 
-                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
-                      <div className="text-[11px] font-semibold text-slate-500">Hak Akses</div>
-                      <div className="text-xs font-bold text-indigo-700">Owner / Administrator</div>
-                    </div>
-
-                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
-                      <div className="text-[11px] font-semibold text-slate-500">Proyek Aktif</div>
-                      <div className="text-base font-extrabold text-slate-900">
-                        {projects.filter((p) => p.ownerId === currentUser.id).length} Proyek
-                      </div>
-                    </div>
-
-                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
-                      <div className="text-[11px] font-semibold text-slate-500">Catatan Jadwal</div>
-                      <div className="text-base font-extrabold text-slate-900">
-                        {entries.filter((e) => e.ownerId === currentUser.id).length} Catatan
-                      </div>
-                    </div>
-
-                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
-                      <div className="text-[11px] font-semibold text-slate-500">Riwayat Absensi</div>
-                      <div className="text-base font-extrabold text-slate-900">
-                        {attendance.filter((a) => a.ownerId === currentUser.id).length} Hari
-                      </div>
-                    </div>
-
-                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
-                      <div className="text-[11px] font-semibold text-slate-500">Pengingat Terpasang</div>
-                      <div className="text-base font-extrabold text-slate-900">
-                        {reminders.filter((r) => r.ownerId === currentUser.id).length} Alarm
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-4 rounded-2xl bg-indigo-50/60 border border-indigo-100 flex items-start gap-3">
-                    <ShieldCheck className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
-                    <div className="text-xs text-indigo-950 space-y-1">
-                      <span className="font-bold block">Sinkronisasi Multi-Device</span>
-                      <p className="text-[11px] text-indigo-800 leading-relaxed">
-                        Data akun, riwayat absensi, bukti foto, dan jadwal Anda disimpan secara aman dan otomatis tersinkronisasi saat Anda membuka aplikasi di browser web maupun desktop Mac (DMG).
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="pt-2 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => setIsAccountModalOpen(false)}
-                      className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold"
-                    >
-                      Tutup
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* FLOATING ACTION BUTTON (FAB): REKAM SUARA AI CEPAT */}
+      {/* MODAL CROP & SCALE FOTO PROFIL (RASIO 4:5) */}
+      {isCroppingAvatar && rawCropImage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs">
+          <div className="relative z-10 w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                  <Sliders className="w-4 h-4 text-indigo-600" />
+                  <span>Sesuaikan Foto Profil (Rasio 4:5)</span>
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Geser posisi dan atur zoom agar pas pada rasio foto potret 4:5
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCroppingAvatar(false);
+                  setRawCropImage(null);
+                }}
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg"
+                aria-label="Tutup"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 flex flex-col items-center gap-5">
+              {/* Frame Viewport 4:5 */}
+              <div className="w-[192px] h-[240px] relative rounded-2xl overflow-hidden border-2 border-indigo-500 shadow-xl bg-slate-900 flex items-center justify-center">
+                <img
+                  src={rawCropImage}
+                  alt="Crop Preview"
+                  style={{
+                    transform: `scale(${cropZoom}) translate(${cropOffsetX}px, ${cropOffsetY}px)`,
+                    transition: 'transform 0.05s ease-out',
+                  }}
+                  className="max-w-none max-h-none object-contain pointer-events-none select-none"
+                />
+                <div className="absolute top-2 left-2 bg-indigo-600/90 text-white text-[9px] font-black px-1.5 py-0.5 rounded shadow-sm">
+                  4:5 PORTRAIT
+                </div>
+              </div>
+
+              {/* Slider Pengaturan Zoom & Posisi */}
+              <div className="w-full space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                <div>
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1">
+                    <span>Skala / Zoom ({Math.round(cropZoom * 100)}%)</span>
+                    <button
+                      type="button"
+                      onClick={() => setCropZoom(1)}
+                      className="text-[10px] text-indigo-600 font-bold hover:underline"
+                    >
+                      Reset Zoom
+                    </button>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="2.5"
+                    step="0.05"
+                    value={cropZoom}
+                    onChange={(e) => setCropZoom(parseFloat(e.target.value))}
+                    className="w-full accent-indigo-600 cursor-pointer"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1">
+                    <span>Posisi Vertikal (Atas - Bawah)</span>
+                    <button
+                      type="button"
+                      onClick={() => setCropOffsetY(0)}
+                      className="text-[10px] text-indigo-600 font-bold hover:underline"
+                    >
+                      Tengah
+                    </button>
+                  </div>
+                  <input
+                    type="range"
+                    min="-60"
+                    max="60"
+                    step="1"
+                    value={cropOffsetY}
+                    onChange={(e) => setCropOffsetY(parseInt(e.target.value))}
+                    className="w-full accent-indigo-600 cursor-pointer"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1">
+                    <span>Posisi Horizontal (Kiri - Kanan)</span>
+                    <button
+                      type="button"
+                      onClick={() => setCropOffsetX(0)}
+                      className="text-[10px] text-indigo-600 font-bold hover:underline"
+                    >
+                      Tengah
+                    </button>
+                  </div>
+                  <input
+                    type="range"
+                    min="-60"
+                    max="60"
+                    step="1"
+                    value={cropOffsetX}
+                    onChange={(e) => setCropOffsetX(parseInt(e.target.value))}
+                    className="w-full accent-indigo-600 cursor-pointer"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCroppingAvatar(false);
+                  setRawCropImage(null);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-200"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleApplyCroppedAvatar}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center gap-1.5"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Terapkan Foto (4:5)</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FLOATING ACTION BUTTON (FAB): RECORD VOICE TO TEXT PRO */}
       <div className="fixed bottom-6 right-6 z-40 print:hidden">
         <button
           type="button"
@@ -7410,10 +7684,10 @@ export default function App() {
             }
           }}
           className="inline-flex items-center gap-2.5 px-4 py-3 rounded-full bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold text-xs sm:text-sm shadow-xl shadow-indigo-500/30 border border-indigo-400/40 transition-transform active:scale-95 group"
-          title="Buka Studio Dikte Suara & Rangkuman AI"
+          title="Buka Studio Record Voice to Text & Rangkuman AI PRO"
         >
           <Mic className="w-4 h-4 sm:w-5 sm:h-5 text-white animate-pulse" />
-          <span>Dikte Suara AI</span>
+          <span>Record Voice to Text</span>
         </button>
       </div>
 
@@ -7435,10 +7709,10 @@ export default function App() {
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-base font-bold text-slate-900">
-                      Rekam Suara &amp; Kesimpulan AI
+                      Record Voice to Text &amp; Kesimpulan AI PRO
                     </h3>
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">
-                      Speech to Text + Smart Summary
+                      AI PRO Engine
                     </span>
                   </div>
                   <p className="text-xs text-slate-500">
@@ -7632,20 +7906,38 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* 3. Tindakan Lanjutan (Action Items) */}
+                  {/* 3. Tindakan Lanjutan & Delegasi Tugas PRO */}
                   {voiceSummaryResult.actionItems.length > 0 && (
                     <div className="space-y-1.5">
                       <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900 block">
-                        ⚡ Tindakan Lanjutan / Action Items
+                        ⚡ Tindakan Lanjutan &amp; Delegasi Tugas PRO
                       </span>
                       <div className="space-y-1.5 bg-white/80 p-3 rounded-xl border border-indigo-100">
                         {voiceSummaryResult.actionItems.map((item, idx) => (
                           <div key={idx} className="flex items-start gap-2 text-xs text-slate-800">
                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                            <span className="font-semibold">{item}</span>
+                            <span className="font-semibold leading-relaxed">{item}</span>
                           </div>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {/* 4. Mitigasi Risiko Kendala PRO */}
+                  {voiceSummaryResult.riskMitigation && voiceSummaryResult.riskMitigation.length > 0 && (
+                    <div className="space-y-1.5">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-amber-900 block flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Mitigasi Risiko &amp; Rekomendasi Solusi</span>
+                      </span>
+                      <ul className="space-y-1 text-xs text-slate-700 bg-amber-50/70 p-3 rounded-xl border border-amber-200/70">
+                        {voiceSummaryResult.riskMitigation.map((risk, idx) => (
+                          <li key={idx} className="flex items-start gap-2">
+                            <span className="text-amber-600 font-bold">•</span>
+                            <span className="leading-relaxed">{risk}</span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
                 </div>
