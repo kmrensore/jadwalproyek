@@ -460,19 +460,75 @@ function generateAIVoiceSummary(rawTranscript: string): {
 }
 
 // ============================================================================
-// HELPER PERHITUNGAN DURASI HARI & RENTANG PROYEK MENYAMBUNG
+// HELPER PERHITUNGAN DURASI HARI KERJA AKTIF & TOLAK UKUR LIBUR
+// (Hari Jumat ke Senin = 2 Hari Berjalan karena Sabtu & Minggu Libur)
 // ============================================================================
-function getCalendarDaySpan(startDateStr: string, endDateStr: string): number {
+function getWorkDaySpan(
+  startDateStr: string,
+  endDateStr: string,
+  policy?: WorkPolicy,
+  attendanceList?: AttendanceRecord[],
+  ownerId?: string
+): number {
   if (!startDateStr || !endDateStr) return 1;
+  if (startDateStr === endDateStr) return 1;
   const s = new Date(startDateStr + 'T00:00:00');
   const e = new Date(endDateStr + 'T00:00:00');
-  const diff = Math.round((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24));
-  return Math.max(1, diff + 1); // Inklusif: misal 1 Nov s/d 1 Nov = 1 hari
+  if (e < s) return 1;
+
+  const workDaysPerWeek = policy ? policy.workDaysPerWeek : 5;
+  let workDayCount = 0;
+  const cur = new Date(s);
+
+  while (cur <= e) {
+    const dStr = toDateStr(cur.getFullYear(), cur.getMonth(), cur.getDate());
+    const dayOfWeek = cur.getDay(); // 0 = Minggu, 6 = Sabtu
+    const holiday = getHolidayInfo(dStr);
+    const isDayOff = dayOfWeek === 0 || (workDaysPerWeek <= 5 && dayOfWeek === 6) || (holiday && holiday.isHoliday);
+
+    // Cek apakah ada catatan kehadiran clock in di hari tersebut
+    const hasAttendance = attendanceList && attendanceList.some((a) => {
+      if (a.date !== dStr || a.type !== 'hadir') return false;
+      if (!a.checkInTime && (!a.workDurationHours || a.workDurationHours <= 0)) return false;
+      if (ownerId && ownerId !== 'owner-demo-1' && a.ownerId && a.ownerId !== 'owner-demo-1') {
+        return a.ownerId === ownerId;
+      }
+      return true;
+    });
+
+    if (dStr === startDateStr) {
+      // Hari pertama pengerjaan selalu terhitung 1 hari kerja
+      workDayCount += 1;
+    } else if (hasAttendance) {
+      // Hari-hari berikutnya: jika ada clock in hadir (termasuk lembur di hari libur), dihitung!
+      workDayCount += 1;
+    } else if (!isDayOff) {
+      // Jika hari kerja resmi (bukan Sabtu/Minggu/Tanggal Merah): terhitung sebagai hari kerja berjalan
+      workDayCount += 1;
+    }
+    // Jika isDayOff (Sabtu/Minggu/Tanggal Merah) dan TIDAK ADA clock in lembur, MAKA TIDAK DIHITUNG!
+
+    cur.setDate(cur.getDate() + 1);
+  }
+
+  return Math.max(1, workDayCount);
+}
+
+function getCalendarDaySpan(
+  startDateStr: string,
+  endDateStr: string,
+  policy?: WorkPolicy,
+  attendanceList?: AttendanceRecord[],
+  ownerId?: string
+): number {
+  return getWorkDaySpan(startDateStr, endDateStr, policy, attendanceList, ownerId);
 }
 
 function getEntryDateRange(
   e: ScheduleEntry,
-  today: string
+  today: string,
+  policy?: WorkPolicy,
+  attendanceList?: AttendanceRecord[]
 ): { startDate: string; endDate: string; totalDays: number; isOngoing: boolean } {
   const startDate = e.date;
   let endDate = startDate;
@@ -482,7 +538,7 @@ function getEntryDateRange(
     endDate = (e as any).completedDate || startDate;
     if (endDate < startDate) endDate = startDate;
   } else if (e.status === 'tertunda') {
-    // KETIKA TERTUNDA: Proyek tetap ada di hari-hari yang sudah dijalani (misal hari 1, 2, 3),
+    // KETIKA TERTUNDA: Proyek tetap ada di hari-hari yang sudah dijalani,
     // dibekukan di tanggal penundaan (suspendedDate atau today), dan TIDAK otomatis lanjut ke hari berikutnya!
     const freezeDate = (e as any).suspendedDate || (e as any).completedDate || (startDate <= today ? today : startDate);
     endDate = freezeDate < startDate ? startDate : freezeDate;
@@ -497,7 +553,11 @@ function getEntryDateRange(
     }
   }
 
-  const totalDays = getCalendarDaySpan(startDate, endDate);
+  // Hitung durasi berdasarkan HARI KERJA AKTIF (Sabtu & Minggu tidak dihitung kecuali ada clock-in lembur)
+  const totalDays = (e as any).durationDays && e.status === 'selesai'
+    ? (e as any).durationDays
+    : getWorkDaySpan(startDate, endDate, policy, attendanceList, e.ownerId);
+
   return { startDate, endDate, totalDays, isOngoing };
 }
 // ============================================================================
@@ -1513,11 +1573,8 @@ export default function App() {
       // Tugas aktif di bulan ini jika rentang pengerjaannya [startDate, endDate] bersinggungan dengan bulan yang dilihat
       if (range.startDate > lastDayOfMonth || range.endDate < firstDayOfMonth) return false;
 
-      if (currentUser && currentUser.id !== 'owner-demo-1' && e.ownerId === 'owner-demo-1') {
-        return false;
-      }
       if (ownerFilter === 'MINE' && currentUser) {
-        return e.ownerId === currentUser.id;
+        return e.ownerId === currentUser.id || !e.ownerId || e.ownerId === 'owner-default' || e.ownerId === 'owner-demo-1';
       }
       if (ownerFilter !== 'ALL' && ownerFilter !== 'MINE') {
         return e.ownerId === ownerFilter;
@@ -2379,6 +2436,31 @@ export default function App() {
   // ==========================================================================
   // MANAJEMEN PROYEK & CABANG PROGRAM
   // ==========================================================================
+  // DAFTAR PROYEK YANG SUDAH MEMILIKI TUGAS SELESAI (UNTUK TEMPLATE / LANJUTAN PROYEK)
+  const completedProjects = useMemo(() => {
+    return projects.filter((p) => {
+      const projTasks = entries.filter((e) => e.projectId === p.id);
+      return projTasks.length > 0 && projTasks.some((e) => e.status === 'selesai');
+    });
+  }, [projects, entries]);
+
+  // FUNGSI TAMBAH PROYEK BARU DARI PROYEK YANG SUDAH SELESAI
+  const openCreateProjectFromCompleted = (baseProj: Project, baseEntry?: ScheduleEntry) => {
+    setEditingProject(null);
+    const defaultNextName = `${baseProj.name} - Fase Lanjutan`;
+    setProjectNameInput(defaultNextName);
+    setProjectColorInput(baseProj.color || PROJECT_COLORS[projects.length % PROJECT_COLORS.length].value);
+    const copiedPrograms = (baseProj.programs || []).map((prog) => ({
+      id: 'prog-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 5),
+      name: prog.name,
+      createdAt: new Date().toISOString(),
+    }));
+    setProjectProgramsInput(copiedPrograms);
+    setNewProgramNameInput('');
+    setIsProjectModalOpen(true);
+    showToast(`Membuat proyek lanjutan dari "${baseProj.name}"`);
+  };
+
   const openCreateProjectModal = () => {
     setEditingProject(null);
     setProjectNameInput('');
@@ -7747,12 +7829,57 @@ export default function App() {
                                 return (
                                   <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px]">
                                     {entry.status === 'selesai' ? (
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold text-emerald-800 bg-emerald-50 border border-emerald-200">
-                                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                        <span>
-                                          Selesai dalam {range.totalDays} hari ({formatDateShortIndo(range.startDate)} – {formatDateShortIndo(range.endDate)})
+                                      <div className="w-full space-y-2">
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold text-emerald-800 bg-emerald-50 border border-emerald-200">
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                          <span>
+                                            Selesai dalam {range.totalDays} hari kerja ({formatDateShortIndo(range.startDate)} – {formatDateShortIndo(range.endDate)})
+                                          </span>
                                         </span>
-                                      </span>
+
+                                        {/* AKSI TAMBAH PROYEK / TUGAS BARU DARI PROYEK SELESAI */}
+                                        <div className="p-3 bg-emerald-50/80 border border-emerald-200/90 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+                                          <div className="space-y-0.5">
+                                            <span className="font-extrabold text-emerald-950 flex items-center gap-1.5 text-xs">
+                                              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                                              <span>Proyek Telah Selesai — Tambah Proyek Baru?</span>
+                                            </span>
+                                            <p className="text-[11px] text-emerald-800 leading-snug">
+                                              Lanjutkan ke fase pengerjaan berikutnya atau buat proyek baru berdasarkan hasil kerja ini.
+                                            </p>
+                                          </div>
+                                          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                                            {proj && (
+                                              <button
+                                                type="button"
+                                                onClick={() => openCreateProjectFromCompleted(proj, entry)}
+                                                className="px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-xs flex items-center gap-1.5 transition-all"
+                                                title="Buat Proyek Baru Berdasarkan Proyek Ini"
+                                              >
+                                                <Plus className="w-3.5 h-3.5" />
+                                                <span>Tambah Proyek Baru</span>
+                                              </button>
+                                            )}
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setEditingEntryId(null);
+                                                setEntryTitle(`Lanjutan: ${entry.title}`);
+                                                setEntryProjectId(entry.projectId || '');
+                                                setEntryProgramId(entry.programId || '');
+                                                setEntryStatus('belum_mulai');
+                                                setEntryNotes(`Melanjutkan dari pekerjaan "${entry.title}" yang sudah selesai.`);
+                                                showToast('Membuat tugas lanjutan di proyek ini');
+                                              }}
+                                              className="px-3 py-1.5 rounded-xl text-xs font-bold text-emerald-800 bg-white hover:bg-emerald-100 border border-emerald-300 flex items-center gap-1.5 transition-all"
+                                              title="Tambah Tugas Lanjutan Baru"
+                                            >
+                                              <FolderKanban className="w-3.5 h-3.5" />
+                                              <span>Tambah Tugas Baru</span>
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </div>
                                     ) : entry.status === 'tertunda' ? (
                                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold text-amber-950 bg-amber-100 border border-amber-300 shadow-2xs">
                                         <AlertTriangle className="w-3 h-3 text-amber-600 fill-current" />
@@ -8537,6 +8664,38 @@ export default function App() {
             </div>
 
             <form onSubmit={handleSaveProject} className="space-y-4">
+              {/* OPSI PILIH DARI PROYEK SELESAI SEBELUMNYA */}
+              {!editingProject && completedProjects.length > 0 && (
+                <div className="p-3 bg-indigo-50/80 border border-indigo-200 rounded-2xl space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-extrabold text-indigo-950 flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Tambah Proyek dari Proyek yang Sudah Selesai</span>
+                    </span>
+                    <span className="text-[10px] font-bold text-indigo-700 bg-white px-2 py-0.2 rounded-full border border-indigo-200">
+                      {completedProjects.length} Proyek Selesai
+                    </span>
+                  </div>
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      const selected = completedProjects.find((p) => p.id === e.target.value);
+                      if (selected) {
+                        openCreateProjectFromCompleted(selected);
+                      }
+                    }}
+                    className="w-full px-3 py-1.5 bg-white border border-indigo-200 rounded-xl text-xs text-slate-800 focus:outline-none"
+                  >
+                    <option value="">-- Pilih Proyek Selesai untuk Dibuat Lanjutannya --</option>
+                    {completedProjects.map((cp) => (
+                      <option key={cp.id} value={cp.id}>
+                        {cp.name} ({cp.programs?.length || 0} cabang program)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Nama Proyek Utama <span className="text-rose-500">*</span>
