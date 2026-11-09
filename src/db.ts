@@ -1,21 +1,91 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { DEFAULT_WORK_POLICY } from './types';
+
+// ============================================================================
+// DEFINISI TIPE & INTERFACE MANDIRI (MENCEGAH ERROR JIKA types.ts BELUM TER-UPDATE)
+// ============================================================================
+export type EntryStatus = 'belum_mulai' | 'berjalan' | 'tertunda' | 'selesai';
+export type AttendanceType = 'hadir' | 'izin' | 'cuti' | 'sakit';
+export type WorkShiftCategory = 'normal' | 'lembur_awal' | 'lembur_akhir' | 'lembur_penuh';
+
+export interface AttendanceRecord {
+  id: string;
+  ownerId: string;
+  ownerName: string;
+  date: string;
+  type: AttendanceType;
+  checkInTime: string | null;
+  checkOutTime: string | null;
+  workDurationHours: number;
+  regularWorkHours: number;
+  overtimeHours: number;
+  shiftCategory?: WorkShiftCategory;
+  shiftNotes?: string;
+  isLate?: boolean;
+  lateReason?: string;
+  isOvertimeConfirmed?: boolean;
+  overtimeReason?: string;
+  checkInPhoto?: string | null;
+  checkInLocation?: string | null;
+  checkOutPhoto?: string | null;
+  checkOutLocation?: string | null;
+  notes: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface VoiceMemoRecord {
+  id: string;
+  title: string;
+  transcript: string;
+  summary: string;
+  keyPoints: string[];
+  actionItems: string[];
+  durationSeconds: number;
+  createdAt: string;
+  category?: string;
+  riskMitigation?: string[];
+  operationalContext?: string;
+  audioUrl?: string;
+}
+
+export interface WorkAppraisalRecord {
+  id: string;
+  ownerId: string;
+  ownerName: string;
+  jobRole: string;
+  jobRoleLabel: string;
+  division: string;
+  reportTitle: string;
+  periodDate: string;
+  metrics: Record<string, string | number>;
+  linkUrl?: string;
+  screenshotUrl?: string;
+  screenshotName?: string;
+  notes?: string;
+  score: number;
+  grade: 'A+' | 'A' | 'B+' | 'B' | 'C';
+  executiveSummary: string;
+  industryBenchmarkReview: string;
+  strengths: string[];
+  improvements: string[];
+  tacticalRecommendations: string[];
+  createdAt: string;
+}
+
 import type {
-  EntryStatus,
   Project,
   ProjectProgram,
   ScheduleEntry as BaseScheduleEntry,
   UserProfile,
-  AttendanceRecord,
-  AttendanceType,
   AIPerformanceRecord,
   WorkPolicy,
-  WorkShiftCategory,
   ReminderItem,
 } from './types';
 
-// Ekstensi lokal ScheduleEntry agar selalu mengenali completedDate & durationDays di db.ts
-export interface ScheduleEntry extends BaseScheduleEntry {
+// Ekstensi lokal ScheduleEntry agar selalu mengenali status 'tertunda', completedDate & durationDays di db.ts
+export interface ScheduleEntry extends Omit<BaseScheduleEntry, 'status'> {
+  status: EntryStatus;
   completedDate?: string | null;
   durationDays?: number;
 }
@@ -42,6 +112,8 @@ const STORAGE_KEYS = {
   AI_PERFORMANCES: 'jadwalpro_ai_perf_v3',
   WORK_POLICY: 'jadwalpro_work_policy_v3',
   REMINDERS: 'jadwalpro_reminders_v3',
+  VOICE_MEMOS: 'jadwalpro_voice_memos_v3',
+  WORK_APPRAISALS: 'jadwalpro_work_appraisals_v3',
 };
 
 // Data seed kosong murni agar akun baru tidak tercemar data demo
@@ -336,14 +408,8 @@ export const db = {
 
   // --- 2. INISIALISASI & SINKRONISASI DATA ---
   init(): { projects: Project[]; entries: ScheduleEntry[]; attendance: AttendanceRecord[] } {
-    const session = this.getSavedSession();
-    if (session && session.id !== 'owner-demo-1') {
-      const p = this.getProjects().filter((item) => item.ownerId === session.id);
-      const e = this.getEntries().filter((item) => item.ownerId === session.id);
-      const a = this.getAttendance().filter((item) => item.ownerId === session.id);
-      return { projects: p, entries: e, attendance: a };
-    }
-
+    // PENTING: Proyek bersifat kolaboratif untuk seluruh tim / workspace!
+    // JANGAN PERNAH memfilter proyek berdasarkan ownerId di init() agar semua proyek selalu tampil utuh.
     return {
       projects: this.getProjects(),
       entries: this.getEntries(),
@@ -377,16 +443,12 @@ export const db = {
       let attQuery = supabase
         .from('attendance')
         .select(
-          'id, ownerId:owner_id, ownerName:owner_name, date:entry_date, type, checkInTime:check_in_time, checkOutTime:check_out_time, workDurationHours:work_duration_hours, regularWorkHours:regular_work_hours, overtimeHours:overtime_hours, shiftCategory:shift_category, shiftNotes:shift_notes, checkInPhoto:check_in_photo, checkInLocation:check_in_location, checkOutPhoto:check_out_photo, checkOutLocation:check_out_location, notes, createdAt:created_at, updatedAt:updated_at'
+          'id, ownerId:owner_id, ownerName:owner_name, date:entry_date, type, checkInTime:check_in_time, checkOutTime:check_out_time, workDurationHours:work_duration_hours, regularWorkHours:regular_work_hours, overtimeHours:overtime_hours, shiftCategory:shift_category, shiftNotes:shift_notes, isLate:is_late, lateReason:late_reason, isOvertimeConfirmed:is_overtime_confirmed, overtimeReason:overtime_reason, checkInPhoto:check_in_photo, checkInLocation:check_in_location, checkOutPhoto:check_out_photo, checkOutLocation:check_out_location, notes, createdAt:created_at, updatedAt:updated_at'
         )
         .order('entry_date', { ascending: false });
 
-      if (currentUserId && currentUserId !== 'owner-demo-1') {
-        projQuery = projQuery.eq('owner_id', currentUserId);
-        entQuery = entQuery.eq('owner_id', currentUserId);
-        attQuery = attQuery.eq('owner_id', currentUserId);
-      }
-
+      // PENTING: Proyek adalah wadah bersama tim (workspace). JANGAN filter projQuery dengan eq('owner_id')!
+      // Semua proyek harus selalu diambil agar tidak ada proyek yang mendadak hilang saat login.
       const [
         { data: projData, error: projErr },
         { data: entData, error: entErr },
@@ -398,19 +460,39 @@ export const db = {
         return null;
       }
 
-      const projects = ((projData as any[]) || []).map((p) => ({
+      const remoteProjects = ((projData as any[]) || []).map((p) => ({
         ...p,
         programs: Array.isArray(p.programs) ? p.programs : [],
       })) as Project[];
 
-      const entries = (entData as ScheduleEntry[]) || [];
-      const attendance = (attData as AttendanceRecord[]) || [];
+      // SAFE MERGE PROYEK: Gabungkan proyek remote dan lokal agar proyek lokal tidak pernah terhapus kosong!
+      const localProjects = this.getProjects();
+      const projectMap = new Map<string, Project>();
+      localProjects.forEach((p) => projectMap.set(p.id, p));
+      remoteProjects.forEach((p) => projectMap.set(p.id, p));
+      const mergedProjects = Array.from(projectMap.values());
 
-      safeStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(projects));
-      safeStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify(entries));
-      safeStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(attendance));
+      // SAFE MERGE TUGAS & ENTRI:
+      const remoteEntries = (entData as ScheduleEntry[]) || [];
+      const localEntries = this.getEntries();
+      const entryMap = new Map<string, ScheduleEntry>();
+      localEntries.forEach((e) => entryMap.set(e.id, e));
+      remoteEntries.forEach((e) => entryMap.set(e.id, e));
+      const mergedEntries = Array.from(entryMap.values());
 
-      return { projects, entries, attendance };
+      // SAFE MERGE ABSENSI:
+      const remoteAttendance = (attData as AttendanceRecord[]) || [];
+      const localAttendance = this.getAttendance();
+      const attendanceMap = new Map<string, AttendanceRecord>();
+      localAttendance.forEach((a) => attendanceMap.set(a.id, a));
+      remoteAttendance.forEach((a) => attendanceMap.set(a.id, a));
+      const mergedAttendance = Array.from(attendanceMap.values());
+
+      safeStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(mergedProjects));
+      safeStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify(mergedEntries));
+      safeStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(mergedAttendance));
+
+      return { projects: mergedProjects, entries: mergedEntries, attendance: mergedAttendance };
     } catch (err) {
       console.error('Supabase connection error:', err);
       return null;
@@ -419,16 +501,37 @@ export const db = {
 
   // --- 3. CRUD PROYEK & CABANG PROGRAM ---
   getProjects(): Project[] {
-    const raw = safeStorage.getItem(STORAGE_KEYS.PROJECTS);
-    if (!raw) return [];
-    try {
-      const list = JSON.parse(raw);
-      return Array.isArray(list)
-        ? list.map((p) => ({ ...p, programs: Array.isArray(p.programs) ? p.programs : [] }))
-        : [];
-    } catch {
-      return [];
+    let list: Project[] = [];
+    const rawV3 = safeStorage.getItem(STORAGE_KEYS.PROJECTS);
+    if (rawV3) {
+      try {
+        const parsed = JSON.parse(rawV3);
+        if (Array.isArray(parsed) && parsed.length > 0) list = parsed;
+      } catch {}
     }
+
+    // Auto-recovery: Jika di key v3 kosong, pulihkan dari storage key sebelumnya (v2 atau v1)
+    if (list.length === 0) {
+      const fallbackKeys = ['jadwalpro_projects_v2', 'jadwalpro_projects', 'jadwalpro_projects_backup'];
+      for (const k of fallbackKeys) {
+        const oldRaw = safeStorage.getItem(k);
+        if (oldRaw) {
+          try {
+            const parsed = JSON.parse(oldRaw);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              list = parsed;
+              safeStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(list));
+              break;
+            }
+          } catch {}
+        }
+      }
+    }
+
+    return list.map((p) => ({
+      ...p,
+      programs: Array.isArray(p.programs) ? p.programs : [],
+    }));
   },
 
   saveProjects(projects: Project[]): void {
@@ -592,13 +695,34 @@ export const db = {
 
   // --- 4. OPERASI CATATAN JADWAL & TUGAS ---
   getEntries(): ScheduleEntry[] {
-    const raw = safeStorage.getItem(STORAGE_KEYS.ENTRIES);
-    if (!raw) return [];
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return [];
+    let list: ScheduleEntry[] = [];
+    const rawV3 = safeStorage.getItem(STORAGE_KEYS.ENTRIES);
+    if (rawV3) {
+      try {
+        const parsed = JSON.parse(rawV3);
+        if (Array.isArray(parsed) && parsed.length > 0) list = parsed;
+      } catch {}
     }
+
+    // Auto-recovery: Jika di key v3 kosong, pulihkan dari storage key sebelumnya
+    if (list.length === 0) {
+      const fallbackKeys = ['jadwalpro_entries_v2', 'jadwalpro_entries', 'jadwalpro_entries_backup'];
+      for (const k of fallbackKeys) {
+        const oldRaw = safeStorage.getItem(k);
+        if (oldRaw) {
+          try {
+            const parsed = JSON.parse(oldRaw);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              list = parsed;
+              safeStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify(list));
+              break;
+            }
+          } catch {}
+        }
+      }
+    }
+
+    return list;
   },
 
   saveEntries(entries: ScheduleEntry[]): void {
@@ -765,6 +889,10 @@ export const db = {
       overtimeHours?: number;
       shiftCategory?: WorkShiftCategory;
       shiftNotes?: string;
+      isLate?: boolean;
+      lateReason?: string;
+      isOvertimeConfirmed?: boolean;
+      overtimeReason?: string;
       notes?: string;
     },
     owner?: UserProfile | null
@@ -793,11 +921,13 @@ export const db = {
         : null;
 
     const policy = this.getWorkPolicy();
-    let isLate = false;
-    if (inTime && policy.standardCheckInTime) {
+    // Toleransi keterlambatan (bisa 0 menit untuk mode ketat / manual)
+    const lateTolerance = policy.lateToleranceMinutes !== undefined ? policy.lateToleranceMinutes : 15;
+    let isLate = payload.isLate !== undefined ? payload.isLate : false;
+    if (payload.isLate === undefined && inTime && policy.standardCheckInTime) {
       const [stdH, stdM] = policy.standardCheckInTime.split(':').map(Number);
       const [actH, actM] = inTime.split(':').map(Number);
-      const limitMinutes = stdH * 60 + stdM + (policy.lateToleranceMinutes || 0);
+      const limitMinutes = stdH * 60 + stdM + lateTolerance;
       const actMinutes = actH * 60 + actM;
       if (actMinutes > limitMinutes) {
         isLate = true;
@@ -814,13 +944,34 @@ export const db = {
       duration = Math.round(netHours * 10) / 10;
     }
 
+    // Deteksi apakah hari ini merupakan Hari Libur (Weekend berdasarkan workDaysPerWeek)
+    const entryDateObj = new Date(payload.date + 'T00:00:00');
+    const dayOfWeek = entryDateObj.getDay(); // 0 = Minggu, 6 = Sabtu
+    const isDayOff = dayOfWeek === 0 || (policy.workDaysPerWeek <= 5 && dayOfWeek === 6);
+
     const now = new Date().toISOString();
     let updatedItem: AttendanceRecord;
     let updatedList: AttendanceRecord[];
 
-    const targetHours = policy.targetDailyWorkHours || 8.0;
-    const regHours = Math.min(duration, targetHours);
-    const otHours = Math.max(0, Math.round((duration - regHours) * 10) / 10);
+    // Tolak ukur jam reguler vs lembur:
+    // Jika di hari libur ada aktifitas pekerjaan, maka SEMUANYA MASUK KE LEMBUR PENUH!
+    let regHours = 0;
+    let otHours = 0;
+    let autoShiftCategory: WorkShiftCategory = 'normal';
+    let autoShiftNote = '';
+
+    if (isDayOff) {
+      regHours = 0;
+      otHours = duration;
+      autoShiftCategory = 'lembur_penuh';
+      autoShiftNote = `Lembur Hari Libur / Akhir Pekan (${dayOfWeek === 0 ? 'Minggu' : 'Sabtu'})`;
+    } else {
+      const targetHours = policy.targetDailyWorkHours || 8.0;
+      regHours = Math.min(duration, targetHours);
+      otHours = Math.max(0, Math.round((duration - regHours) * 10) / 10);
+      autoShiftCategory = otHours > 0 ? 'lembur_akhir' : 'normal';
+      autoShiftNote = otHours > 0 ? `Shift Reguler + Lembur ${otHours} Jam` : 'Shift Normal';
+    }
 
     if (existingIndex >= 0) {
       const prev = records[existingIndex];
@@ -832,13 +983,16 @@ export const db = {
         workDurationHours: payload.type === 'hadir' ? duration : 0,
         regularWorkHours: payload.type === 'hadir' ? (payload.regularWorkHours !== undefined ? payload.regularWorkHours : regHours) : 0,
         overtimeHours: payload.type === 'hadir' ? (payload.overtimeHours !== undefined ? payload.overtimeHours : otHours) : 0,
-        shiftCategory: payload.shiftCategory || prev.shiftCategory || 'normal',
-        shiftNotes: payload.shiftNotes !== undefined ? payload.shiftNotes : prev.shiftNotes || '',
+        shiftCategory: payload.shiftCategory || prev.shiftCategory || autoShiftCategory,
+        shiftNotes: payload.shiftNotes !== undefined ? payload.shiftNotes : (prev.shiftNotes || autoShiftNote),
         checkInPhoto: payload.checkInPhoto !== undefined ? payload.checkInPhoto : prev.checkInPhoto,
         checkInLocation: payload.checkInLocation !== undefined ? payload.checkInLocation : prev.checkInLocation,
         checkOutPhoto: payload.checkOutPhoto !== undefined ? payload.checkOutPhoto : prev.checkOutPhoto,
         checkOutLocation: payload.checkOutLocation !== undefined ? payload.checkOutLocation : prev.checkOutLocation,
         isLate: payload.type === 'hadir' ? isLate : false,
+        lateReason: payload.lateReason !== undefined ? payload.lateReason : prev.lateReason || '',
+        isOvertimeConfirmed: payload.isOvertimeConfirmed !== undefined ? payload.isOvertimeConfirmed : prev.isOvertimeConfirmed || false,
+        overtimeReason: payload.overtimeReason !== undefined ? payload.overtimeReason : prev.overtimeReason || '',
         notes: payload.notes !== undefined ? payload.notes : prev.notes,
         updatedAt: now,
       };
@@ -856,13 +1010,16 @@ export const db = {
         workDurationHours: payload.type === 'hadir' ? duration : 0,
         regularWorkHours: payload.type === 'hadir' ? (payload.regularWorkHours !== undefined ? payload.regularWorkHours : regHours) : 0,
         overtimeHours: payload.type === 'hadir' ? (payload.overtimeHours !== undefined ? payload.overtimeHours : otHours) : 0,
-        shiftCategory: payload.shiftCategory || 'normal',
-        shiftNotes: payload.shiftNotes || 'Shift normal',
+        shiftCategory: payload.shiftCategory || autoShiftCategory,
+        shiftNotes: payload.shiftNotes || autoShiftNote || 'Shift normal',
         checkInPhoto: payload.checkInPhoto || null,
         checkInLocation: payload.checkInLocation || null,
         checkOutPhoto: payload.checkOutPhoto || null,
         checkOutLocation: payload.checkOutLocation || null,
         isLate: payload.type === 'hadir' ? isLate : false,
+        lateReason: payload.lateReason || '',
+        isOvertimeConfirmed: payload.isOvertimeConfirmed || false,
+        overtimeReason: payload.overtimeReason || '',
         notes: payload.notes || (payload.type === 'hadir' ? 'Check-in hadir harian.' : ''),
         createdAt: now,
         updatedAt: now,
@@ -890,6 +1047,10 @@ export const db = {
         check_in_location: updatedItem.checkInLocation,
         check_out_photo: updatedItem.checkOutPhoto,
         check_out_location: updatedItem.checkOutLocation,
+        is_late: updatedItem.isLate || false,
+        late_reason: updatedItem.lateReason || '',
+        is_overtime_confirmed: updatedItem.isOvertimeConfirmed || false,
+        overtime_reason: updatedItem.overtimeReason || '',
         notes: updatedItem.notes,
         updated_at: now,
       };
@@ -1088,6 +1249,138 @@ export const db = {
         .eq('id', id)
         .then(({ error }) => {
           if (error) console.warn('Supabase ai_performance delete notice:', error.message);
+        });
+    }
+
+    return updated;
+  },
+
+
+  // --- 8. CATATAN SUARA, TRANSKRIPSI & KESIMPULAN AI (LOCAL FIRST + SUPABASE SYNC) ---
+  getVoiceMemos(): VoiceMemoRecord[] {
+    const raw = safeStorage.getItem(STORAGE_KEYS.VOICE_MEMOS);
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  },
+
+  saveVoiceMemos(memos: VoiceMemoRecord[]): void {
+    safeStorage.setItem(STORAGE_KEYS.VOICE_MEMOS, JSON.stringify(memos));
+  },
+
+  addVoiceMemo(memo: VoiceMemoRecord): VoiceMemoRecord[] {
+    const current = this.getVoiceMemos();
+    const updated = [memo, ...current.filter((m) => m.id !== memo.id)];
+    this.saveVoiceMemos(updated);
+
+    if (supabase) {
+      supabase
+        .from('voice_memos')
+        .upsert({
+          id: memo.id,
+          title: memo.title,
+          transcript: memo.transcript,
+          summary: memo.summary,
+          category: memo.category || 'Umum',
+          key_points: memo.keyPoints || [],
+          action_items: memo.actionItems || [],
+          risk_mitigation: memo.riskMitigation || [],
+          duration_seconds: memo.durationSeconds || 0,
+          created_at: memo.createdAt,
+        })
+        .then(({ error }) => {
+          if (error) console.warn('Supabase voice_memos sync notice:', error.message);
+        });
+    }
+
+    return updated;
+  },
+
+  deleteVoiceMemo(id: string): VoiceMemoRecord[] {
+    const updated = this.getVoiceMemos().filter((m) => m.id !== id);
+    this.saveVoiceMemos(updated);
+
+    if (supabase) {
+      supabase
+        .from('voice_memos')
+        .delete()
+        .eq('id', id)
+        .then(({ error }) => {
+          if (error) console.warn('Supabase voice_memos delete notice:', error.message);
+        });
+    }
+
+    return updated;
+  },
+
+  // --- 9. SISTEM REPORT HASIL PEKERJAAN & PENILAIAN KINERJA AI PRO (LOCAL FIRST + SUPABASE SYNC) ---
+  getWorkAppraisals(): WorkAppraisalRecord[] {
+    const raw = safeStorage.getItem(STORAGE_KEYS.WORK_APPRAISALS);
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  },
+
+  saveWorkAppraisals(records: WorkAppraisalRecord[]): void {
+    safeStorage.setItem(STORAGE_KEYS.WORK_APPRAISALS, JSON.stringify(records));
+  },
+
+  addWorkAppraisal(record: WorkAppraisalRecord): WorkAppraisalRecord[] {
+    const current = this.getWorkAppraisals();
+    const updated = [record, ...current.filter((r) => r.id !== record.id)];
+    this.saveWorkAppraisals(updated);
+
+    if (supabase) {
+      supabase
+        .from('work_appraisals')
+        .upsert({
+          id: record.id,
+          owner_id: record.ownerId,
+          owner_name: record.ownerName,
+          job_role: record.jobRole,
+          job_role_label: record.jobRoleLabel,
+          division: record.division,
+          report_title: record.reportTitle,
+          period_date: record.periodDate,
+          metrics: record.metrics,
+          link_url: record.linkUrl,
+          screenshot_url: record.screenshotUrl,
+          screenshot_name: record.screenshotName,
+          notes: record.notes,
+          score: record.score,
+          grade: record.grade,
+          executive_summary: record.executiveSummary,
+          industry_benchmark_review: record.industryBenchmarkReview,
+          strengths: record.strengths,
+          improvements: record.improvements,
+          tactical_recommendations: record.tacticalRecommendations,
+          created_at: record.createdAt,
+        })
+        .then(({ error }) => {
+          if (error) console.warn('Supabase work_appraisals sync notice:', error.message);
+        });
+    }
+
+    return updated;
+  },
+
+  deleteWorkAppraisal(id: string): WorkAppraisalRecord[] {
+    const updated = this.getWorkAppraisals().filter((r) => r.id !== id);
+    this.saveWorkAppraisals(updated);
+
+    if (supabase) {
+      supabase
+        .from('work_appraisals')
+        .delete()
+        .eq('id', id)
+        .then(({ error }) => {
+          if (error) console.warn('Supabase work_appraisals delete notice:', error.message);
         });
     }
 
