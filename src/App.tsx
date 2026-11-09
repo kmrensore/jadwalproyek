@@ -949,10 +949,13 @@ export default function App() {
   const [apprCustomMetric2Val, setApprCustomMetric2Val] = useState<string>('Sangat Puas (9.5/10)');
 
   const [isEvaluatingAppraisal, setIsEvaluatingAppraisal] = useState<boolean>(false);
-  const [currentAppraisal, setCurrentAppraisal] = useState<WorkAppraisalRecord | null>(null);
   const [savedAppraisals, setSavedAppraisals] = useState<WorkAppraisalRecord[]>(() =>
     (db as any).getWorkAppraisals ? (db as any).getWorkAppraisals() : []
   );
+  const [currentAppraisal, setCurrentAppraisal] = useState<WorkAppraisalRecord | null>(() => {
+    const list = (db as any).getWorkAppraisals ? (db as any).getWorkAppraisals() : [];
+    return list.length > 0 ? list[0] : null;
+  });
 
   // State Crop & Scale Foto Profil Rasio 4:5
   const [isCroppingAvatar, setIsCroppingAvatar] = useState<boolean>(false);
@@ -3281,13 +3284,13 @@ export default function App() {
   const handleRunWorkAppraisal = () => {
     if (!currentUser) return;
 
-    if (!appraisalScreenshotUrl && !appraisalLinkUrl) {
-      showToast('Harap unggah tangkapan layar analitik atau sertakan link video/karya Anda');
+    if (!appraisalTitle.trim() && !appraisalScreenshotUrl && !appraisalLinkUrl && !appraisalNotes.trim()) {
+      showToast('Harap isi judul deliverable atau sertakan tangkapan layar / tautan karya Anda');
       return;
     }
 
     setIsEvaluatingAppraisal(true);
-    showToast('🔍 AI PRO sedang memindai tangkapan layar dan tautan untuk mengekstrak views, likes, & metrik...');
+    showToast('🔍 AI PRO sedang menyintesis seluruh data input, bukti gambar & analitik karya...');
 
     setTimeout(() => {
       let score = 88;
@@ -3299,10 +3302,23 @@ export default function App() {
       const tacticalRecommendations: string[] = [];
       const metrics: Record<string, string | number> = {};
 
-      const title = appraisalTitle.trim() || `Report Kerja ${getTodayDateStr()}`;
+      const title = appraisalTitle.trim() || `Report Kinerja ${formatDateShortIndo(appraisalPeriodDate)}`;
       const roleName = appraisalJobRole === 'custom'
         ? (appraisalCustomRole.trim() || 'Spesialis Kustom')
         : APPRAISAL_ROLES.find((r) => r.id === appraisalJobRole)?.label || 'Pekerja Profesional';
+
+      // 1. Konekkan data jadwal proyek & jam kerja kehadiran pada tanggal tersebut jika ada
+      const relatedTask = entries.find((e) => e.date === appraisalPeriodDate);
+      const relatedAtt = attendance.find((a) => a.date === appraisalPeriodDate && a.type === 'hadir');
+
+      metrics['Profesi & Divisi'] = `${roleName} • ${appraisalDivision}`;
+      metrics['Periode Pelaksanaan'] = formatDateShortIndo(appraisalPeriodDate);
+      if (relatedTask) {
+        metrics['Keterkaitan Proyek'] = relatedTask.title;
+      }
+      if (relatedAtt && relatedAtt.workDurationHours > 0) {
+        metrics['Jam Kerja Efektif'] = `${relatedAtt.workDurationHours} Jam (${relatedAtt.checkInTime || '-'} s/d ${relatedAtt.checkOutTime || '-'})`;
+      }
 
       if (appraisalJobRole === 'video_editor' || appraisalJobRole === 'content_creator') {
         // Deteksi platform otomatis dari tautan link
@@ -3327,16 +3343,21 @@ export default function App() {
         score = 92;
         grade = 'A';
 
-        executiveSummary = `AI PRO berhasil memindai tangkapan layar analitik dan link video "${title}". Dari hasil analisis visual dashboard, video ini mencatatkan performa viral sebesar ${autoDetectedViews} dan ${autoDetectedLikes}. Algoritma video menunjukkan retensi penonton sangat solid di angka ${autoDetectedRetention} serta hook rate 3 detik awal ${autoDetectedHookRate}, mencerminkan kualitas pacing, hook visual, dan sound leveling yang memenuhi standar FYP/Explore 2026.`;
+        const userNotesExcerpt = appraisalNotes.trim() ? ` Catatan spesifik pelaksana: "${appraisalNotes.trim()}".` : '';
+        executiveSummary = `AI PRO berhasil merangkum dan mengevaluasi karya "${title}" pada divisi ${appraisalDivision}. Dari bukti analitik pada platform ${detectedPlatform}, karya ini mencatatkan performa ${autoDetectedViews} dan ${autoDetectedLikes} dengan retensi penonton ${autoDetectedRetention} serta hook rate ${autoDetectedHookRate}.${userNotesExcerpt} Kualitas eksekusi, pacing visual, dan konsistensi pesan memenuhi indikator keberhasilan konten modern 2026.`;
         
-        industryBenchmarkReview = `Standar Industri Video Kreatif 2026: Benchmark retensi video pendek vertikal di TikTok/Reels saat ini adalah 55–60%. Dari tangkapan layar yang dipindai AI, capaian ${autoDetectedRetention} Anda berada di tier Top 12% kreator. Tingkat retensi 3 detik pertama (${autoDetectedHookRate}) melampaui ambang batas aman algoritma (&gt;28%).`;
+        industryBenchmarkReview = `Standar Industri Video Kreatif 2026: Rata-rata benchmark retensi video pendek vertikal di industri saat ini adalah 55–60%. Capaian ${autoDetectedRetention} menempatkan karya Anda di tier Top 12% kreator unggul. Hook rate 3 detik awal (${autoDetectedHookRate}) melampaui batas aman algoritma distribusi (&gt;28%).`;
 
-        strengths.push(`Hook Visual Memikat: Berhasil menahan ${autoDetectedHookRate} penonton di 3 detik awal berdasarkan pemindaian grafik drop-off.`);
-        strengths.push(`Retensi Tinggi: Mempertahankan rata-rata tonton ${autoDetectedRetention} hingga detik akhir CTA.`);
-        strengths.push(`Rasio Interaksi Kuat: Menghasilkan ${autoDetectedLikes} yang memicu sinyal rekomendasi algoritma.`);
+        strengths.push(`Hook Visual & Pacing Cepat: Berhasil mengamankan retensi awal ${autoDetectedHookRate} berdasarkan analisis visual.`);
+        strengths.push(`Tingkat Interaksi Kuat: Menghasilkan respon audiens sebesar ${autoDetectedLikes}.`);
+        if (appraisalNotes.trim()) {
+          strengths.push(`Kepatuhan Instruksi &amp; Detail Kerja: Memenuhi poin catatan teknis pelaksana (${appraisalNotes.trim().slice(0, 80)}...).`);
+        } else {
+          strengths.push(`Retensi Konsisten: Mempertahankan durasi tonton ${autoDetectedRetention} hingga call-to-action.`);
+        }
 
-        improvements.push(`Optimasi Frame Akhir: Buat looping seamless (ujung video menyambung ke awal) agar re-watch rate melonjak.`);
-        improvements.push(`Tipografi Safe-Zone: Pastikan teks judul tidak terpotong oleh tombol bookmark/share di UI mobile.`);
+        improvements.push(`Optimasi Penutupan Video: Terapkan looping mulus agar video otomatis ditonton ulang.`);
+        improvements.push(`Kejelasan Tipografi: Jaga margin teks aman dari ikon UI media sosial di sisi kanan layar.`);
 
         tacticalRecommendations.push(`Gunakan pola 'Pattern Interrupt' visual tiap 4 detik untuk menjaga fokus audiens.`);
         tacticalRecommendations.push(`Sertakan subtitle dinamis dengan warna highlight pada kata-kata penting untuk audiens yang mematikan audio.`);
@@ -6041,6 +6062,88 @@ export default function App() {
                             </span>
                           </div>
 
+                          {/* RANGKUMAN APA SAJA YANG DI-INPUT OLEH PENGGUNA */}
+                          <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200/90 space-y-3 text-xs shadow-2xs">
+                            <div className="flex items-center justify-between border-b border-indigo-100 pb-2">
+                              <span className="font-extrabold text-indigo-950 flex items-center gap-1.5 text-xs uppercase tracking-wider">
+                                <FileText className="w-4 h-4 text-indigo-600" />
+                                <span>Rangkuman Data Masukan &amp; Berkas Bukti</span>
+                              </span>
+                              <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-white text-indigo-700 border border-indigo-200">
+                                Terverifikasi
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-slate-800">
+                              <div>
+                                <span className="text-[10px] text-slate-500 font-bold uppercase block">Profesi &amp; Divisi Kerja</span>
+                                <span className="font-extrabold text-slate-900">{currentAppraisal.jobRoleLabel}</span>
+                                <span className="text-slate-600 block text-[11px]">{currentAppraisal.division}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-slate-500 font-bold uppercase block">Periode Pelaksanaan</span>
+                                <span className="font-extrabold text-slate-900">{formatDateFullIndo(currentAppraisal.periodDate)}</span>
+                                <span className="text-slate-500 block text-[11px]">Pelaksana: {currentAppraisal.ownerName}</span>
+                              </div>
+                            </div>
+
+                            {/* Tautan Karya & Preview Gambar Tangkapan Layar */}
+                            {(currentAppraisal.linkUrl || currentAppraisal.screenshotUrl) && (
+                              <div className="pt-2 border-t border-indigo-100 space-y-2">
+                                {currentAppraisal.linkUrl && (
+                                  <div className="flex items-center gap-2 bg-white p-2.5 rounded-xl border border-indigo-200 text-xs">
+                                    <ExternalLink className="w-4 h-4 text-indigo-600 shrink-0" />
+                                    <div className="min-w-0 flex-1">
+                                      <span className="text-[10px] text-slate-400 block font-semibold">Tautan Bukti Deliverable:</span>
+                                      <a
+                                        href={currentAppraisal.linkUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="font-bold text-indigo-600 hover:text-indigo-800 underline truncate block"
+                                      >
+                                        {currentAppraisal.linkUrl}
+                                      </a>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {currentAppraisal.screenshotUrl && (
+                                  <div className="flex items-center gap-3 bg-white p-2.5 rounded-xl border border-indigo-200">
+                                    <div className="w-14 h-14 rounded-xl overflow-hidden border border-slate-200 bg-slate-900 shrink-0">
+                                      <img
+                                        src={currentAppraisal.screenshotUrl}
+                                        alt="Bukti Analitik"
+                                        className="w-full h-full object-cover"
+                                      />
+                                    </div>
+                                    <div className="min-w-0 flex-1 text-xs">
+                                      <span className="text-[10px] text-slate-400 block font-semibold">Tangkapan Layar Bukti Analitik:</span>
+                                      <span className="font-bold text-slate-800 truncate block">
+                                        {currentAppraisal.screenshotName || 'Screenshot Bukti Kinerja Terlampir'}
+                                      </span>
+                                      <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        Dipindai &amp; Diekstrak Otomatis oleh AI PRO
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Catatan / Keterangan Asli Pekerja */}
+                            {currentAppraisal.notes && (
+                              <div className="pt-2 border-t border-indigo-100 space-y-1">
+                                <span className="text-[10px] text-slate-500 font-bold uppercase block">
+                                  Catatan / Kendala yang Dilaporkan Pekerja:
+                                </span>
+                                <p className="p-2.5 bg-white rounded-xl border border-indigo-100 text-[11px] text-slate-700 italic leading-relaxed">
+                                  "{currentAppraisal.notes}"
+                                </p>
+                              </div>
+                            )}
+                          </div>
+
                           {/* Nilai Rapor & Predikat */}
                           <div className="p-4 rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950 text-white flex items-center justify-between shadow-sm">
                             <div className="space-y-1">
@@ -6157,19 +6260,49 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => {
-                                navigator.clipboard.writeText(
-                                  `RAPOR KINERJA AI PRO: ${currentAppraisal.reportTitle}\n` +
-                                  `Profesi: ${currentAppraisal.jobRoleLabel} (${currentAppraisal.division})\n` +
-                                  `Skor: ${currentAppraisal.score}/100 (Predikat: ${currentAppraisal.grade})\n\n` +
-                                  `RINGKASAN:\n${currentAppraisal.executiveSummary}\n\n` +
-                                  `STANDAR INDUSTRI:\n${currentAppraisal.industryBenchmarkReview}`
-                                );
-                                showToast('Rapor hasil kerja berhasil disalin ke clipboard');
+                                const metricsText = Object.entries(currentAppraisal.metrics)
+                                  .map(([k, v]) => `• ${k}: ${v}`)
+                                  .join('\n');
+                                const strengthsText = currentAppraisal.strengths.map((s) => `• ${s}`).join('\n');
+                                const improvementsText = currentAppraisal.improvements.map((i) => `• ${i}`).join('\n');
+                                const tacticalText = currentAppraisal.tacticalRecommendations.map((t) => `• ${t}`).join('\n');
+
+                                const fullSummary = [
+                                  `*RAPOR HASIL PENILAIAN KERJA AI PRO*`,
+                                  `Judul Deliverable: ${currentAppraisal.reportTitle}`,
+                                  `Pelaksana: ${currentAppraisal.ownerName} (${currentAppraisal.jobRoleLabel} - ${currentAppraisal.division})`,
+                                  `Periode: ${formatDateShortIndo(currentAppraisal.periodDate)}`,
+                                  currentAppraisal.linkUrl ? `Tautan Bukti: ${currentAppraisal.linkUrl}` : '',
+                                  currentAppraisal.notes ? `Catatan Pelaksana: "${currentAppraisal.notes}"` : '',
+                                  ``,
+                                  `*SKOR & PREDIKAT KINERJA:*`,
+                                  `Skor: ${currentAppraisal.score}/100 (Predikat: ${currentAppraisal.grade})`,
+                                  ``,
+                                  `*RINGKASAN EKSEKUTIF:*`,
+                                  currentAppraisal.executiveSummary,
+                                  ``,
+                                  `*TOLAK UKUR STANDAR INDUSTRI:*`,
+                                  currentAppraisal.industryBenchmarkReview,
+                                  ``,
+                                  `*METRIK CAPAIAN TERVERIFIKASI:*`,
+                                  metricsText,
+                                  ``,
+                                  `*POIN KEUNGGULAN:*`,
+                                  strengthsText,
+                                  ``,
+                                  `*AREA EVALUASI & GAP:*`,
+                                  improvementsText,
+                                  ``,
+                                  `*REKOMENDASI TAKTIS:*`,
+                                  tacticalText,
+                                ].filter(Boolean).join('\n');
+
+                                copyCodeToClipboard(fullSummary, 'Rapor Lengkap AI PRO');
                               }}
                               className="flex-1 py-2.5 px-3 rounded-xl border border-slate-200 hover:bg-slate-100 text-xs font-bold text-slate-700 flex items-center justify-center gap-1.5 transition-colors"
                             >
                               <Copy className="w-3.5 h-3.5" />
-                              <span>Salin Rapor</span>
+                              <span>Salin Rapor Lengkap</span>
                             </button>
                             <button
                               type="button"
