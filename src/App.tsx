@@ -1059,6 +1059,9 @@ export default function App() {
   const [addonTaskTitle, setAddonTaskTitle] = useState<string>('');
   const [addonScheduledDate, setAddonScheduledDate] = useState<string>(''); // Tanggal kapan revisi/tambahan akan dikerjakan
   const [resumeDateInput, setResumeDateInput] = useState<string>(todayStr); // Penentuan tanggal manual untuk melanjutkan proyek tertunda
+  const [revFollowupTitle, setRevFollowupTitle] = useState<string>(''); // Rincian revisi tindak lanjut proyek selesai
+  const [revFollowupDate, setRevFollowupDate] = useState<string>(todayStr); // Tanggal revisi muncul di kalender
+  const [activeRevisionEntryId, setActiveRevisionEntryId] = useState<string | null>(null);
   const [entryTitle, setEntryTitle] = useState<string>('');
   const [entryProjectId, setEntryProjectId] = useState<string>('');
   const [entryProgramId, setEntryProgramId] = useState<string>('');
@@ -2352,6 +2355,53 @@ export default function App() {
       showToast(`Catatan ditambahkan`);
     }
     resetEntryForm(projectFilter !== 'ALL' && projectFilter !== 'NONE' ? projectFilter : '');
+  };
+
+  // FUNGSI TINDAK LANJUT PROYEK SELESAI: OTOMATIS MENAMBAH PEKERJAAN REVISI BARU KE KALENDER
+  const handleCreateRevisionFromCompleted = (
+    baseEntry: ScheduleEntry,
+    titleInput?: string,
+    dateInput?: string
+  ) => {
+    const targetDate = dateInput || revFollowupDate || selectedDate || todayStr;
+    const detail = titleInput || revFollowupTitle.trim() || `Revisi lanjutan: ${baseEntry.title}`;
+    const fullTitle = detail.toLowerCase().startsWith('revisi') ? detail : `[Revisi] ${baseEntry.title}: ${detail}`;
+
+    // 1. Catat ke riwayat penambahan pekerjaan (additionalTasks) di entri tugas lama
+    const addonItem: ProjectAddonTask = {
+      id: 'addon-' + Date.now().toString(36),
+      type: 'revisi',
+      title: detail,
+      dateAdded: selectedDate || todayStr,
+      scheduledDate: targetDate,
+      isCompleted: false,
+    };
+    const updatedAddons = [...(baseEntry.additionalTasks || []), addonItem];
+    const appendNote = `\n• [REVISI DIJADWALKAN] (Target ${formatDateShortIndo(targetDate)}): ${detail}`;
+    const newBaseNotes = baseEntry.notes ? `${baseEntry.notes}${appendNote}` : appendNote.trim();
+
+    db.updateEntry(baseEntry.id, {
+      additionalTasks: updatedAddons,
+      notes: newBaseNotes,
+    } as any);
+
+    // 2. OTOMATIS BUAT SEBAGAI TUGAS / PROYEK BARU DI KALENDER PADA TANGGAL TARGET!
+    const updatedEntries = db.createEntry(
+      {
+        date: targetDate,
+        title: fullTitle,
+        projectId: baseEntry.projectId || null,
+        programId: baseEntry.programId || null,
+        status: 'belum_mulai',
+        notes: `Tugas revisi tindak lanjut dari "${baseEntry.title}" (selesai pada ${formatDateShortIndo(baseEntry.date)}).\nRincian revisi: ${detail}`,
+      },
+      currentUser
+    );
+
+    setEntries(updatedEntries);
+    setRevFollowupTitle('');
+    setActiveRevisionEntryId(null);
+    showToast(`✅ Pekerjaan revisi "${fullTitle}" otomatis ditambahkan ke kalender pada ${formatDateShortIndo(targetDate)}!`);
   };
 
   // FUNGSI LANJUTKAN PROYEK TERTUNDA DENGAN PENENTUAN TANGGAL MANUAL
@@ -7919,46 +7969,62 @@ export default function App() {
                                           </span>
                                         </span>
 
-                                        {/* AKSI TAMBAH PROYEK / TUGAS BARU DARI PROYEK SELESAI */}
-                                        <div className="p-3 bg-emerald-50/80 border border-emerald-200/90 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
-                                          <div className="space-y-0.5">
+                                        {/* TINDAK LANJUT PROYEK SELESAI: OTOMATIS MENAMBAH PEKERJAAN REVISI BARU KE KALENDER */}
+                                        <div className="p-3.5 bg-gradient-to-br from-emerald-50 to-teal-50/70 border border-emerald-200 rounded-2xl space-y-2.5 text-xs shadow-2xs">
+                                          <div className="flex items-center justify-between">
                                             <span className="font-extrabold text-emerald-950 flex items-center gap-1.5 text-xs">
                                               <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                                              <span>Proyek Telah Selesai — Tambah Proyek Baru?</span>
+                                              <span>Tindak Lanjut: Tambah Pekerjaan Revisi ke Kalender</span>
                                             </span>
-                                            <p className="text-[11px] text-emerald-800 leading-snug">
-                                              Lanjutkan ke fase pengerjaan berikutnya atau buat proyek baru berdasarkan hasil kerja ini.
-                                            </p>
+                                            <span className="text-[10px] font-bold text-emerald-700 bg-white px-2 py-0.5 rounded-full border border-emerald-200">
+                                              Otomatis Tambah Proyek Baru
+                                            </span>
                                           </div>
-                                          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                                            {proj && (
+                                          <p className="text-[11px] text-emerald-800 leading-snug">
+                                            Ketika ada revisian pada proyek selesai ini, masukkan rincian dan tanggal pelaksanaannya.
+                                            Sistem akan <strong>otomatis menambahkan pekerjaan revisi ini ke kalender pada tanggal yang Anda pilih</strong> sebagai proyek aktif.
+                                          </p>
+
+                                          <div className="space-y-2 pt-0.5">
+                                            <input
+                                              type="text"
+                                              value={activeRevisionEntryId === entry.id ? revFollowupTitle : ''}
+                                              onChange={(e) => {
+                                                setActiveRevisionEntryId(entry.id);
+                                                setRevFollowupTitle(e.target.value);
+                                              }}
+                                              placeholder={`Rincian revisian (contoh: Revisi perbaiki bagian X, ngepel ulang lantai 2...)`}
+                                              className="w-full px-3 py-2 bg-white border border-emerald-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                                            />
+
+                                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                              <div className="flex-1 flex items-center gap-1.5 bg-white border border-emerald-300 rounded-xl px-2.5 py-1.5">
+                                                <CalendarIcon className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                                <span className="text-[11px] text-slate-500 shrink-0 font-medium">Jadwal di Kalender:</span>
+                                                <input
+                                                  type="date"
+                                                  value={activeRevisionEntryId === entry.id ? revFollowupDate : (selectedDate || todayStr)}
+                                                  onChange={(e) => {
+                                                    setActiveRevisionEntryId(entry.id);
+                                                    setRevFollowupDate(e.target.value);
+                                                  }}
+                                                  className="w-full bg-transparent text-xs font-mono text-slate-800 focus:outline-none"
+                                                />
+                                              </div>
+
                                               <button
                                                 type="button"
-                                                onClick={() => openCreateProjectFromCompleted(proj, entry)}
-                                                className="px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-xs flex items-center gap-1.5 transition-all"
-                                                title="Buat Proyek Baru Berdasarkan Proyek Ini"
+                                                onClick={() => {
+                                                  const rTitle = activeRevisionEntryId === entry.id && revFollowupTitle.trim() ? revFollowupTitle.trim() : `Revisi: ${entry.title}`;
+                                                  const rDate = activeRevisionEntryId === entry.id && revFollowupDate ? revFollowupDate : (selectedDate || todayStr);
+                                                  handleCreateRevisionFromCompleted(entry, rTitle, rDate);
+                                                }}
+                                                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-xs transition-all shrink-0"
                                               >
                                                 <Plus className="w-3.5 h-3.5" />
-                                                <span>Tambah Proyek Baru</span>
+                                                <span>Tambah Revisi ke Kalender</span>
                                               </button>
-                                            )}
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setEditingEntryId(null);
-                                                setEntryTitle(`Lanjutan: ${entry.title}`);
-                                                setEntryProjectId(entry.projectId || '');
-                                                setEntryProgramId(entry.programId || '');
-                                                setEntryStatus('belum_mulai');
-                                                setEntryNotes(`Melanjutkan dari pekerjaan "${entry.title}" yang sudah selesai.`);
-                                                showToast('Membuat tugas lanjutan di proyek ini');
-                                              }}
-                                              className="px-3 py-1.5 rounded-xl text-xs font-bold text-emerald-800 bg-white hover:bg-emerald-100 border border-emerald-300 flex items-center gap-1.5 transition-all"
-                                              title="Tambah Tugas Lanjutan Baru"
-                                            >
-                                              <FolderKanban className="w-3.5 h-3.5" />
-                                              <span>Tambah Tugas Baru</span>
-                                            </button>
+                                            </div>
                                           </div>
                                         </div>
                                       </div>
