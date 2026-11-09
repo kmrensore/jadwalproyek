@@ -1,4 +1,4 @@
-export type EntryStatus = 'belum_mulai' | 'berjalan' | 'selesai';
+export type EntryStatus = 'belum_mulai' | 'berjalan' | 'tertunda' | 'selesai';
 export type AttendanceType = 'hadir' | 'izin' | 'cuti' | 'sakit';
 export type WorkShiftCategory = 'normal' | 'lembur_awal' | 'lembur_akhir' | 'lembur_penuh';
 
@@ -28,9 +28,24 @@ export interface Project {
   createdAt: string;
 }
 
+// Model Item Penambahan Pekerjaan & Riwayat Catatan Revisi
+export interface ProjectAddonTask {
+  id: string;
+  type: 'revisi' | 'tambahan' | 'kendala' | 'instruksi';
+  title: string;
+  dateAdded: string; // Format YYYY-MM-DD (Tanggal dicatat)
+  scheduledDate?: string; // Format YYYY-MM-DD (Kapan revisi akan dilakukan / target di kalender)
+  isCompleted: boolean;
+  notes?: string;
+}
+
 export interface ScheduleEntry {
   id: string;
-  date: string; // Format YYYY-MM-DD
+  date: string; // Format YYYY-MM-DD (Tanggal Mulai)
+  completedDate?: string | null; // Format YYYY-MM-DD (Tanggal Selesai)
+  suspendedDate?: string | null; // Format YYYY-MM-DD (Tanggal Pembekuan saat Tertunda)
+  durationDays?: number; // Durasi hari pengerjaan sampai selesai
+  additionalTasks?: ProjectAddonTask[]; // Riwayat penambahan pekerjaan & catatan revisi
   title: string;
   projectId: string | null; // null = "Tanpa proyek"
   programId?: string | null; // null = "Tanpa cabang program spesifik"
@@ -58,6 +73,9 @@ export interface AttendanceRecord {
   shiftCategory?: WorkShiftCategory; // 'normal' | 'lembur_awal' | 'lembur_akhir' | 'lembur_penuh'
   shiftNotes?: string; // Keterangan lembur atau catatan shift
   isLate?: boolean; // Menandai apakah clock-in melewati jam baku + toleransi
+  lateReason?: string; // Alasan izin terlambat atau telat
+  isOvertimeConfirmed?: boolean; // Konfirmasi interaktif apakah dihitung lembur
+  overtimeReason?: string; // Keterangan tugas lembur / persetujuan atasan
   // Bukti Absensi Foto (Auto-compressed ~40KB dengan watermark jam & lokasi)
   checkInPhoto?: string | null;
   checkInLocation?: string | null; // Keterangan GPS (Latitude, Longitude & Alamat)
@@ -76,8 +94,9 @@ export interface WorkPolicy {
   breakDurationHours: number; // Durasi istirahat harian dalam jam (contoh: 1.0)
   annualLeaveQuota: number; // Jatah cuti tahunan (contoh: 12 hari/tahun)
   leaveResetDate: string; // Tanggal reset cuti tahunan (Format MM-DD, default "01-01" / 1 Januari)
-  lateToleranceMinutes: number; // Toleransi keterlambatan menit (contoh: 15 menit)
+  lateToleranceMinutes: number; // Toleransi keterlambatan menit (contoh: 15 menit, bisa 0 menit manual)
   earlyOvertimeThresholdMinutes: number; // Batas menit datang lebih awal agar dihitung lembur (default: 60 menit)
+  lateOvertimeThresholdMinutes?: number; // Batas menit pulang kerja (lembur sore & malam) agar dihitung lembur (default: 30 menit)
   targetDailyWorkHours: number; // Target jam kerja bersih harian (contoh: 8.0 jam)
 }
 
@@ -90,6 +109,7 @@ export const DEFAULT_WORK_POLICY: WorkPolicy = {
   leaveResetDate: '01-01',
   lateToleranceMinutes: 15,
   earlyOvertimeThresholdMinutes: 60,
+  lateOvertimeThresholdMinutes: 30,
   targetDailyWorkHours: 8.0,
 };
 
@@ -135,3 +155,45 @@ export const PROJECT_COLORS = [
   { name: 'Teal', value: '#14b8a6' },
   { name: 'Orange', value: '#f97316' },
 ];
+
+// Catatan Suara, Transkripsi & Kesimpulan AI PRO
+export interface VoiceMemoRecord {
+  id: string;
+  title: string;
+  transcript: string;
+  summary: string;
+  keyPoints: string[];
+  actionItems: string[];
+  durationSeconds: number;
+  createdAt: string;
+  category?: string;
+  riskMitigation?: string[];
+  operationalContext?: string;
+  audioUrl?: string; // Data URL atau Blob URL rekaman audio playback
+}
+
+// Sistem Report Hasil Pekerjaan & Penilaian Kinerja AI PRO (Adaptif Per Profesi/Divisi)
+export interface WorkAppraisalRecord {
+  id: string;
+  ownerId: string;
+  ownerName: string;
+  jobRole: string; // ID Role: 'video_editor' | 'sales_marketing' | 'site_engineer' | 'software_dev' | 'content_creator' | 'graphic_designer' | 'admin_operations' | 'customer_service' | 'custom'
+  jobRoleLabel: string; // Nama Jabatan (misal: "Editor Video", "Sales & Marketing", dll)
+  division: string; // Divisi (misal: "Media Sosial", "Marketing", dll)
+  reportTitle: string; // Judul karya atau laporan deliverable
+  periodDate: string; // Tanggal / periode pelaksanaan
+  metrics: Record<string, string | number>; // Metrik spesifik profesi (views, closing Rp, retention %, dll)
+  linkUrl?: string; // Link karya / postingan / repo / drive review
+  screenshotUrl?: string; // Foto bukti analisis / tangkapan layar dashboard
+  screenshotName?: string;
+  notes?: string; // Catatan teknis atau kendala dari pekerja
+  // Hasil Penilaian AI PRO
+  score: number; // 0 - 100
+  grade: 'A+' | 'A' | 'B+' | 'B' | 'C'; // Predikat kinerja
+  executiveSummary: string; // Ulasan eksekutif penilaian AI
+  industryBenchmarkReview: string; // Komparasi dengan tolak ukur standar industri terkini
+  strengths: string[]; // Nilai tambah & keunggulan hasil kerja
+  improvements: string[]; // Area perbaikan & gap analisis
+  tacticalRecommendations: string[]; // Rekomendasi taktis peningkatan mutu kerja
+  createdAt: string;
+}

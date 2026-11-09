@@ -3,7 +3,43 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --sat: env(safe-area-inset-top, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --sal: env(safe-area-inset-left, 0px);
+    --sar: env(safe-area-inset-right, 0px);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    touch-action: pan-x pan-y;
+    overscroll-behavior-y: none;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
   body {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    touch-action: pan-x pan-y;
+    max-width: 100vw;
+    overflow-x: hidden;
   }
+
+  /* Cegah iOS Safari Auto-Zoom saat mengetik di input / select / textarea pada layar HP */
+  @media screen and (max-width: 768px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
+  }
+}
+
+/* Penataan scroll khusus kontainer tabel agar tabel bisa digeser tanpa menggeser layout utama */
+.table-scroll-wrapper {
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+  overscroll-behavior-x: contain;
 }
