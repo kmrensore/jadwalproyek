@@ -7970,37 +7970,44 @@ export default function App() {
                                         </span>
 
                                         {/* TINDAK LANJUT PROYEK SELESAI: OTOMATIS MENAMBAH PEKERJAAN REVISI BARU KE KALENDER */}
-                                        <div className="p-3.5 bg-gradient-to-br from-emerald-50 to-teal-50/70 border border-emerald-200 rounded-2xl space-y-2.5 text-xs shadow-2xs">
-                                          <div className="flex items-center justify-between">
+                                        <div className="p-3.5 bg-gradient-to-br from-emerald-50 via-teal-50/50 to-emerald-50/30 border border-emerald-200 rounded-2xl space-y-3 text-xs shadow-2xs">
+                                          <div className="flex items-center justify-between gap-2">
                                             <span className="font-extrabold text-emerald-950 flex items-center gap-1.5 text-xs">
-                                              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                                              <span>Tindak Lanjut: Tambah Pekerjaan Revisi ke Kalender</span>
+                                              <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                              <span>Tindak Lanjut &amp; Jadwal Revisi</span>
                                             </span>
-                                            <span className="text-[10px] font-bold text-emerald-700 bg-white px-2 py-0.5 rounded-full border border-emerald-200">
-                                              Otomatis Tambah Proyek Baru
+                                            <span className="text-[10px] font-bold text-emerald-700 bg-white px-2.5 py-0.5 rounded-full border border-emerald-200 shrink-0">
+                                              Proyek Selesai
                                             </span>
                                           </div>
-                                          <p className="text-[11px] text-emerald-800 leading-snug">
-                                            Ketika ada revisian pada proyek selesai ini, masukkan rincian dan tanggal pelaksanaannya.
-                                            Sistem akan <strong>otomatis menambahkan pekerjaan revisi ini ke kalender pada tanggal yang Anda pilih</strong> sebagai proyek aktif.
+                                          <p className="text-[11px] text-emerald-800 leading-relaxed">
+                                            Ketika ada revisian atau pekerjaan lanjutan pada proyek ini, tentukan rincian dan tanggalnya.
+                                            Sistem akan <strong>otomatis menambahkan pekerjaan baru ini ke kalender pada tanggal yang Anda pilih</strong>.
                                           </p>
 
-                                          <div className="space-y-2 pt-0.5">
-                                            <input
-                                              type="text"
-                                              value={activeRevisionEntryId === entry.id ? revFollowupTitle : ''}
-                                              onChange={(e) => {
-                                                setActiveRevisionEntryId(entry.id);
-                                                setRevFollowupTitle(e.target.value);
-                                              }}
-                                              placeholder={`Rincian revisian (contoh: Revisi perbaiki bagian X, ngepel ulang lantai 2...)`}
-                                              className="w-full px-3 py-2 bg-white border border-emerald-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                                            />
+                                          <div className="space-y-2.5 pt-1">
+                                            <div>
+                                              <label className="block text-[11px] font-semibold text-emerald-950 mb-1">
+                                                Rincian Revisian
+                                              </label>
+                                              <input
+                                                type="text"
+                                                value={activeRevisionEntryId === entry.id ? revFollowupTitle : ''}
+                                                onChange={(e) => {
+                                                  setActiveRevisionEntryId(entry.id);
+                                                  setRevFollowupTitle(e.target.value);
+                                                }}
+                                                placeholder="Contoh: Revisi perbaiki bagian X, ngepel ulang lantai 2..."
+                                                className="w-full px-3 py-2 bg-white border border-emerald-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 shadow-2xs"
+                                              />
+                                            </div>
 
-                                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                                              <div className="flex-1 flex items-center gap-1.5 bg-white border border-emerald-300 rounded-xl px-2.5 py-1.5">
-                                                <CalendarIcon className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                                <span className="text-[11px] text-slate-500 shrink-0 font-medium">Jadwal di Kalender:</span>
+                                            <div>
+                                              <label className="block text-[11px] font-semibold text-emerald-950 mb-1">
+                                                Jadwal Tanggal di Kalender
+                                              </label>
+                                              <div className="flex items-center gap-2 bg-white border border-emerald-300 rounded-xl px-3 py-2 shadow-2xs">
+                                                <CalendarIcon className="w-4 h-4 text-emerald-600 shrink-0" />
                                                 <input
                                                   type="date"
                                                   value={activeRevisionEntryId === entry.id ? revFollowupDate : (selectedDate || todayStr)}
@@ -8011,20 +8018,20 @@ export default function App() {
                                                   className="w-full bg-transparent text-xs font-mono text-slate-800 focus:outline-none"
                                                 />
                                               </div>
-
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  const rTitle = activeRevisionEntryId === entry.id && revFollowupTitle.trim() ? revFollowupTitle.trim() : `Revisi: ${entry.title}`;
-                                                  const rDate = activeRevisionEntryId === entry.id && revFollowupDate ? revFollowupDate : (selectedDate || todayStr);
-                                                  handleCreateRevisionFromCompleted(entry, rTitle, rDate);
-                                                }}
-                                                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-xs transition-all shrink-0"
-                                              >
-                                                <Plus className="w-3.5 h-3.5" />
-                                                <span>Tambah Revisi ke Kalender</span>
-                                              </button>
                                             </div>
+
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                const rTitle = activeRevisionEntryId === entry.id && revFollowupTitle.trim() ? revFollowupTitle.trim() : `Revisi: ${entry.title}`;
+                                                const rDate = activeRevisionEntryId === entry.id && revFollowupDate ? revFollowupDate : (selectedDate || todayStr);
+                                                handleCreateRevisionFromCompleted(entry, rTitle, rDate);
+                                              }}
+                                              className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-xs transition-all"
+                                            >
+                                              <Plus className="w-4 h-4" />
+                                              <span>Tambah Revisi ke Kalender</span>
+                                            </button>
                                           </div>
                                         </div>
                                       </div>
@@ -8038,30 +8045,37 @@ export default function App() {
                                         </span>
 
                                         {/* OPSI LANJUTKAN PROYEK TERTUNDA DENGAN PENENTUAN TANGGAL MANUAL */}
-                                        <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-2xl space-y-2 text-xs">
-                                          <div className="flex items-center justify-between">
+                                        <div className="p-3.5 bg-gradient-to-br from-amber-50 to-orange-50/50 border border-amber-200 rounded-2xl space-y-3 text-xs shadow-2xs">
+                                          <div className="flex items-center justify-between gap-2">
                                             <span className="font-extrabold text-amber-950 flex items-center gap-1.5 text-xs">
                                               <Play className="w-3.5 h-3.5 text-amber-600 fill-current" />
-                                              <span>Opsi Lanjutkan Proyek Tertunda (Pilih Tanggal Manual)</span>
+                                              <span>Lanjutkan Proyek Tertunda</span>
+                                            </span>
+                                            <span className="text-[10px] font-bold text-amber-700 bg-white px-2.5 py-0.5 rounded-full border border-amber-200 shrink-0">
+                                              Pilih Tanggal
                                             </span>
                                           </div>
-                                          <p className="text-[11px] text-amber-800 leading-snug">
-                                            Tentukan secara manual tanggal kapan proyek tertunda ini akan aktif dilanjutkan kembali:
+                                          <p className="text-[11px] text-amber-800 leading-relaxed">
+                                            Tentukan secara manual tanggal kapan proyek tertunda ini akan mulai aktif dikerjakan kembali:
                                           </p>
 
-                                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
-                                            <input
-                                              type="date"
-                                              value={resumeDateInput}
-                                              onChange={(e) => setResumeDateInput(e.target.value)}
-                                              className="flex-1 px-3 py-1.5 bg-white border border-amber-300 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-                                            />
+                                          <div className="space-y-2.5 pt-0.5">
+                                            <div className="flex items-center gap-2 bg-white border border-amber-300 rounded-xl px-3 py-2 shadow-2xs">
+                                              <CalendarIcon className="w-4 h-4 text-amber-600 shrink-0" />
+                                              <input
+                                                type="date"
+                                                value={resumeDateInput}
+                                                onChange={(e) => setResumeDateInput(e.target.value)}
+                                                className="w-full bg-transparent text-xs font-mono text-slate-800 focus:outline-none"
+                                              />
+                                            </div>
+
                                             <button
                                               type="button"
                                               onClick={() => handleResumeTertundaProject(entry, resumeDateInput)}
-                                              className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 shadow-xs flex items-center justify-center gap-1.5 transition-all shrink-0"
+                                              className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 shadow-xs transition-all"
                                             >
-                                              <Play className="w-3 h-3 fill-current" />
+                                              <Play className="w-3.5 h-3.5 fill-current" />
                                               <span>Lanjutkan Mulai Tanggal Ini</span>
                                             </button>
                                           </div>
@@ -8150,28 +8164,32 @@ export default function App() {
                                     </div>
 
                                     {/* PENENTUAN TANGGAL KAPAN AKAN DILAKUKAN REVISI (MUNCUL DI KALENDER) */}
-                                    <div>
-                                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                                        Kapan Revisi / Pekerjaan Ini Dilakukan? (Pilih Tanggal di Kalender) <span className="text-rose-500">*</span>
-                                      </label>
-                                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                                        <input
-                                          type="date"
-                                          value={addonScheduledDate || selectedDate || todayStr}
-                                          onChange={(e) => setAddonScheduledDate(e.target.value)}
-                                          className="flex-1 px-3 py-1.5 bg-white border border-indigo-200 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                                        />
-                                        <button
-                                          type="button"
-                                          onClick={() => handleAddAddonTask(entry.id)}
-                                          className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shrink-0 transition-all"
-                                        >
-                                          <Plus className="w-3.5 h-3.5" />
-                                          <span>Simpan &amp; Jadwalkan di Kalender</span>
-                                        </button>
+                                    <div className="space-y-2">
+                                      <div>
+                                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                                          Kapan Revisi / Pekerjaan Ini Dilakukan? (Pilih Tanggal di Kalender) <span className="text-rose-500">*</span>
+                                        </label>
+                                        <div className="flex items-center gap-2 bg-white border border-indigo-200 rounded-xl px-3 py-2 shadow-2xs">
+                                          <CalendarIcon className="w-4 h-4 text-indigo-600 shrink-0" />
+                                          <input
+                                            type="date"
+                                            value={addonScheduledDate || selectedDate || todayStr}
+                                            onChange={(e) => setAddonScheduledDate(e.target.value)}
+                                            className="w-full bg-transparent text-xs font-mono text-slate-800 focus:outline-none"
+                                          />
+                                        </div>
                                       </div>
-                                      <span className="text-[10px] text-indigo-700 mt-1 block font-medium">
-                                        📅 Item revisi ini akan langsung muncul pada tanggal kalender yang Anda pilih di atas.
+
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAddAddonTask(entry.id)}
+                                        className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all"
+                                      >
+                                        <Plus className="w-4 h-4" />
+                                        <span>Simpan &amp; Jadwalkan di Kalender</span>
+                                      </button>
+                                      <span className="text-[10px] text-indigo-700 text-center block font-medium">
+                                        📅 Item revisi ini akan otomatis muncul pada tanggal kalender yang Anda pilih.
                                       </span>
                                     </div>
                                   </div>
