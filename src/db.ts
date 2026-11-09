@@ -76,18 +76,41 @@ export interface WorkAppraisalRecord {
 import type {
   Project,
   ProjectProgram,
-  ScheduleEntry as BaseScheduleEntry,
   UserProfile,
   AIPerformanceRecord,
   WorkPolicy,
   ReminderItem,
 } from './types';
 
-// Ekstensi lokal ScheduleEntry agar selalu mengenali status 'tertunda', completedDate & durationDays di db.ts
-export interface ScheduleEntry extends Omit<BaseScheduleEntry, 'status'> {
-  status: EntryStatus;
+// Model Item Penambahan Pekerjaan & Riwayat Catatan Revisi
+export interface ProjectAddonTask {
+  id: string;
+  type: 'revisi' | 'tambahan' | 'kendala' | 'instruksi';
+  title: string;
+  dateAdded: string;
+  isCompleted: boolean;
+  notes?: string;
+}
+
+// Definisi mandiri ScheduleEntry di db.ts agar mengenali status 'tertunda', completedDate, suspendedDate & additionalTasks
+export interface ScheduleEntry {
+  id: string;
+  date: string;
   completedDate?: string | null;
+  suspendedDate?: string | null;
   durationDays?: number;
+  additionalTasks?: ProjectAddonTask[];
+  title: string;
+  projectId: string | null;
+  programId?: string | null;
+  status: EntryStatus;
+  notes: string;
+  ownerId?: string;
+  ownerName?: string;
+  ownerPhone?: string;
+  ownerEmail?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ============================================================================
@@ -447,8 +470,11 @@ export const db = {
         )
         .order('entry_date', { ascending: false });
 
-      // PENTING: Proyek adalah wadah bersama tim (workspace). JANGAN filter projQuery dengan eq('owner_id')!
-      // Semua proyek harus selalu diambil agar tidak ada proyek yang mendadak hilang saat login.
+      // PENTING: Gunakan select('*') agar aman dari error kolom jika skema Supabase belum di-migrate
+      projQuery = supabase.from('projects').select('*').order('created_at', { ascending: true });
+      entQuery = supabase.from('schedule_entries').select('*').order('entry_date', { ascending: true });
+      attQuery = supabase.from('attendance').select('*').order('entry_date', { ascending: false });
+
       const [
         { data: projData, error: projErr },
         { data: entData, error: entErr },
@@ -456,32 +482,130 @@ export const db = {
       ] = await Promise.all([projQuery, entQuery, attQuery]);
 
       if (projErr || entErr) {
-        console.error('Supabase fetch error:', projErr || entErr || attErr);
-        return null;
+        console.warn('Supabase fetch notice:', projErr || entErr || attErr);
       }
 
-      const remoteProjects = ((projData as any[]) || []).map((p) => ({
-        ...p,
-        programs: Array.isArray(p.programs) ? p.programs : [],
+      const remoteProjects = ((projData as any[]) || []).map((row) => ({
+        id: row.id,
+        name: row.name,
+        color: row.color,
+        ownerId: row.owner_id || row.ownerId || 'owner-default',
+        ownerName: row.owner_name || row.ownerName || 'User',
+        programs: Array.isArray(row.programs) ? row.programs : [],
+        createdAt: row.created_at || row.createdAt || new Date().toISOString(),
       })) as Project[];
 
-      // SAFE MERGE PROYEK: Gabungkan proyek remote dan lokal agar proyek lokal tidak pernah terhapus kosong!
+      // SAFE MERGE PROYEK:
       const localProjects = this.getProjects();
       const projectMap = new Map<string, Project>();
       localProjects.forEach((p) => projectMap.set(p.id, p));
       remoteProjects.forEach((p) => projectMap.set(p.id, p));
       const mergedProjects = Array.from(projectMap.values());
 
-      // SAFE MERGE TUGAS & ENTRI:
-      const remoteEntries = (entData as ScheduleEntry[]) || [];
+      // MAP REMOTE ENTRIES KE STRUKTUR LENGKAP (TERMASUK suspendedDate & additionalTasks)
+      const remoteEntries = ((entData as any[]) || []).map((row) => ({
+        id: row.id,
+        date: row.entry_date || row.date,
+        completedDate: row.completed_date || row.completedDate || null,
+        suspendedDate: row.suspended_date || row.suspendedDate || null,
+        durationDays: row.duration_days !== undefined ? row.duration_days : row.durationDays,
+        additionalTasks: Array.isArray(row.additional_tasks)
+          ? row.additional_tasks
+          : Array.isArray(row.additionalTasks)
+          ? row.additionalTasks
+          : [],
+        title: row.title || '',
+        projectId: row.project_id !== undefined ? row.project_id : (row.projectId || null),
+        programId: row.program_id !== undefined ? row.program_id : (row.programId || null),
+        status: (row.status || 'belum_mulai') as EntryStatus,
+        notes: row.notes || '',
+        ownerId: row.owner_id || row.ownerId || 'owner-default',
+        ownerName: row.owner_name || row.ownerName || 'User',
+        ownerPhone: row.owner_phone || row.ownerPhone || '',
+        ownerEmail: row.owner_email || row.ownerEmail || '',
+        createdAt: row.created_at || row.createdAt || new Date().toISOString(),
+        updatedAt: row.updated_at || row.updatedAt || new Date().toISOString(),
+      })) as ScheduleEntry[];
+
+      // SMART TIMESTAMP MERGE (MENCEGAH STATUS 'tertunda' TERTEMPEL/KEMBALI KE STATUS LAMA):
       const localEntries = this.getEntries();
       const entryMap = new Map<string, ScheduleEntry>();
-      localEntries.forEach((e) => entryMap.set(e.id, e));
+
+      // Masukkan remote terlebih dahulu
       remoteEntries.forEach((e) => entryMap.set(e.id, e));
+
+      // Jika ada perubahan lokal yang lebih baru atau sama (misal user baru ubah ke 'tertunda'),
+      // pertahankan status lokal agar tidak tertimpa data lama dari server!
+      localEntries.forEach((local) => {
+        const remote = entryMap.get(local.id);
+        if (!remote) {
+          entryMap.set(local.id, local);
+        } else {
+          const localTime = new Date(local.updatedAt || local.createdAt || 0).getTime();
+          const remoteTime = new Date(remote.updatedAt || remote.createdAt || 0).getTime();
+
+          // Jika lokal lebih baru atau sama, prioritas ke lokal
+          if (localTime >= remoteTime) {
+            entryMap.set(local.id, {
+              ...remote,
+              ...local,
+              status: local.status,
+              completedDate: local.completedDate,
+              suspendedDate: (local as any).suspendedDate || null,
+              additionalTasks: (local as any).additionalTasks || [],
+              notes: local.notes,
+              updatedAt: local.updatedAt,
+            } as ScheduleEntry);
+
+            // Sinkronkan kembali perubahan status lokal ke Supabase jika remote berbeda
+            if (remote.status !== local.status) {
+              supabase
+                .from('schedule_entries')
+                .update({
+                  status: local.status,
+                  suspended_date: (local as any).suspendedDate || null,
+                  completed_date: local.completedDate || null,
+                  duration_days: local.durationDays || null,
+                  additional_tasks: (local as any).additionalTasks || [],
+                  updated_at: local.updatedAt,
+                })
+                .eq('id', local.id)
+                .then(({ error }) => {
+                  if (error) console.warn('Supabase resync status error:', error.message);
+                });
+            }
+          }
+        }
+      });
       const mergedEntries = Array.from(entryMap.values());
 
       // SAFE MERGE ABSENSI:
-      const remoteAttendance = (attData as AttendanceRecord[]) || [];
+      const remoteAttendance = ((attData as any[]) || []).map((row) => ({
+        id: row.id,
+        ownerId: row.owner_id || row.ownerId || 'owner-default',
+        ownerName: row.owner_name || row.ownerName || 'User',
+        date: row.entry_date || row.date,
+        type: (row.type || 'hadir') as AttendanceType,
+        checkInTime: row.check_in_time !== undefined ? row.check_in_time : row.checkInTime,
+        checkOutTime: row.check_out_time !== undefined ? row.check_out_time : row.checkOutTime,
+        workDurationHours: Number(row.work_duration_hours !== undefined ? row.work_duration_hours : row.workDurationHours) || 0,
+        regularWorkHours: Number(row.regular_work_hours !== undefined ? row.regular_work_hours : row.regularWorkHours) || 0,
+        overtimeHours: Number(row.overtime_hours !== undefined ? row.overtime_hours : row.overtimeHours) || 0,
+        shiftCategory: (row.shift_category || row.shiftCategory || 'normal') as WorkShiftCategory,
+        shiftNotes: row.shift_notes || row.shiftNotes || '',
+        isLate: Boolean(row.is_late !== undefined ? row.is_late : row.isLate),
+        lateReason: row.late_reason || row.lateReason || '',
+        isOvertimeConfirmed: Boolean(row.is_overtime_confirmed !== undefined ? row.is_overtime_confirmed : row.isOvertimeConfirmed),
+        overtimeReason: row.overtime_reason || row.overtimeReason || '',
+        checkInPhoto: row.check_in_photo || row.checkInPhoto || null,
+        checkInLocation: row.check_in_location || row.checkInLocation || null,
+        checkOutPhoto: row.check_out_photo || row.checkOutPhoto || null,
+        checkOutLocation: row.check_out_location || row.checkOutLocation || null,
+        notes: row.notes || '',
+        createdAt: row.created_at || row.createdAt || new Date().toISOString(),
+        updatedAt: row.updated_at || row.updatedAt || new Date().toISOString(),
+      })) as AttendanceRecord[];
+
       const localAttendance = this.getAttendance();
       const attendanceMap = new Map<string, AttendanceRecord>();
       localAttendance.forEach((a) => attendanceMap.set(a.id, a));
@@ -771,7 +895,9 @@ export const db = {
           id: newEntry.id,
           entry_date: newEntry.date,
           completed_date: newEntry.completedDate,
+          suspended_date: (newEntry as any).suspendedDate || null,
           duration_days: newEntry.durationDays,
+          additional_tasks: (newEntry as any).additionalTasks || [],
           title: newEntry.title,
           project_id: newEntry.projectId,
           program_id: newEntry.programId,
@@ -785,7 +911,7 @@ export const db = {
           updated_at: newEntry.updatedAt,
         })
         .then(({ error }) => {
-          if (error) console.error('Supabase insert entry error:', error);
+          if (error) console.warn('Supabase insert entry error:', error.message);
         });
     }
 
@@ -798,14 +924,17 @@ export const db = {
       Omit<ScheduleEntry, 'id' | 'createdAt' | 'ownerId' | 'ownerName' | 'ownerPhone' | 'ownerEmail'>
     >
   ): ScheduleEntry[] {
+    const now = new Date().toISOString();
     const current = this.getEntries();
     const updated = current.map((e) =>
-      e.id === id ? { ...e, ...payload, updatedAt: new Date().toISOString() } : e
+      e.id === id ? { ...e, ...payload, updatedAt: now } : e
     );
     this.saveEntries(updated);
 
     if (supabase) {
-      const dbUpdate: Record<string, unknown> = {};
+      const dbUpdate: Record<string, unknown> = {
+        updated_at: now,
+      };
       if (payload.date !== undefined) dbUpdate.entry_date = payload.date;
       if (payload.title !== undefined) dbUpdate.title = payload.title;
       if (payload.projectId !== undefined) dbUpdate.project_id = payload.projectId;
@@ -813,14 +942,18 @@ export const db = {
       if (payload.status !== undefined) dbUpdate.status = payload.status;
       if (payload.notes !== undefined) dbUpdate.notes = payload.notes;
       if ((payload as any).completedDate !== undefined) dbUpdate.completed_date = (payload as any).completedDate;
+      if ((payload as any).suspendedDate !== undefined) dbUpdate.suspended_date = (payload as any).suspendedDate;
       if ((payload as any).durationDays !== undefined) dbUpdate.duration_days = (payload as any).durationDays;
+      if ((payload as any).additionalTasks !== undefined) dbUpdate.additional_tasks = (payload as any).additionalTasks;
 
       supabase
         .from('schedule_entries')
         .update(dbUpdate)
         .eq('id', id)
         .then(({ error }) => {
-          if (error) console.error('Supabase update entry error:', error);
+          if (error) {
+            console.error('Supabase update entry error (Pastikan migrasi SQL check constraint sudah dijalankan):', error.message);
+          }
         });
     }
 
