@@ -81,17 +81,29 @@ export type EntryStatus = 'belum_mulai' | 'berjalan' | 'tertunda' | 'selesai';
 
 import type {
   Project,
-  WorkPolicy,
+  WorkPolicy as BaseWorkPolicy,
   WorkShiftCategory,
   ReminderItem,
 
   ProjectProgram,
   ScheduleEntry as BaseScheduleEntry,
   UserProfile,
-  AttendanceRecord,
+  AttendanceRecord as BaseAttendanceRecord,
   AttendanceType,
   AIPerformanceRecord,
 } from './types';
+
+// Ekstensi lokal WorkPolicy & AttendanceRecord agar sinkron penuh dengan fitur lembur & aturan baku
+export interface WorkPolicy extends BaseWorkPolicy {
+  lateOvertimeThresholdMinutes?: number;
+}
+
+export interface AttendanceRecord extends BaseAttendanceRecord {
+  isLate?: boolean;
+  lateReason?: string;
+  isOvertimeConfirmed?: boolean;
+  overtimeReason?: string;
+}
 
 // Definisi mandiri VoiceMemoRecord di App.tsx agar tidak menimbulkan error jika types.ts belum di-update
 export interface WorkAppraisalRecord {
@@ -574,8 +586,48 @@ function captureAndWatermarkSnapshot(
 function detectShiftCategoryInfo(
   mode: 'in' | 'out',
   timeStr: string,
-  policy: WorkPolicy
-): { category: WorkShiftCategory; note: string } {
+  policy: WorkPolicy,
+  dateStr?: string
+): {
+  category: WorkShiftCategory;
+  note: string;
+  isDayOff?: boolean;
+  holidayName?: string;
+  diffMinutes?: number;
+  isLate?: boolean;
+  overtimeHours?: number;
+} {
+  // Cek apakah tanggal ini merupakan Hari Libur (Weekend berdasarkan workDaysPerWeek atau Libur Nasional)
+  let isDayOff = false;
+  let holidayName = '';
+  if (dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    const dayOfWeek = d.getDay(); // 0 = Minggu, 6 = Sabtu
+    const holiday = getHolidayInfo(dateStr);
+    if (holiday && holiday.isHoliday) {
+      isDayOff = true;
+      holidayName = holiday.name;
+    } else if (dayOfWeek === 0) {
+      isDayOff = true;
+      holidayName = 'Hari Minggu (Libur Akhir Pekan)';
+    } else if (policy.workDaysPerWeek <= 5 && dayOfWeek === 6) {
+      isDayOff = true;
+      holidayName = 'Hari Sabtu (Libur Akhir Pekan)';
+    }
+  }
+
+  // Jika hari libur, seluruh jam kerja masuk ke LEMBUR PENUH!
+  if (isDayOff) {
+    return {
+      category: 'lembur_penuh',
+      note: `Lembur Hari Libur / Akhir Pekan (${holidayName}). Seluruh durasi kerja tercatat sebagai Lembur Penuh.`,
+      isDayOff: true,
+      holidayName,
+      diffMinutes: 0,
+      overtimeHours: 0,
+    };
+  }
+
   const [h, m] = timeStr.split(':').map(Number);
   const actMin = h * 60 + m;
 
@@ -587,39 +639,57 @@ function detectShiftCategoryInfo(
   const [stdOutH, stdOutM] = stdOut.split(':').map(Number);
   const stdOutMin = stdOutH * 60 + stdOutM;
 
-  const threshold = policy.earlyOvertimeThresholdMinutes || 60;
+  const earlyThreshold = policy.earlyOvertimeThresholdMinutes || 60;
+  const lateOtThreshold = policy.lateOvertimeThresholdMinutes !== undefined ? policy.lateOvertimeThresholdMinutes : 30;
+  const tolerance = policy.lateToleranceMinutes !== undefined ? policy.lateToleranceMinutes : 15;
 
   if (mode === 'in') {
-    if (stdInMin - actMin > threshold) {
-      const diffH = Math.floor((stdInMin - actMin) / 60);
-      const diffM = (stdInMin - actMin) % 60;
+    if (actMin < stdInMin) {
+      const diffMin = stdInMin - actMin;
+      const diffH = Math.floor(diffMin / 60);
+      const remM = diffMin % 60;
+      const otHours = Math.round((diffMin / 60) * 10) / 10;
       return {
-        category: 'lembur_awal',
-        note: `Lembur Pagi: Datang ${diffH > 0 ? `${diffH} jam ` : ''}${diffM} menit lebih awal sebelum jam masuk baku (${stdIn}).`,
+        category: diffMin >= earlyThreshold ? 'lembur_awal' : 'normal',
+        note: `Datang ${diffH > 0 ? `${diffH} jam ` : ''}${remM} menit lebih awal dari jam masuk baku (${stdIn}).`,
+        diffMinutes: diffMin,
+        overtimeHours: otHours,
       };
     }
-    if (actMin > stdInMin + (policy.lateToleranceMinutes || 15)) {
+    if (actMin > stdInMin + tolerance) {
+      const diffMin = actMin - stdInMin;
       return {
         category: 'normal',
-        note: `Shift Normal (Terlambat melewati toleransi jam ${stdIn}).`,
+        note: `Shift Normal (Terlambat ${diffMin} menit melewati jam baku ${stdIn} dengan batas toleransi ${tolerance} menit).`,
+        diffMinutes: diffMin,
+        isLate: true,
+        overtimeHours: 0,
       };
     }
     return {
       category: 'normal',
       note: `Shift Normal: Datang sesuai jadwal (masuk baku ${stdIn}).`,
+      diffMinutes: 0,
+      overtimeHours: 0,
     };
   } else {
-    if (actMin > stdOutMin + 30) {
-      const diffH = Math.floor((actMin - stdOutMin) / 60);
-      const diffM = (actMin - stdOutMin) % 60;
+    if (actMin > stdOutMin) {
+      const diffMin = actMin - stdOutMin;
+      const diffH = Math.floor(diffMin / 60);
+      const remM = diffMin % 60;
+      const otHours = Math.round((diffMin / 60) * 10) / 10;
       return {
-        category: 'lembur_akhir',
-        note: `Lembur Sore/Malam: Pulang lebih lama ${diffH > 0 ? `${diffH} jam ` : ''}${diffM} menit setelah jam pulang baku (${stdOut}).`,
+        category: diffMin >= lateOtThreshold ? 'lembur_akhir' : 'normal',
+        note: `Pulang ${diffH > 0 ? `${diffH} jam ` : ''}${remM} menit setelah jam pulang baku (${stdOut}).`,
+        diffMinutes: diffMin,
+        overtimeHours: otHours,
       };
     }
     return {
       category: 'normal',
-      note: `Shift Normal: Pulang kerja sesuai jam reguler (${stdOut}).`,
+      note: `Shift Normal: Pulang kerja reguler (${stdOut}).`,
+      diffMinutes: 0,
+      overtimeHours: 0,
     };
   }
 }
@@ -881,6 +951,31 @@ export default function App() {
   const [policyTargetHoursInput, setPolicyTargetHoursInput] = useState<number>(workPolicy.targetDailyWorkHours);
   const [policyLeaveResetInput, setPolicyLeaveResetInput] = useState<string>(workPolicy.leaveResetDate || '01-01');
   const [policyThresholdInput, setPolicyThresholdInput] = useState<number>(workPolicy.earlyOvertimeThresholdMinutes || 60);
+  const [policyLateOtThresholdInput, setPolicyLateOtThresholdInput] = useState<number>(workPolicy.lateOvertimeThresholdMinutes !== undefined ? workPolicy.lateOvertimeThresholdMinutes : 30);
+
+  // State Pop-up Interaktif Konfirmasi Presensi (Clock In Lembur/Terlambat & Clock Out Lembur Sore/Malam)
+  const [attConfirmModal, setAttConfirmModal] = useState<{
+    isOpen: boolean;
+    mode: 'in' | 'out';
+    date: string;
+    time: string;
+    photoUrl: string | null;
+    location: string | null;
+    scenario: 'early_in' | 'late_in' | 'holiday_work' | 'late_out_overtime' | 'normal_on_time';
+    diffMinutes: number;
+    calculatedOvertimeHours: number;
+    isOvertimeConfirmed: boolean;
+    lateChoice: 'izin' | 'telat';
+    lateReason: string;
+    overtimeReason: string;
+    notes: string;
+  } | null>(null);
+
+  // State Penyesuaian Keterangan Lembur oleh Atasan / Pekerja
+  const [editingOvertimeRecord, setEditingOvertimeRecord] = useState<AttendanceRecord | null>(null);
+  const [editOtReasonInput, setEditOtReasonInput] = useState<string>('');
+  const [editOtHoursInput, setEditOtHoursInput] = useState<number>(0);
+  const [editOtCategoryInput, setEditOtCategoryInput] = useState<WorkShiftCategory>('normal');
 
   // State Navigasi Bulan (0 = Januari, 10 = November)
   const [currentYear, setCurrentYear] = useState<number>(initialYearMonth.year);
@@ -1502,16 +1597,39 @@ export default function App() {
     const grouped: Record<string, ScheduleEntry[]> = {};
     filteredMonthEntries.forEach((e) => {
       const range = getEntryDateRange(e, todayStr);
-      // Proyeksikan tugas ke SETIAP tanggal dari startDate sampai endDate
+      // Proyeksikan tugas ke tanggal dari startDate sampai endDate
       const start = new Date(range.startDate + 'T00:00:00');
       const end = new Date(range.endDate + 'T00:00:00');
       const cur = new Date(start);
 
       while (cur <= end) {
         const dStr = toDateStr(cur.getFullYear(), cur.getMonth(), cur.getDate());
-        if (!grouped[dStr]) grouped[dStr] = [];
-        if (!grouped[dStr].some((item) => item.id === e.id)) {
-          grouped[dStr].push(e);
+        
+        // PATOKAN ABSENSI CLOCK IN:
+        // Jika tugas sedang 'berjalan' (atau belum selesai), dan tanggal cur > startDate:
+        // Tugas TIDAK OTOMATIS MELANJUT jika tidak ada aktivitas clock in / absensi hadir pada hari tersebut!
+        let shouldInclude = true;
+        if (dStr !== range.startDate && e.status === 'berjalan') {
+          const hasAttendance = attendance.some((a) => {
+            if (a.date !== dStr || a.type !== 'hadir') return false;
+            // Harus memiliki jam masuk atau jam kerja bersih aktif
+            if (!a.checkInTime && (!a.workDurationHours || a.workDurationHours <= 0)) return false;
+            // Jika ada ownerId spesifik, pastikan cocok
+            if (e.ownerId && e.ownerId !== 'owner-demo-1' && a.ownerId && a.ownerId !== 'owner-demo-1') {
+              return a.ownerId === e.ownerId;
+            }
+            return true;
+          });
+          if (!hasAttendance) {
+            shouldInclude = false;
+          }
+        }
+
+        if (shouldInclude) {
+          if (!grouped[dStr]) grouped[dStr] = [];
+          if (!grouped[dStr].some((item) => item.id === e.id)) {
+            grouped[dStr].push(e);
+          }
         }
         cur.setDate(cur.getDate() + 1);
       }
@@ -1526,7 +1644,7 @@ export default function App() {
       });
     });
     return grouped;
-  }, [filteredMonthEntries, todayStr]);
+  }, [filteredMonthEntries, todayStr, attendance]);
 
   // Daftar pengingat aktif/jadwal acara yang jatuh pada bulan yang sedang dilihat di kalender
   const monthReminders = useMemo(() => {
@@ -1867,6 +1985,77 @@ export default function App() {
     // Urutkan berdasarkan kontribusi beban kerja terbesar
     projectBreakdown.sort((a, b) => b.count - a.count);
 
+    // 1. Audit Kendala Lapangan, Revisi & Tugas Mengganjal
+    const fieldIssues: Array<{
+      taskId: string;
+      taskTitle: string;
+      projectName: string;
+      date: string;
+      status: EntryStatus;
+      type: 'kendala' | 'revisi' | 'tertunda' | 'catatan';
+      description: string;
+    }> = [];
+
+    userEntries.forEach((e) => {
+      const pName = e.projectId ? (projectMap[e.projectId]?.name || 'Proyek') : 'Tanpa Proyek';
+      if (e.status === 'tertunda') {
+        fieldIssues.push({
+          taskId: e.id,
+          taskTitle: e.title,
+          projectName: pName,
+          date: e.date,
+          status: e.status,
+          type: 'tertunda',
+          description: e.notes || 'Pekerjaan dibekukan / ditunda sementara.',
+        });
+      }
+      if (Array.isArray(e.additionalTasks)) {
+        e.additionalTasks.forEach((add) => {
+          if (!add.isCompleted && (add.type === 'kendala' || add.type === 'revisi')) {
+            fieldIssues.push({
+              taskId: e.id,
+              taskTitle: e.title,
+              projectName: pName,
+              date: add.dateAdded || e.date,
+              status: e.status,
+              type: add.type,
+              description: add.title + (add.notes ? ` (${add.notes})` : ''),
+            });
+          }
+        });
+      }
+      if (
+        e.notes &&
+        (e.notes.toLowerCase().includes('kendala') ||
+          e.notes.toLowerCase().includes('hambatan') ||
+          e.notes.toLowerCase().includes('revisi') ||
+          e.notes.toLowerCase().includes('tertahan'))
+      ) {
+        if (!fieldIssues.some((fi) => fi.taskId === e.id)) {
+          fieldIssues.push({
+            taskId: e.id,
+            taskTitle: e.title,
+            projectName: pName,
+            date: e.date,
+            status: e.status,
+            type: 'catatan',
+            description: e.notes,
+          });
+        }
+      }
+    });
+
+    // 2. Evaluasi Ketidakseimbangan Beban Tugas Antar Proyek
+    const heavyProjects = projectBreakdown.filter(
+      (pb) => pb.contributionPercent >= 40 && pb.projectId !== 'none'
+    );
+    const hasWorkloadImbalance = heavyProjects.length > 0 && totalTasks >= 3;
+
+    // 3. Masalah Tingkat Penyelesaian & Bottleneck
+    const laggingProjects = projectBreakdown.filter(
+      (pb) => pb.count >= 2 && pb.completionPercent < 50 && pb.projectId !== 'none'
+    );
+
     const taskScore = totalTasks > 0 ? (finishedTasks / totalTasks) * 60 : 60;
     const attendanceScore = (totalHadir / Math.max(1, totalHadir + totalIzin + totalSakit)) * 40;
     const performanceScore = Math.min(100, Math.round(taskScore + attendanceScore));
@@ -1892,6 +2081,10 @@ export default function App() {
       pendingTasks,
       overdueTasks,
       projectBreakdown,
+      fieldIssues,
+      heavyProjects,
+      hasWorkloadImbalance,
+      laggingProjects,
       performanceScore,
     };
   }, [
@@ -2272,7 +2465,7 @@ export default function App() {
     setCurrentGPSLocation('Mendeteksi koordinat GPS...');
 
     const nowTime = getNowTimeStr();
-    const shift = detectShiftCategoryInfo(mode, nowTime, workPolicy);
+    const shift = detectShiftCategoryInfo(mode, nowTime, workPolicy, todayStr);
     setDetectedShiftInfo(shift);
     setCustomShiftNoteInput(shift.note);
 
@@ -2333,6 +2526,212 @@ export default function App() {
     setCapturedSnapshotPreview(null);
   };
 
+  // EKSEKUSI PENYIMPANAN ABSENSI (TERINTEGRASI ATURAN BAKU & LEMBUR)
+  const executeAttendanceSave = async (params: {
+    mode: 'in' | 'out';
+    date: string;
+    time: string;
+    photoUrl: string | null;
+    location: string | null;
+    shiftCategory: WorkShiftCategory;
+    shiftNotes: string;
+    regularWorkHours?: number;
+    overtimeHours?: number;
+    isLate?: boolean;
+    lateReason?: string;
+    isOvertimeConfirmed?: boolean;
+    overtimeReason?: string;
+    notes: string;
+  }) => {
+    if (!currentUser) return;
+    const payload: any = {
+      date: params.date,
+      type: 'hadir',
+      notes: params.notes,
+      shiftCategory: params.shiftCategory,
+      shiftNotes: params.shiftNotes,
+      isLate: params.isLate,
+      lateReason: params.lateReason,
+      isOvertimeConfirmed: params.isOvertimeConfirmed,
+      overtimeReason: params.overtimeReason,
+    };
+    if (params.regularWorkHours !== undefined) {
+      payload.regularWorkHours = params.regularWorkHours;
+    }
+    if (params.overtimeHours !== undefined) {
+      payload.overtimeHours = params.overtimeHours;
+    }
+
+    if (params.mode === 'in') {
+      payload.checkInTime = params.time;
+      if (params.photoUrl) payload.checkInPhoto = params.photoUrl;
+      if (params.location) payload.checkInLocation = params.location;
+    } else {
+      payload.checkOutTime = params.time;
+      if (params.photoUrl) payload.checkOutPhoto = params.photoUrl;
+      if (params.location) payload.checkOutLocation = params.location;
+    }
+
+    const updated = await db.recordAttendance(payload, currentUser);
+    setAttendance(updated);
+    closeCameraModal();
+    setAttConfirmModal(null);
+    showToast(
+      `${params.mode === 'in' ? 'Clock In' : 'Clock Out'} berhasil pukul ${params.time}! Data kehadiran & lembur tersimpan.`
+    );
+  };
+
+  // TRIGGER INTERAKTIF DENGAN POP-UP KONFIRMASI (CLOCK IN LEMBUR / TERLAMBAT & CLOCK OUT LEMBUR SORE/MALAM)
+  const triggerAttendanceWithConfirmation = (
+    mode: 'in' | 'out',
+    photoUrl: string | null,
+    location: string | null,
+    timeStr: string
+  ) => {
+    const shiftInfo = detectShiftCategoryInfo(mode, timeStr, workPolicy, todayStr);
+    const [h, m] = timeStr.split(':').map(Number);
+    const actMin = h * 60 + m;
+
+    const stdIn = workPolicy.standardCheckInTime || '08:00';
+    const [stdInH, stdInM] = stdIn.split(':').map(Number);
+    const stdInMin = stdInH * 60 + stdInM;
+
+    const stdOut = workPolicy.standardCheckOutTime || '17:00';
+    const [stdOutH, stdOutM] = stdOut.split(':').map(Number);
+    const stdOutMin = stdOutH * 60 + stdOutM;
+
+    const lateTolerance = workPolicy.lateToleranceMinutes !== undefined ? workPolicy.lateToleranceMinutes : 15;
+    const lateOtThreshold = workPolicy.lateOvertimeThresholdMinutes !== undefined ? workPolicy.lateOvertimeThresholdMinutes : 30;
+
+    // 1. Kasus Hari Libur / Akhir Pekan (Lembur Penuh)
+    if (shiftInfo.isDayOff) {
+      setAttConfirmModal({
+        isOpen: true,
+        mode,
+        date: todayStr,
+        time: timeStr,
+        photoUrl,
+        location,
+        scenario: 'holiday_work',
+        diffMinutes: 0,
+        calculatedOvertimeHours: 0,
+        isOvertimeConfirmed: true,
+        lateChoice: 'telat',
+        lateReason: '',
+        overtimeReason: `Lembur Hari Libur (${shiftInfo.holidayName})`,
+        notes: `Aktivitas presensi di hari libur (${shiftInfo.holidayName}). Seluruh durasi dihitung sebagai Lembur Penuh.`,
+      });
+      return;
+    }
+
+    // 2. Mode IN (Clock In Masuk Kerja)
+    if (mode === 'in') {
+      if (actMin < stdInMin) {
+        // Datang Lebih Awal (misal jam 7 pagi sebelum jam 8) -> Muncul pop-up tanya apakah ini lembur atau tidak
+        const diffMin = stdInMin - actMin;
+        const otHours = Math.round((diffMin / 60) * 10) / 10;
+        setAttConfirmModal({
+          isOpen: true,
+          mode: 'in',
+          date: todayStr,
+          time: timeStr,
+          photoUrl,
+          location,
+          scenario: 'early_in',
+          diffMinutes: diffMin,
+          calculatedOvertimeHours: otHours,
+          isOvertimeConfirmed: true,
+          lateChoice: 'telat',
+          lateReason: '',
+          overtimeReason: `Lembur Pagi: Datang ${diffMin} menit lebih awal sebelum jam masuk baku (${stdIn}).`,
+          notes: `Clock in awal pukul ${timeStr} (${diffMin} menit sebelum ${stdIn}).`,
+        });
+        return;
+      }
+
+      if (actMin > stdInMin + lateTolerance) {
+        // Terlambat melewati jam baku + toleransi -> Muncul pop-up konfirmasi status (Izin Terlambat vs Terlambat Biasa)
+        const diffMin = actMin - stdInMin;
+        setAttConfirmModal({
+          isOpen: true,
+          mode: 'in',
+          date: todayStr,
+          time: timeStr,
+          photoUrl,
+          location,
+          scenario: 'late_in',
+          diffMinutes: diffMin,
+          calculatedOvertimeHours: 0,
+          isOvertimeConfirmed: false,
+          lateChoice: 'izin',
+          lateReason: '',
+          overtimeReason: '',
+          notes: `Hadir terlambat ${diffMin} menit dari jam baku (${stdIn}).`,
+        });
+        return;
+      }
+
+      // Hadir normal tepat waktu (langsung simpan bersih)
+      executeAttendanceSave({
+        mode: 'in',
+        date: todayStr,
+        time: timeStr,
+        photoUrl,
+        location,
+        shiftCategory: 'normal',
+        shiftNotes: `Shift Normal: Masuk tepat waktu (${timeStr}).`,
+        isLate: false,
+        lateReason: '',
+        isOvertimeConfirmed: false,
+        overtimeReason: '',
+        notes: 'Check-in hadir harian tepat waktu.',
+      });
+      return;
+    }
+
+    // 3. Mode OUT (Clock Out Pulang Kerja)
+    if (mode === 'out') {
+      if (actMin > stdOutMin) {
+        // Pulang lebih lama dari jam pulang baku -> Muncul pop-up konfirmasi apakah lembur sore/malam atau shift biasa
+        const diffMin = actMin - stdOutMin;
+        const otHours = Math.round((diffMin / 60) * 10) / 10;
+        setAttConfirmModal({
+          isOpen: true,
+          mode: 'out',
+          date: todayStr,
+          time: timeStr,
+          photoUrl,
+          location,
+          scenario: 'late_out_overtime',
+          diffMinutes: diffMin,
+          calculatedOvertimeHours: otHours,
+          isOvertimeConfirmed: diffMin >= lateOtThreshold,
+          lateChoice: 'telat',
+          lateReason: '',
+          overtimeReason: `Lembur Sore/Malam: Pulang ${diffMin} menit setelah jam pulang baku (${stdOut}).`,
+          notes: `Clock out pukul ${timeStr} (+${diffMin} menit dari ${stdOut}).`,
+        });
+        return;
+      }
+
+      // Pulang reguler normal
+      executeAttendanceSave({
+        mode: 'out',
+        date: todayStr,
+        time: timeStr,
+        photoUrl,
+        location,
+        shiftCategory: 'normal',
+        shiftNotes: `Shift Normal: Pulang kerja reguler pukul ${timeStr}.`,
+        isLate: false,
+        lateReason: '',
+        isOvertimeConfirmed: false,
+        overtimeReason: '',
+        notes: 'Clock out selesai jam kerja harian.',
+      });
+    }
+  };
+
   const handleTakeSnapshotAndSubmit = async () => {
     if (!currentUser) return;
     const nowTime = getNowTimeStr();
@@ -2348,31 +2747,8 @@ export default function App() {
       });
     }
 
-    const payload: any = {
-      date: todayStr,
-      type: 'hadir',
-      notes: customShiftNoteInput || detectedShiftInfo.note,
-      shiftCategory: detectedShiftInfo.category,
-      shiftNotes: customShiftNoteInput || detectedShiftInfo.note,
-    };
-
-    if (cameraMode === 'in') {
-      payload.checkInTime = nowTime;
-      payload.checkInPhoto = photoDataUrl;
-      payload.checkInLocation = currentGPSLocation;
-    } else {
-      payload.checkOutTime = nowTime;
-      payload.checkOutPhoto = photoDataUrl;
-      payload.checkOutLocation = currentGPSLocation;
-    }
-
-    const updated = await db.recordAttendance(payload, currentUser);
-    setAttendance(updated);
-
-    closeCameraModal();
-    showToast(
-      `${cameraMode === 'in' ? 'Clock In' : 'Clock Out'} berhasil pukul ${nowTime}! Foto & lokasi tersimpan.`
-    );
+    // Alihkan ke trigger konfirmasi interaktif
+    triggerAttendanceWithConfirmation(cameraMode, photoDataUrl, currentGPSLocation, nowTime);
   };
 
   // ==========================================================================
@@ -2500,33 +2876,13 @@ export default function App() {
   const handleQuickClockIn = async () => {
     if (!currentUser) return;
     const nowTime = getNowTimeStr();
-    const updated = await db.recordAttendance(
-      {
-        date: todayStr,
-        type: 'hadir',
-        checkInTime: nowTime,
-        notes: 'Check-in hadir harian.',
-      },
-      currentUser
-    );
-    setAttendance(updated);
-    showToast(`Clock In berhasil pada pukul ${nowTime}! Tersimpan di cloud.`);
+    triggerAttendanceWithConfirmation('in', null, 'Presensi Cepat Terverifikasi', nowTime);
   };
 
   const handleQuickClockOut = async () => {
     if (!currentUser) return;
     const nowTime = getNowTimeStr();
-    const updated = await db.recordAttendance(
-      {
-        date: todayStr,
-        type: 'hadir',
-        checkOutTime: nowTime,
-        notes: myTodayAttendance?.notes || 'Selesai jam kerja harian.',
-      },
-      currentUser
-    );
-    setAttendance(updated);
-    showToast(`Clock Out berhasil pada pukul ${nowTime}! Tersimpan di cloud.`);
+    triggerAttendanceWithConfirmation('out', null, 'Presensi Cepat Terverifikasi', nowTime);
   };
 
   const openNewAttendanceModal = () => {
@@ -4585,8 +4941,11 @@ export default function App() {
                     setPolicyCheckOutInput(workPolicy.standardCheckOutTime);
                     setPolicyBreakInput(workPolicy.breakDurationHours);
                     setPolicyLeaveQuotaInput(workPolicy.annualLeaveQuota);
-                    setPolicyToleranceInput(workPolicy.lateToleranceMinutes);
+                    setPolicyToleranceInput(workPolicy.lateToleranceMinutes !== undefined ? workPolicy.lateToleranceMinutes : 15);
                     setPolicyTargetHoursInput(workPolicy.targetDailyWorkHours);
+                    setPolicyLeaveResetInput(workPolicy.leaveResetDate || '01-01');
+                    setPolicyThresholdInput(workPolicy.earlyOvertimeThresholdMinutes || 60);
+                    setPolicyLateOtThresholdInput(workPolicy.lateOvertimeThresholdMinutes !== undefined ? workPolicy.lateOvertimeThresholdMinutes : 30);
                     setIsPolicyModalOpen(true);
                   }}
                   className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors shrink-0 shadow-xs"
@@ -4720,6 +5079,76 @@ export default function App() {
                 </button>
               </div>
 
+              {/* CARD REKAPITULASI & KETERANGAN AKTIVITAS LEMBUR */}
+              <div className="bg-gradient-to-br from-indigo-900 via-indigo-800 to-slate-900 rounded-3xl p-5 sm:p-6 text-white space-y-4 shadow-sm border border-indigo-700/50">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                      <Clock className="w-3.5 h-3.5 text-amber-300" />
+                      <span>Manajemen &amp; Keterangan Lembur (Overtime Tracking)</span>
+                    </div>
+                    <h3 className="text-base sm:text-lg font-extrabold tracking-tight">
+                      Rekapitulasi Jam Kerja Lembur Terverifikasi
+                    </h3>
+                    <p className="text-xs text-indigo-200/90 max-w-2xl">
+                      Semua aktivitas lembur pagi, lembur sore/malam, dan lembur hari libur terekam otomatis
+                      sesuai tolak ukur baku dan dapat disesuaikan menurut keputusan persetujuan atasan.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <div className="px-3.5 py-2 rounded-2xl bg-white/10 border border-white/20 text-right">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-amber-300">Total Lembur Bulan Ini</div>
+                      <div className="text-xl font-extrabold text-white">
+                        {monthAttendance.reduce((sum, r) => sum + (r.overtimeHours || 0), 0).toFixed(1)} Jam
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+                  <div className="p-3 rounded-2xl bg-white/5 border border-white/10">
+                    <span className="text-[10px] uppercase font-bold text-indigo-300 block">Lembur Pagi (Awal)</span>
+                    <span className="text-lg font-bold text-white">
+                      {monthAttendance.filter((r) => r.shiftCategory === 'lembur_awal').reduce((s, r) => s + (r.overtimeHours || 0), 0).toFixed(1)} Jam
+                    </span>
+                    <span className="text-[10px] text-indigo-200 block mt-0.5">
+                      {monthAttendance.filter((r) => r.shiftCategory === 'lembur_awal').length} sesi hadir awal
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-white/5 border border-white/10">
+                    <span className="text-[10px] uppercase font-bold text-amber-300 block">Lembur Sore / Malam</span>
+                    <span className="text-lg font-bold text-white">
+                      {monthAttendance.filter((r) => r.shiftCategory === 'lembur_akhir').reduce((s, r) => s + (r.overtimeHours || 0), 0).toFixed(1)} Jam
+                    </span>
+                    <span className="text-[10px] text-amber-200 block mt-0.5">
+                      Batas threshold: {workPolicy.lateOvertimeThresholdMinutes !== undefined ? workPolicy.lateOvertimeThresholdMinutes : 30}m
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-white/5 border border-white/10">
+                    <span className="text-[10px] uppercase font-bold text-purple-300 block">Lembur Hari Libur</span>
+                    <span className="text-lg font-bold text-white">
+                      {monthAttendance.filter((r) => r.shiftCategory === 'lembur_penuh').reduce((s, r) => s + (r.overtimeHours || 0), 0).toFixed(1)} Jam
+                    </span>
+                    <span className="text-[10px] text-purple-200 block mt-0.5">
+                      100% jam kerja di hari libur
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-white/5 border border-white/10">
+                    <span className="text-[10px] uppercase font-bold text-emerald-300 block">Jam Reguler Bersih</span>
+                    <span className="text-lg font-bold text-white">
+                      {monthAttendance.reduce((sum, r) => sum + (r.regularWorkHours || 0), 0).toFixed(1)} Jam
+                    </span>
+                    <span className="text-[10px] text-emerald-200 block mt-0.5">
+                      Target harian: {workPolicy.targetDailyWorkHours}j/hari
+                    </span>
+                  </div>
+                </div>
+              </div>
+
               <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs sm:text-sm">
@@ -4831,6 +5260,21 @@ export default function App() {
                                 {rec.notes || '-'}
                               </td>
                               <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                                {(rec.overtimeHours || 0) > 0 || rec.shiftCategory !== 'normal' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingOvertimeRecord(rec);
+                                      setEditOtHoursInput(rec.overtimeHours || 0);
+                                      setEditOtCategoryInput(rec.shiftCategory || 'normal');
+                                      setEditOtReasonInput(rec.overtimeReason || rec.shiftNotes || '');
+                                    }}
+                                    className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-50 mr-1"
+                                    title="Sesuaikan Keterangan Lembur / Keputusan Atasan"
+                                  >
+                                    <Sliders className="w-4 h-4" />
+                                  </button>
+                                ) : null}
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteAttendance(rec.id)}
@@ -6133,6 +6577,163 @@ export default function App() {
                         )}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+
+                {/* 5. Ringkasan Evaluasi Kendala & Ketidakseimbangan Beban Tugas */}
+                <div className="space-y-4 pt-2">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-500" />
+                      <span>5. Ringkasan Evaluasi Kendala &amp; Ketidakseimbangan Beban Tugas</span>
+                    </h3>
+                    <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
+                      Audit Diagnostik Tim
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-xs">
+                    {/* Sub-Card 1: Kendala Pekerjaan & Revisi */}
+                    <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-extrabold text-amber-900 flex items-center gap-1.5 uppercase text-[11px] tracking-wider">
+                          <AlertCircle className="w-4 h-4 text-amber-600" />
+                          <span>Kendala &amp; Revisi Aktif</span>
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200 text-amber-900">
+                          {reportData.fieldIssues.length} Isu
+                        </span>
+                      </div>
+
+                      {reportData.fieldIssues.length === 0 ? (
+                        <div className="p-3 bg-white/80 rounded-xl border border-amber-100 text-slate-600 text-[11px] flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                          <span>Tidak ada kendala kritis atau revisi tertunda pada periode ini.</span>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                          {reportData.fieldIssues.map((issue, idx) => (
+                            <div key={idx} className="p-2.5 bg-white rounded-xl border border-amber-200/80 shadow-2xs space-y-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-bold text-slate-900 truncate">{issue.taskTitle}</span>
+                                <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold uppercase ${
+                                  issue.type === 'tertunda' ? 'bg-amber-100 text-amber-800' :
+                                  issue.type === 'revisi' ? 'bg-purple-100 text-purple-800' : 'bg-rose-100 text-rose-800'
+                                }`}>
+                                  {issue.type}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-600 leading-snug">{issue.description}</p>
+                              <div className="text-[10px] text-slate-400 flex items-center gap-2 pt-0.5">
+                                <span>{issue.projectName}</span>
+                                <span>•</span>
+                                <span>{issue.date}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Sub-Card 2: Ketidakseimbangan Beban Tugas */}
+                    <div className="p-4 rounded-2xl bg-indigo-50/60 border border-indigo-200 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-extrabold text-indigo-900 flex items-center gap-1.5 uppercase text-[11px] tracking-wider">
+                          <Layers className="w-4 h-4 text-indigo-600" />
+                          <span>Distribusi Beban Proyek</span>
+                        </span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          reportData.hasWorkloadImbalance ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'
+                        }`}>
+                          {reportData.hasWorkloadImbalance ? 'Beban Timpang' : 'Relatif Seimbang'}
+                        </span>
+                      </div>
+
+                      {reportData.hasWorkloadImbalance ? (
+                        <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-[11px] space-y-1">
+                          <div className="font-bold flex items-center gap-1">
+                            <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                            <span>Peringatan Beban Terpusat:</span>
+                          </div>
+                          <p className="leading-snug">
+                            {reportData.heavyProjects.map((hp) => `Proyek "${hp.name}" menyerap ${hp.contributionPercent}% total pekerjaan`).join(', ')}.
+                            Perlu redistribusi tugas agar tidak overload.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="p-2.5 bg-white/80 rounded-xl border border-indigo-100 text-slate-600 text-[11px] flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                          <span>Beban tugas terbagi proporsional antar seluruh proyek aktif.</span>
+                        </div>
+                      )}
+
+                      <div className="space-y-1.5 pt-1">
+                        {reportData.projectBreakdown.slice(0, 3).map((proj) => (
+                          <div key={proj.projectId} className="space-y-0.5">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="font-medium text-slate-700 truncate max-w-[140px]">{proj.name}</span>
+                              <span className="font-bold text-slate-900">{proj.contributionPercent}% ({proj.count} tugas)</span>
+                            </div>
+                            <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full"
+                                style={{ width: `${Math.min(100, proj.contributionPercent)}%`, backgroundColor: proj.color }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Sub-Card 3: Masalah Tingkat Penyelesaian & Hal yang Mengganjal */}
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-extrabold text-slate-800 flex items-center gap-1.5 uppercase text-[11px] tracking-wider">
+                          <Target className="w-4 h-4 text-slate-600" />
+                          <span>Hambatan &amp; Bottlenecks</span>
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-800">
+                          {reportData.overdueTasks} Terlambat
+                        </span>
+                      </div>
+
+                      <div className="space-y-2">
+                        {reportData.overdueTasks > 0 ? (
+                          <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 text-[11px] space-y-0.5">
+                            <div className="font-bold">⚠️ Ada {reportData.overdueTasks} Tugas Menghambat Jadwal</div>
+                            <p className="text-[10px] text-rose-700 leading-snug">
+                              Tugas belum rampung melewati tanggal yang dijadwalkan, memerlukan eskalasi prioritas.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 text-[11px] flex items-center gap-2">
+                            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <span>Seluruh tugas berjalan tepat waktu tanpa ada tunggakan.</span>
+                          </div>
+                        )}
+
+                        {reportData.laggingProjects.length > 0 && (
+                          <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-[11px] space-y-0.5">
+                            <div className="font-bold">Tingkat Tuntas Rendah (&lt;50%):</div>
+                            <p className="text-[10px] text-amber-800">
+                              {reportData.laggingProjects.map((lp) => `${lp.name} (${lp.completionPercent}%)`).join(', ')}
+                            </p>
+                          </div>
+                        )}
+
+                        <div className="p-2.5 bg-white border border-slate-200 rounded-xl space-y-1 text-[11px] text-slate-600">
+                          <div className="font-bold text-slate-800 flex items-center gap-1 text-[10px] uppercase">
+                            <Sparkles className="w-3 h-3 text-indigo-500" />
+                            <span>Rekomendasi Pembenahan:</span>
+                          </div>
+                          <ul className="list-disc list-inside space-y-0.5 text-[10px] text-slate-500">
+                            <li>Reevaluasi estimasi durasi pada proyek dengan kendala berulang.</li>
+                            <li>Terapkan rotasi tugas untuk menyeimbangkan beban kerja tim.</li>
+                            <li>Kunci izin lembur hanya pada tugas prioritas tinggi.</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -7665,8 +8266,9 @@ export default function App() {
                   breakDurationHours: Number(policyBreakInput) || 1.0,
                   annualLeaveQuota: Number(policyLeaveQuotaInput) || 12,
                   leaveResetDate: policyLeaveResetInput || '01-01',
-                  lateToleranceMinutes: Number(policyToleranceInput) || 15,
+                  lateToleranceMinutes: isNaN(Number(policyToleranceInput)) ? 0 : Number(policyToleranceInput),
                   earlyOvertimeThresholdMinutes: Number(policyThresholdInput) || 60,
+                  lateOvertimeThresholdMinutes: isNaN(Number(policyLateOtThresholdInput)) ? 30 : Number(policyLateOtThresholdInput),
                   targetDailyWorkHours: Number(policyTargetHoursInput) || 8.0,
                 };
                 db.saveWorkPolicy(newPolicy);
@@ -7708,6 +8310,9 @@ export default function App() {
                       Menit
                     </span>
                   </div>
+                  <span className="text-[10px] text-slate-500 mt-0.5 block font-medium">
+                    {policyToleranceInput === 0 ? '0 Menit (Mode Ketat / Tanpa Toleransi / Manual)' : `Toleransi: ${policyToleranceInput} menit`}
+                  </span>
                 </div>
               </div>
 
@@ -7847,7 +8452,7 @@ export default function App() {
                   <div className="relative">
                     <input
                       type="number"
-                      min={15}
+                      min={0}
                       max={180}
                       value={policyThresholdInput}
                       onChange={(e) => setPolicyThresholdInput(Number(e.target.value))}
@@ -7859,6 +8464,28 @@ export default function App() {
                   </div>
                   <span className="text-[10px] text-slate-400 mt-0.5 block">
                     Datang lebih awal &gt; {policyThresholdInput}m otomatis dihitung lembur
+                  </span>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Batas Menit Pulang Kerja (Lembur Sore &amp; Malam) <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={0}
+                      max={180}
+                      value={policyLateOtThresholdInput}
+                      onChange={(e) => setPolicyLateOtThresholdInput(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none pr-14"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                      Menit
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Ambang batas menit setelah {policyCheckOutInput} untuk konfirmasi lembur sore/malam (dapat disesuaikan)
                   </span>
                 </div>
               </div>
@@ -8178,6 +8805,483 @@ export default function App() {
                 <span>{cameraMode === 'in' ? 'Ambil Foto & Clock In' : 'Ambil Foto & Clock Out'}</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* POP-UP INTERAKTIF KONFIRMASI PRESENSI (LEMBUR AWAL / IZIN TERLAMBAT & LEMBUR SORE/MALAM) */}
+      {attConfirmModal && attConfirmModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs"
+            onClick={() => setAttConfirmModal(null)}
+          />
+          <div className="relative z-10 w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="px-6 py-4.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+              <div className="flex items-center gap-2.5">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-white shadow-xs ${
+                  attConfirmModal.scenario === 'early_in' ? 'bg-indigo-600' :
+                  attConfirmModal.scenario === 'late_in' ? 'bg-rose-600' :
+                  attConfirmModal.scenario === 'late_out_overtime' ? 'bg-amber-600' : 'bg-purple-600'
+                }`}>
+                  {attConfirmModal.scenario === 'late_in' ? <AlertCircle className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
+                    {attConfirmModal.scenario === 'early_in' ? 'Konfirmasi Datang Lebih Awal (Lembur Pagi?)' :
+                     attConfirmModal.scenario === 'late_in' ? 'Konfirmasi Jam Masuk (Terlambat / Izin?)' :
+                     attConfirmModal.scenario === 'late_out_overtime' ? 'Konfirmasi Jam Pulang (Lembur Sore/Malam?)' :
+                     'Konfirmasi Presensi Hari Libur (Lembur Penuh)'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    Sinkronisasi dengan Tolak Ukur Kerja &amp; Keputusan Manajemen
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAttConfirmModal(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4 overflow-y-auto text-xs">
+              {/* Card Detail Jam Aktual vs Baku */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 grid grid-cols-2 gap-3">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase block">Jam Presensi Aktual</span>
+                  <span className="text-base font-extrabold text-slate-900 font-mono">{attConfirmModal.time}</span>
+                  <span className="text-[10px] text-slate-500 block">Pukul saat presensi</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase block">
+                    {attConfirmModal.mode === 'in' ? 'Jam Masuk Baku' : 'Jam Pulang Baku'}
+                  </span>
+                  <span className="text-base font-extrabold text-indigo-700 font-mono">
+                    {attConfirmModal.mode === 'in' ? workPolicy.standardCheckInTime : workPolicy.standardCheckOutTime}
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">
+                    {attConfirmModal.mode === 'in' ? `Toleransi: ${workPolicy.lateToleranceMinutes}m` : `Batas lembur: ${workPolicy.lateOvertimeThresholdMinutes !== undefined ? workPolicy.lateOvertimeThresholdMinutes : 30}m`}
+                  </span>
+                </div>
+              </div>
+
+              {/* KASUS 1: CLOCK IN LEBIH AWAL (Lembur Pagi?) */}
+              {attConfirmModal.scenario === 'early_in' && (
+                <div className="space-y-3">
+                  <div className="p-3.5 rounded-2xl bg-indigo-50/80 border border-indigo-200 text-indigo-900 space-y-1">
+                    <div className="font-bold flex items-center gap-1.5 text-xs">
+                      <Sparkles className="w-4 h-4 text-indigo-600" />
+                      <span>Anda datang {attConfirmModal.diffMinutes} menit lebih awal</span>
+                    </div>
+                    <p className="text-[11px] text-indigo-800 leading-snug">
+                      Apakah kedatangan awal ini dihitung sebagai <strong>Lembur Pagi</strong> (+{attConfirmModal.calculatedOvertimeHours} Jam)
+                      atas penugasan / persetujuan atasan? Jam reguler tetap dihitung mulai pukul {workPolicy.standardCheckInTime}.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setAttConfirmModal({ ...attConfirmModal, isOvertimeConfirmed: true })}
+                      className={`p-3 rounded-2xl border text-left transition-all ${
+                        attConfirmModal.isOvertimeConfirmed
+                          ? 'border-indigo-600 bg-indigo-600 text-white shadow-xs'
+                          : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-800'
+                      }`}
+                    >
+                      <div className="font-extrabold text-xs">Ya, Hitung Lembur</div>
+                      <div className={`text-[10px] mt-0.5 ${attConfirmModal.isOvertimeConfirmed ? 'text-indigo-100' : 'text-slate-500'}`}>
+                        +{attConfirmModal.calculatedOvertimeHours} Jam Lembur Pagi
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setAttConfirmModal({ ...attConfirmModal, isOvertimeConfirmed: false })}
+                      className={`p-3 rounded-2xl border text-left transition-all ${
+                        !attConfirmModal.isOvertimeConfirmed
+                          ? 'border-indigo-600 bg-indigo-600 text-white shadow-xs'
+                          : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-800'
+                      }`}
+                    >
+                      <div className="font-extrabold text-xs">Tidak, Hadir Normal</div>
+                      <div className={`text-[10px] mt-0.5 ${!attConfirmModal.isOvertimeConfirmed ? 'text-indigo-100' : 'text-slate-500'}`}>
+                        Mulai reguler jam {workPolicy.standardCheckInTime}
+                      </div>
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Keterangan Tugas Pagi / Persetujuan Atasan
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={attConfirmModal.overtimeReason}
+                      onChange={(e) => setAttConfirmModal({ ...attConfirmModal, overtimeReason: e.target.value })}
+                      placeholder="Contoh: Datang awal menyiapkan ruangan meeting klien dan berkas kerja..."
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* KASUS 2: CLOCK IN TERLAMBAT (Lewat dari Jam Masuk Baku) */}
+              {attConfirmModal.scenario === 'late_in' && (
+                <div className="space-y-3">
+                  <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-900 space-y-1">
+                    <div className="font-bold flex items-center gap-1.5 text-xs">
+                      <AlertCircle className="w-4 h-4 text-rose-600" />
+                      <span>Terlambat {attConfirmModal.diffMinutes} menit dari jam baku ({workPolicy.standardCheckInTime})</span>
+                    </div>
+                    <p className="text-[11px] text-rose-800 leading-snug">
+                      Toleransi keterlambatan baku adalah {workPolicy.lateToleranceMinutes} menit. Silakan konfirmasi apakah ini
+                      merupakan <strong>Izin Terlambat Resmi</strong> (dengan dispensasi tugas) atau Terlambat Biasa.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setAttConfirmModal({ ...attConfirmModal, lateChoice: 'izin' })}
+                      className={`p-3 rounded-2xl border text-left transition-all ${
+                        attConfirmModal.lateChoice === 'izin'
+                          ? 'border-indigo-600 bg-indigo-600 text-white shadow-xs'
+                          : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-800'
+                      }`}
+                    >
+                      <div className="font-extrabold text-xs">Izin Terlambat</div>
+                      <div className={`text-[10px] mt-0.5 ${attConfirmModal.lateChoice === 'izin' ? 'text-indigo-100' : 'text-slate-500'}`}>
+                        Dispensasi resmi / tugas luar
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setAttConfirmModal({ ...attConfirmModal, lateChoice: 'telat' })}
+                      className={`p-3 rounded-2xl border text-left transition-all ${
+                        attConfirmModal.lateChoice === 'telat'
+                          ? 'border-rose-600 bg-rose-600 text-white shadow-xs'
+                          : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-800'
+                      }`}
+                    >
+                      <div className="font-extrabold text-xs">Terlambat Biasa</div>
+                      <div className={`text-[10px] mt-0.5 ${attConfirmModal.lateChoice === 'telat' ? 'text-rose-100' : 'text-slate-500'}`}>
+                        Catatan keterlambatan harian
+                      </div>
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Alasan Keterlambatan <span className="text-rose-500">*</span>
+                    </label>
+                    <textarea
+                      rows={2}
+                      required
+                      value={attConfirmModal.lateReason}
+                      onChange={(e) => setAttConfirmModal({ ...attConfirmModal, lateReason: e.target.value })}
+                      placeholder="Contoh: Terjebak macet kecelakaan di tol lingkar luar / dinas mampir vendor pagi..."
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* KASUS 3: CLOCK OUT SORE / MALAM (Lembur Akhir?) */}
+              {attConfirmModal.scenario === 'late_out_overtime' && (
+                <div className="space-y-3">
+                  <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200 text-amber-900 space-y-1">
+                    <div className="font-bold flex items-center gap-1.5 text-xs">
+                      <Clock className="w-4 h-4 text-amber-600" />
+                      <span>Pulang {attConfirmModal.diffMinutes} menit setelah jam pulang baku ({workPolicy.standardCheckOutTime})</span>
+                    </div>
+                    <p className="text-[11px] text-amber-800 leading-snug">
+                      Ambang batas lembur sore adalah {workPolicy.lateOvertimeThresholdMinutes !== undefined ? workPolicy.lateOvertimeThresholdMinutes : 30} menit.
+                      Apakah waktu tambahan ini dihitung sebagai <strong>Lembur Sore / Malam</strong> (+{attConfirmModal.calculatedOvertimeHours} Jam)?
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setAttConfirmModal({ ...attConfirmModal, isOvertimeConfirmed: true })}
+                      className={`p-3 rounded-2xl border text-left transition-all ${
+                        attConfirmModal.isOvertimeConfirmed
+                          ? 'border-amber-600 bg-amber-600 text-white shadow-xs'
+                          : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-800'
+                      }`}
+                    >
+                      <div className="font-extrabold text-xs">Ya, Hitung Lembur</div>
+                      <div className={`text-[10px] mt-0.5 ${attConfirmModal.isOvertimeConfirmed ? 'text-amber-100' : 'text-slate-500'}`}>
+                        +{attConfirmModal.calculatedOvertimeHours} Jam Lembur Sore
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setAttConfirmModal({ ...attConfirmModal, isOvertimeConfirmed: false })}
+                      className={`p-3 rounded-2xl border text-left transition-all ${
+                        !attConfirmModal.isOvertimeConfirmed
+                          ? 'border-indigo-600 bg-indigo-600 text-white shadow-xs'
+                          : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-800'
+                      }`}
+                    >
+                      <div className="font-extrabold text-xs">Tidak, Selesai Shift Reguler</div>
+                      <div className={`text-[10px] mt-0.5 ${!attConfirmModal.isOvertimeConfirmed ? 'text-indigo-100' : 'text-slate-500'}`}>
+                        Hanya hitung jam kerja normal
+                      </div>
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Keterangan Pekerjaan Lembur / Proyek yang Diselesaikan
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={attConfirmModal.overtimeReason}
+                      onChange={(e) => setAttConfirmModal({ ...attConfirmModal, overtimeReason: e.target.value })}
+                      placeholder="Contoh: Menyelesaikan revisi video promosi dan upload aset render..."
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* KASUS 4: PRESENSI HARI LIBUR / AKHIR PEKAN (Lembur Penuh) */}
+              {attConfirmModal.scenario === 'holiday_work' && (
+                <div className="space-y-3">
+                  <div className="p-3.5 rounded-2xl bg-purple-50 border border-purple-200 text-purple-900 space-y-1">
+                    <div className="font-bold flex items-center gap-1.5 text-xs">
+                      <Sparkles className="w-4 h-4 text-purple-600" />
+                      <span>Presensi Hari Libur / Akhir Pekan Terkonfirmasi</span>
+                    </div>
+                    <p className="text-[11px] text-purple-800 leading-snug">
+                      Berdasarkan tolak ukur baku ({workPolicy.workDaysPerWeek} hari kerja), hari ini adalah hari libur. Seluruh durasi
+                      pekerjaan Anda otomatis masuk hitungan <strong>LEMBUR PENUH (100% Overtime)</strong>.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Keterangan Tugas Lembur Hari Libur
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={attConfirmModal.overtimeReason}
+                      onChange={(e) => setAttConfirmModal({ ...attConfirmModal, overtimeReason: e.target.value })}
+                      placeholder="Contoh: Pengawasan pengerjaan lapangan darurat / penugasan event akhir pekan..."
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Actions */}
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/90 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setAttConfirmModal(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-200 transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  let shiftCategory: WorkShiftCategory = 'normal';
+                  let shiftNotes = '';
+                  let overtimeHours = 0;
+                  let isLate = false;
+                  let lateReason = '';
+                  let isOvertimeConfirmed = attConfirmModal.isOvertimeConfirmed;
+                  let overtimeReason = attConfirmModal.overtimeReason.trim();
+
+                  if (attConfirmModal.scenario === 'early_in') {
+                    if (isOvertimeConfirmed) {
+                      shiftCategory = 'lembur_awal';
+                      overtimeHours = attConfirmModal.calculatedOvertimeHours;
+                      shiftNotes = overtimeReason || `Lembur Pagi: Datang ${attConfirmModal.diffMinutes} menit lebih awal`;
+                    } else {
+                      shiftCategory = 'normal';
+                      shiftNotes = `Shift Normal: Masuk awal ${attConfirmModal.diffMinutes} menit (Hadir Reguler)`;
+                      overtimeHours = 0;
+                    }
+                  } else if (attConfirmModal.scenario === 'late_in') {
+                    isLate = true;
+                    lateReason = attConfirmModal.lateReason.trim() || (attConfirmModal.lateChoice === 'izin' ? 'Izin Terlambat' : 'Terlambat');
+                    shiftCategory = 'normal';
+                    shiftNotes = attConfirmModal.lateChoice === 'izin'
+                      ? `Izin Terlambat (+${attConfirmModal.diffMinutes}m): ${lateReason}`
+                      : `Terlambat (+${attConfirmModal.diffMinutes}m): ${lateReason}`;
+                  } else if (attConfirmModal.scenario === 'late_out_overtime') {
+                    if (isOvertimeConfirmed) {
+                      shiftCategory = 'lembur_akhir';
+                      overtimeHours = attConfirmModal.calculatedOvertimeHours;
+                      shiftNotes = overtimeReason || `Lembur Sore/Malam: Pulang ${attConfirmModal.diffMinutes} menit setelah jam pulang baku`;
+                    } else {
+                      shiftCategory = 'normal';
+                      shiftNotes = `Shift Normal: Pulang ${attConfirmModal.time} (Reguler)`;
+                      overtimeHours = 0;
+                    }
+                  } else if (attConfirmModal.scenario === 'holiday_work') {
+                    shiftCategory = 'lembur_penuh';
+                    shiftNotes = overtimeReason || 'Lembur Hari Libur / Akhir Pekan Penuh';
+                  }
+
+                  executeAttendanceSave({
+                    mode: attConfirmModal.mode,
+                    date: attConfirmModal.date,
+                    time: attConfirmModal.time,
+                    photoUrl: attConfirmModal.photoUrl,
+                    location: attConfirmModal.location,
+                    shiftCategory,
+                    shiftNotes,
+                    regularWorkHours: undefined,
+                    overtimeHours: overtimeHours > 0 ? overtimeHours : undefined,
+                    isLate,
+                    lateReason,
+                    isOvertimeConfirmed,
+                    overtimeReason,
+                    notes: shiftNotes,
+                  });
+                }}
+                className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all"
+              >
+                <CheckCircle className="w-4 h-4" />
+                <span>Konfirmasi &amp; Simpan Presensi</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL PENYESUAIAN KETERANGAN LEMBUR OLEH ATASAN / PEKERJA */}
+      {editingOvertimeRecord && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs"
+            onClick={() => setEditingOvertimeRecord(null)}
+          />
+          <div className="relative z-10 w-full max-w-md bg-white rounded-3xl shadow-xl border border-slate-200 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                  <Sliders className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm sm:text-base">
+                    Sesuaikan Keterangan Lembur
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    {formatDateFullIndo(editingOvertimeRecord.date)} • {editingOvertimeRecord.ownerName}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingOvertimeRecord(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!currentUser) return;
+                const otPayload: any = {
+                  date: editingOvertimeRecord.date,
+                  type: editingOvertimeRecord.type,
+                  checkInTime: editingOvertimeRecord.checkInTime,
+                  checkOutTime: editingOvertimeRecord.checkOutTime,
+                  overtimeHours: Number(editOtHoursInput) || 0,
+                  shiftCategory: editOtCategoryInput,
+                  shiftNotes: editOtReasonInput.trim() || 'Lembur disesuaikan atasan',
+                  overtimeReason: editOtReasonInput.trim(),
+                  isOvertimeConfirmed: Number(editOtHoursInput) > 0,
+                  notes: editOtReasonInput.trim() || editingOvertimeRecord.notes,
+                };
+                const updated = await db.recordAttendance(otPayload, currentUser);
+                setAttendance(updated);
+                setEditingOvertimeRecord(null);
+                showToast('Catatan & jam lembur berhasil disesuaikan!');
+              }}
+              className="space-y-3.5 text-xs"
+            >
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Kategori Shift Lembur
+                </label>
+                <select
+                  value={editOtCategoryInput}
+                  onChange={(e) => setEditOtCategoryInput(e.target.value as WorkShiftCategory)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none"
+                >
+                  <option value="lembur_akhir">Lembur Sore / Malam</option>
+                  <option value="lembur_awal">Lembur Pagi (Awal)</option>
+                  <option value="lembur_penuh">Lembur Hari Libur / Akhir Pekan</option>
+                  <option value="normal">Shift Reguler Normal (Tanpa Lembur)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Durasi Jam Lembur (Jam)
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.5"
+                    min={0}
+                    max={24}
+                    value={editOtHoursInput}
+                    onChange={(e) => setEditOtHoursInput(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono pr-12 focus:outline-none"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                    Jam
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Keterangan Lembur / Keputusan Atasan
+                </label>
+                <textarea
+                  rows={3}
+                  value={editOtReasonInput}
+                  onChange={(e) => setEditOtReasonInput(e.target.value)}
+                  placeholder="Keterangan persetujuan atasan atau uraian tugas lembur..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingOvertimeRecord(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-xs"
+                >
+                  Simpan Keputusan Lembur
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
