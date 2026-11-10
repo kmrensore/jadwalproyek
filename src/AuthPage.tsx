@@ -87,10 +87,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
       } else {
         // Sign In
         if (db.signIn) {
-          const res = await db.signIn({
-            email: cleanEmail,
-            password: cleanPassword,
-          });
+          const res = await db.signIn(cleanEmail, cleanPassword);
 
           if (res.error) {
             setErrorMessage(res.error);
