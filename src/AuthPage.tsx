@@ -153,30 +153,32 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
     }
   };
 
-  // Titik partikel floating data ala DeepMind
-  const particles = [
-    { top: '15%', left: '8%', glyph: '4', size: '10px', opacity: 0.4 },
-    { top: '22%', left: '18%', glyph: '4', size: '12px', opacity: 0.6 },
-    { top: '12%', left: '28%', glyph: '•', size: '8px', opacity: 0.3 },
-    { top: '28%', left: '38%', glyph: '4', size: '11px', opacity: 0.5 },
-    { top: '18%', left: '46%', glyph: '4', size: '9px', opacity: 0.4 },
-    { top: '14%', left: '55%', glyph: '4', size: '13px', opacity: 0.7 },
-    { top: '25%', left: '68%', glyph: '4', size: '10px', opacity: 0.5 },
-    { top: '16%', left: '78%', glyph: '•', size: '8px', opacity: 0.3 },
-    { top: '20%', left: '88%', glyph: '4', size: '12px', opacity: 0.6 },
-    { top: '35%', left: '5%', glyph: '4', size: '10px', opacity: 0.5 },
-    { top: '42%', left: '14%', glyph: '4', size: '11px', opacity: 0.4 },
-    { top: '38%', left: '24%', glyph: '•', size: '8px', opacity: 0.3 },
-    { top: '48%', left: '32%', glyph: '4', size: '12px', opacity: 0.5 },
-    { top: '36%', left: '62%', glyph: '4', size: '10px', opacity: 0.4 },
-    { top: '45%', left: '72%', glyph: '4', size: '12px', opacity: 0.6 },
-    { top: '40%', left: '85%', glyph: '4', size: '10px', opacity: 0.5 },
-    { top: '55%', left: '8%', glyph: '4', size: '11px', opacity: 0.4 },
-    { top: '65%', left: '16%', glyph: '•', size: '8px', opacity: 0.3 },
-    { top: '58%', left: '26%', glyph: '4', size: '10px', opacity: 0.5 },
-    { top: '62%', left: '75%', glyph: '4', size: '12px', opacity: 0.5 },
-    { top: '56%', left: '88%', glyph: '4', size: '11px', opacity: 0.4 },
-    { top: '70%', left: '82%', glyph: '•', size: '8px', opacity: 0.3 },
+    // Partikel-partikel bercahaya yang melayang dan berjalan perlahan di latar belakang hero
+  const glowingParticles = [
+    { top: '12%', left: '7%', size: 4, opacity: 0.75, duration: '14s', delay: '0s', glow: '#38bdf8' },
+    { top: '18%', left: '16%', size: 3, opacity: 0.6, duration: '19s', delay: '-3s', glow: '#ffffff' },
+    { top: '10%', left: '26%', size: 5, opacity: 0.8, duration: '23s', delay: '-7s', glow: '#60a5fa' },
+    { top: '24%', left: '34%', size: 3, opacity: 0.55, duration: '16s', delay: '-2s', glow: '#93c5fd' },
+    { top: '16%', left: '44%', size: 4, opacity: 0.7, duration: '21s', delay: '-9s', glow: '#ffffff' },
+    { top: '12%', left: '56%', size: 5, opacity: 0.85, duration: '15s', delay: '-4s', glow: '#38bdf8' },
+    { top: '22%', left: '66%', size: 3, opacity: 0.65, duration: '20s', delay: '-8s', glow: '#60a5fa' },
+    { top: '14%', left: '76%', size: 4, opacity: 0.6, duration: '18s', delay: '-1s', glow: '#ffffff' },
+    { top: '18%', left: '86%', size: 5, opacity: 0.8, duration: '22s', delay: '-5s', glow: '#38bdf8' },
+    { top: '32%', left: '5%', size: 3, opacity: 0.5, duration: '17s', delay: '-6s', glow: '#93c5fd' },
+    { top: '38%', left: '14%', size: 4, opacity: 0.7, duration: '24s', delay: '-11s', glow: '#ffffff' },
+    { top: '34%', left: '23%', size: 3, opacity: 0.6, duration: '18s', delay: '-3s', glow: '#60a5fa' },
+    { top: '44%', left: '30%', size: 4, opacity: 0.75, duration: '15s', delay: '-7s', glow: '#38bdf8' },
+    { top: '36%', left: '60%', size: 5, opacity: 0.8, duration: '25s', delay: '-10s', glow: '#ffffff' },
+    { top: '42%', left: '70%', size: 3, opacity: 0.55, duration: '17s', delay: '-4s', glow: '#93c5fd' },
+    { top: '38%', left: '82%', size: 4, opacity: 0.7, duration: '20s', delay: '-8s', glow: '#38bdf8' },
+    { top: '48%', left: '90%', size: 3, opacity: 0.45, duration: '16s', delay: '-2s', glow: '#ffffff' },
+    { top: '54%', left: '9%', size: 4, opacity: 0.65, duration: '22s', delay: '-5s', glow: '#60a5fa' },
+    { top: '62%', left: '17%', size: 3, opacity: 0.5, duration: '19s', delay: '-9s', glow: '#ffffff' },
+    { top: '56%', left: '26%', size: 5, opacity: 0.75, duration: '26s', delay: '-12s', glow: '#38bdf8' },
+    { top: '60%', left: '74%', size: 4, opacity: 0.7, duration: '18s', delay: '-6s', glow: '#60a5fa' },
+    { top: '55%', left: '85%', size: 3, opacity: 0.55, duration: '23s', delay: '-11s', glow: '#ffffff' },
+    { top: '68%', left: '80%', size: 4, opacity: 0.65, duration: '16s', delay: '-3s', glow: '#38bdf8' },
+    { top: '72%', left: '20%', size: 3, opacity: 0.5, duration: '21s', delay: '-8s', glow: '#93c5fd' },
   ];
 
   return (
@@ -246,7 +248,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
         onMouseEnter={() => setIsHoveringHero(true)}
         onMouseLeave={() => setIsHoveringHero(false)}
         onMouseMove={handleMouseMoveHero}
-        className="relative w-full min-h-screen flex flex-col justify-between pt-8 pb-10 sm:pt-16 sm:pb-14 text-center z-10 overflow-hidden bg-transparent"
+        className="relative w-full min-h-screen flex flex-col justify-between pt-4 pb-8 sm:pt-12 sm:pb-14 text-center z-10 overflow-hidden bg-transparent"
       >
         {/* =====================================================================
             GRADASI RADIANT COBALT / SAPPHIRE BLUE GLOW ALA DEEPMIND
@@ -276,20 +278,36 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             className="absolute w-[500px] h-[350px] rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.12),rgba(175,82,222,0.1),transparent_70%)] blur-[90px]"
           />
 
-          {/* Partikel Data Mengambang Halus Seperti Angka "4" di DeepMind */}
-          {particles.map((p, idx) => (
+          {/* Partikel Bercahaya Berjalan Perlahan di Latar Belakang */}
+          <style>{`
+            @keyframes slowParticleDrift {
+              0% {
+                transform: translate3d(0, 0, 0) scale(1);
+              }
+              50% {
+                transform: translate3d(16px, -28px, 0) scale(1.2);
+              }
+              100% {
+                transform: translate3d(-12px, -52px, 0) scale(0.9);
+              }
+            }
+          `}</style>
+          {glowingParticles.map((p, idx) => (
             <div
               key={idx}
               style={{
                 top: p.top,
                 left: p.left,
-                fontSize: p.size,
+                width: `${p.size}px`,
+                height: `${p.size}px`,
                 opacity: p.opacity,
+                boxShadow: `0 0 ${p.size * 2.5}px ${p.glow}, 0 0 ${p.size * 5}px rgba(56, 189, 248, 0.45)`,
+                backgroundColor: p.glow,
+                animation: `slowParticleDrift ${p.duration} ease-in-out infinite alternate`,
+                animationDelay: p.delay,
               }}
-              className="absolute font-mono font-bold text-white pointer-events-none select-none tracking-widest transition-transform duration-1000 ease-out"
-            >
-              {p.glyph}
-            </div>
+              className="absolute rounded-full pointer-events-none select-none"
+            />
           ))}
 
           {/* =====================================================================
@@ -410,19 +428,19 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
         {/* =====================================================================
             KONTEN UTAMA HERO: TYPOGRAFI MODERN & ELEGAN SESUAI ARAHAN PENGGUNA
            ===================================================================== */}
-        <div className="relative z-10 max-w-5xl mx-auto my-auto py-12 px-4 space-y-8">
+        <div className="relative z-10 max-w-5xl mx-auto my-auto py-6 sm:py-10 md:py-12 px-4 sm:px-6 space-y-5 sm:space-y-7">
           {/* Tag Kicker Modern Glass */}
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.08] border border-white/20 text-[#38bdf8] text-xs font-bold uppercase tracking-wider backdrop-blur-xl shadow-lg shadow-black/40">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1 sm:px-4 sm:py-1.5 rounded-full bg-white/[0.08] border border-white/20 text-[#38bdf8] text-[11px] sm:text-xs font-bold uppercase tracking-wider backdrop-blur-xl shadow-lg shadow-black/40">
             <Sparkles className="w-3.5 h-3.5 text-[#38bdf8]" />
             <span>Arsitektur Kinerja &bull; Bukti Nyata Terukur 2026</span>
           </div>
 
           {/* Headline Modern Berisi Filosofi Kerja Sesuai Arahan Pengguna */}
-          <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight text-white leading-[1.2] font-sans max-w-5xl mx-auto">
+          <h1 className="text-2xl sm:text-4xl md:text-5xl lg:text-7xl font-bold tracking-tight text-white leading-[1.25] sm:leading-[1.2] font-sans max-w-5xl mx-auto">
             Seorang profesional tidak sekadar{' '}
             <span className="italic font-normal text-blue-200 relative inline-block">
               &ldquo;bekerja keras&rdquo;
-              <span className="absolute -bottom-1 left-0 right-0 h-0.5 bg-[#38bdf8]/60 rounded-full" />
+              <span className="absolute -bottom-0.5 left-0 right-0 h-0.5 bg-[#38bdf8]/60 rounded-full" />
             </span>
             , melainkan mampu membuktikan{' '}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#93c5fd] via-[#ffffff] to-[#38bdf8] font-black">
@@ -435,18 +453,18 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
           </h1>
 
           {/* Subtitle Ringkas Berkelas */}
-          <div className="max-w-3xl mx-auto pt-1">
-            <p className="text-sm sm:text-base text-blue-100/80 font-normal leading-relaxed tracking-wide">
+          <div className="max-w-3xl mx-auto">
+            <p className="text-xs sm:text-sm md:text-base text-blue-100/80 font-normal leading-relaxed tracking-wide">
               Platform manajemen jadwal proyek, presensi jam bersih potong istirahat, lembur genap, dan evaluasi berbasis bukti data konkret.
             </p>
           </div>
 
           {/* Dua Tombol Aksi Kapsul Elegan */}
-          <div className="flex flex-wrap items-center justify-center gap-4 pt-3">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 pt-1 sm:pt-3">
             <button
               type="button"
               onClick={() => openAuth(true)}
-              className="px-8 py-3.5 rounded-full bg-white text-black font-bold text-sm hover:bg-slate-200 transition-all shadow-2xl shadow-black/40 transform hover:-translate-y-0.5 flex items-center gap-2.5"
+              className="w-full sm:w-auto px-7 sm:px-8 py-3 sm:py-3.5 rounded-full bg-white text-black font-bold text-xs sm:text-sm hover:bg-slate-200 transition-all shadow-2xl shadow-black/40 transform hover:-translate-y-0.5 flex items-center justify-center gap-2.5"
             >
               <span>Buka Workspace</span>
               <ArrowRight className="w-4 h-4" />
@@ -454,7 +472,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             <button
               type="button"
               onClick={() => openAuth(false)}
-              className="px-7 py-3.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-white font-semibold text-sm border border-white/20 backdrop-blur-xl transition-colors"
+              className="w-full sm:w-auto px-6 sm:px-7 py-3 sm:py-3.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-white font-semibold text-xs sm:text-sm border border-white/20 backdrop-blur-xl transition-colors flex items-center justify-center"
             >
               <span>Pelajari Fitur</span>
             </button>
@@ -462,14 +480,16 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
         </div>
 
         {/* =====================================================================
-            STRIP KARTU FITUR DI BAGIAN BAWAH HERO (PERSIS STRIP KARTU DEEPMIND)
+            STRIP KARTU FITUR DI BAGIAN BAWAH HERO (RESPONSIF HORISONTAL SWIPE DI MOBILE)
            ===================================================================== */}
-        <div className="relative z-10 w-full px-4 sm:px-8 lg:px-16 pt-8 pb-2">
-          <div className="w-full grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4 text-left">
+        <div className="relative z-10 w-full px-4 sm:px-8 lg:px-16 pt-4 sm:pt-8 pb-4">
+          {/* Mobile Swipe Hint */}
+          <div className="flex md:hidden items-center justify-center gap-1.5 text-[10px] text-blue-200/70 font-semibold mb-2">
+            <span>&larr; Geser kartu fitur &rarr;</span>
+          </div>
+          <div className="w-full flex overflow-x-auto no-scrollbar md:grid md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4 text-left pb-2 snap-x snap-mandatory">
             {/* Kartu 1: Kalender */}
-            <a
-              href="#kalender-section"
-              className="p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-white/[0.09] via-slate-900/70 to-[#0a1b38]/80 hover:from-white/[0.14] hover:to-[#0f244c]/90 border border-slate-300/25 border-t-white/40 backdrop-blur-2xl shadow-xl shadow-black/60 transition-all group block"
+            <a href="#kalender-section" className="min-w-[210px] sm:min-w-0 flex-shrink-0 md:flex-shrink p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-white/[0.09] via-slate-900/70 to-[#0a1b38]/80 hover:from-white/[0.14] hover:to-[#0f244c]/90 border border-slate-300/25 border-t-white/40 backdrop-blur-2xl shadow-xl shadow-black/60 transition-all group block snap-center"
             >
               <div className="flex items-center justify-between text-xs text-white/60 mb-2">
                 <span className="font-semibold text-[#38bdf8]">Fitur 01</span>
@@ -484,9 +504,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             </a>
 
             {/* Kartu 2: 4 Grafik */}
-            <a
-              href="#grafik-section"
-              className="p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-white/[0.09] via-slate-900/70 to-[#0a1b38]/80 hover:from-white/[0.14] hover:to-[#0f244c]/90 border border-slate-300/25 border-t-white/40 backdrop-blur-2xl shadow-xl shadow-black/60 transition-all group block"
+            <a href="#grafik-section" className="min-w-[210px] sm:min-w-0 flex-shrink-0 md:flex-shrink p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-white/[0.09] via-slate-900/70 to-[#0a1b38]/80 hover:from-white/[0.14] hover:to-[#0f244c]/90 border border-slate-300/25 border-t-white/40 backdrop-blur-2xl shadow-xl shadow-black/60 transition-all group block snap-center"
             >
               <div className="flex items-center justify-between text-xs text-white/60 mb-2">
                 <span className="font-semibold text-[#bf5af2]">Fitur 02</span>
@@ -501,9 +519,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             </a>
 
             {/* Kartu 3: Presensi */}
-            <a
-              href="#presensi-section"
-              className="p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-white/[0.09] via-slate-900/70 to-[#0a1b38]/80 hover:from-white/[0.14] hover:to-[#0f244c]/90 border border-slate-300/25 border-t-white/40 backdrop-blur-2xl shadow-xl shadow-black/60 transition-all group block"
+            <a href="#presensi-section" className="min-w-[210px] sm:min-w-0 flex-shrink-0 md:flex-shrink p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-white/[0.09] via-slate-900/70 to-[#0a1b38]/80 hover:from-white/[0.14] hover:to-[#0f244c]/90 border border-slate-300/25 border-t-white/40 backdrop-blur-2xl shadow-xl shadow-black/60 transition-all group block snap-center"
             >
               <div className="flex items-center justify-between text-xs text-white/60 mb-2">
                 <span className="font-semibold text-[#30d158]">Fitur 03</span>
@@ -518,9 +534,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             </a>
 
             {/* Kartu 4: Bank Ide */}
-            <a
-              href="#bank-ide-section"
-              className="p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-white/[0.09] via-slate-900/70 to-[#0a1b38]/80 hover:from-white/[0.14] hover:to-[#0f244c]/90 border border-slate-300/25 border-t-white/40 backdrop-blur-2xl shadow-xl shadow-black/60 transition-all group block"
+            <a href="#bank-ide-section" className="min-w-[210px] sm:min-w-0 flex-shrink-0 md:flex-shrink p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-white/[0.09] via-slate-900/70 to-[#0a1b38]/80 hover:from-white/[0.14] hover:to-[#0f244c]/90 border border-slate-300/25 border-t-white/40 backdrop-blur-2xl shadow-xl shadow-black/60 transition-all group block snap-center"
             >
               <div className="flex items-center justify-between text-xs text-white/60 mb-2">
                 <span className="font-semibold text-[#ff9f0a]">Fitur 04</span>
@@ -582,7 +596,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             </div>
             
             {/* KPI Ringkas Fitur Kalender */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 w-full lg:w-auto shrink-0">
               <div className="p-3.5 rounded-2xl bg-gradient-to-r from-slate-400/10 via-blue-500/15 to-slate-400/10 border-b border-slate-300/25 border border-blue-400/30 text-center">
                 <span className="block text-xl font-black text-[#38bdf8]">38</span>
                 <span className="text-[10px] uppercase font-bold text-blue-200">Proyek 2026</span>
@@ -639,18 +653,26 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             </div>
 
             {/* Nama Hari */}
-            <div className="grid grid-cols-7 border-b border-blue-400/25 text-center text-xs font-black py-3 bg-slate-900/90 border-b border-slate-300/20 uppercase tracking-wider text-blue-200">
-              <span>Senin</span>
-              <span>Selasa</span>
-              <span>Rabu</span>
-              <span>Kamis</span>
-              <span>Jumat</span>
-              <span className="text-[#ff6b81]">Sabtu</span>
-              <span className="text-[#ff6b81]">Minggu</span>
+            <div className="overflow-x-auto w-full no-scrollbar">
+              <div className="min-w-[760px] sm:min-w-full grid grid-cols-7 border-b border-slate-300/25 text-center text-xs font-black py-3 bg-slate-900/95 uppercase tracking-wider text-blue-200">
+                <span>Senin</span>
+                <span>Selasa</span>
+                <span>Rabu</span>
+                <span>Kamis</span>
+                <span>Jumat</span>
+                <span className="text-[#ff6b81]">Sabtu</span>
+                <span className="text-[#ff6b81]">Minggu</span>
+              </div>
             </div>
 
             {/* Grid Kalender Responsif: Preview Sebulan Penuh Proyek Aktif (November 2026) */}
-            <div className="grid grid-cols-7 auto-rows-fr divide-x divide-y divide-slate-400/20 text-xs">
+            {/* Wrapper Horisontal Kalender agar rapi dan tidak nimpah-nimpah di layar HP */}
+            <div className="flex sm:hidden items-center justify-between px-4 py-2.5 bg-blue-500/15 border-b border-slate-300/20 text-[11px] text-[#38bdf8] font-bold">
+              <span>&larr; Geser kalender untuk melihat seluruh hari &rarr;</span>
+              <span className="text-[10px] text-slate-300 font-mono">Nov 2026</span>
+            </div>
+            <div className="overflow-x-auto w-full no-scrollbar">
+              <div className="min-w-[760px] sm:min-w-full grid grid-cols-7 auto-rows-fr divide-x divide-y divide-slate-400/20 text-xs">
               {/* Baris 1: 26 Okt - 1 Nov (Awal Bulan) */}
               <div className="p-2 sm:p-3 min-h-[110px] sm:min-h-[135px] bg-black/40 text-slate-500">
                 <span className="font-semibold text-slate-500">26</span>
@@ -1053,6 +1075,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
               </div>
             </div>
 
+              </div>
             {/* Bottom Bar Kalender */}
             <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-400/10 via-blue-500/15 to-slate-400/10 border-b border-slate-300/25 border-t border-blue-400/25 flex flex-wrap items-center justify-between gap-4 text-xs text-blue-100">
               <div className="flex items-center gap-2">
@@ -1071,9 +1094,8 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
           </div>
         </div>
 
-        {/* Gradasi Lembut Menuju Hitam Pekat di Bawah Hero */}
-        <div className="absolute bottom-0 inset-x-0 h-48 pointer-events-none bg-gradient-to-b from-transparent via-[#000000]/70 to-[#000000] z-1" />
-      </section>
+
+            </section>
 
       {/* =====================================================================
           FITUR 02: DASHBOARD 4 GRAFIK GARIS ANALITIK KINERJA 1 TAHUN PENUH (2026)
@@ -1109,7 +1131,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
           {/* GRID 2X2 EMPAT GRAFIK GARIS ANALITIK SVG 12 BULAN LENGKAP */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 xl:gap-8">
             {/* GRAFIK 1: TREN TAHUNAN 12 BULAN (JANUARI - DESEMBER 2026) */}
-            <div className="p-6 sm:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
+            <div className="p-4 sm:p-6 md:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
               <div className="flex items-start justify-between gap-3 border-b border-blue-400/20 pb-4">
                 <div>
                   <span className="text-xs font-black text-[#38bdf8] uppercase tracking-wider flex items-center gap-1.5">
@@ -1231,7 +1253,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             </div>
 
             {/* GRAFIK 2: AKUMULASI DURASI KERJA PROYEK 1 TAHUN (DAYS RANKING) */}
-            <div className="p-6 sm:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
+            <div className="p-4 sm:p-6 md:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
               <div className="flex items-start justify-between gap-3 border-b border-blue-400/20 pb-4">
                 <div>
                   <span className="text-xs font-black text-[#30d158] uppercase tracking-wider flex items-center gap-1.5">
@@ -1331,7 +1353,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             </div>
 
             {/* GRAFIK 3: FLUKTUASI DISIPLIN PRESENSI 12 BULAN (JAN - DES 2026) */}
-            <div className="p-6 sm:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
+            <div className="p-4 sm:p-6 md:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
               <div className="flex items-start justify-between gap-3 border-b border-blue-400/20 pb-4">
                 <div>
                   <span className="text-xs font-black text-[#63e6e2] uppercase tracking-wider flex items-center gap-1.5">
@@ -1409,7 +1431,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             </div>
 
             {/* GRAFIK 4: REALISASI JAM BERSIH VS LEMBUR 1 TAHUN (JAN - DES 2026) */}
-            <div className="p-6 sm:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
+            <div className="p-4 sm:p-6 md:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
               <div className="flex items-start justify-between gap-3 border-b border-blue-400/20 pb-4">
                 <div>
                   <span className="text-xs font-black text-[#ff9f0a] uppercase tracking-wider flex items-center gap-1.5">
@@ -1547,8 +1569,8 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             </div>
 
             {/* Tabel Kuartal Q1 - Q4 2026 */}
-            <div className="overflow-x-auto rounded-2xl border border-blue-400/25">
-              <table className="w-full text-left text-xs text-blue-100">
+            <div className="overflow-x-auto w-full rounded-2xl border border-slate-300/25 no-scrollbar">
+              <table className="w-full min-w-[640px] text-left text-xs text-blue-100">
                 <thead className="bg-[#0a1e4a] text-white uppercase text-[11px] font-black border-b border-blue-400/25">
                   <tr>
                     <th className="py-3 px-4">Kuartal 2026</th>
@@ -1619,9 +1641,8 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
           </div>
         </div>
 
-        {/* Gradasi Lembut Menuju Hitam Pekat di Bawah Hero */}
-        <div className="absolute bottom-0 inset-x-0 h-48 pointer-events-none bg-gradient-to-b from-transparent via-[#000000]/70 to-[#000000] z-1" />
-      </section>
+
+            </section>
 
       {/* =====================================================================
           FITUR 03: PRESENSI JAM BERSIH & LEMBUR TERUKUR
@@ -1755,9 +1776,8 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
           </div>
         </div>
 
-        {/* Gradasi Lembut Menuju Hitam Pekat di Bawah Hero */}
-        <div className="absolute bottom-0 inset-x-0 h-48 pointer-events-none bg-gradient-to-b from-transparent via-[#000000]/70 to-[#000000] z-1" />
-      </section>
+
+            </section>
 
       {/* =====================================================================
           FITUR 04: BANK IDE & CATATAN RENCANA BERARAH BALIK KALENDER
@@ -1787,7 +1807,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Daftar Ide Tersimpan */}
-            <div className="p-6 sm:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
+            <div className="p-4 sm:p-6 md:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
               <span className="text-base font-black text-white flex items-center gap-2 border-b border-blue-400/20 pb-4">
                 <Lightbulb className="w-5 h-5 text-[#ff9f0a]" />
                 Daftar Catatan Rencana Tersimpan (Bank Ide)
@@ -1836,7 +1856,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             </div>
 
             {/* Alur Tautan Balik Arahan Asal di Kalender */}
-            <div className="p-6 sm:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
+            <div className="p-4 sm:p-6 md:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
               <span className="text-base font-black text-white flex items-center gap-2 border-b border-blue-400/20 pb-4">
                 <FolderKanban className="w-5 h-5 text-[#38bdf8]" />
                 Alur Tautan Balik Arahan Asal di Kalender
@@ -1868,9 +1888,8 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
           </div>
         </div>
 
-        {/* Gradasi Lembut Menuju Hitam Pekat di Bawah Hero */}
-        <div className="absolute bottom-0 inset-x-0 h-48 pointer-events-none bg-gradient-to-b from-transparent via-[#000000]/70 to-[#000000] z-1" />
-      </section>
+
+            </section>
 
       {/* =====================================================================
           FITUR 05 & 06: ASISTEN AI JADWALPRO & PUSAT EKSPOR LAPORAN
@@ -1900,7 +1919,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Simulasi Dialog AI Kinerja 1 Tahun */}
-            <div className="p-6 sm:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
+            <div className="p-4 sm:p-6 md:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
               <div className="flex items-center justify-between border-b border-blue-400/20 pb-4">
                 <span className="text-base font-black text-white flex items-center gap-2">
                   <Bot className="w-5 h-5 text-[#bf5af2]" />
@@ -1912,7 +1931,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
               </div>
 
               <div className="space-y-3.5 text-xs">
-                <div className="p-3.5 rounded-2xl bg-white/[0.08] text-white font-medium text-right ml-10">
+                <div className="p-3.5 rounded-2xl bg-white/[0.08] text-white font-medium text-right ml-4 sm:ml-10">
                   Berapa total jam bersih, lembur, dan tingkat akuntabilitas proyek sepanjang tahun 2026?
                 </div>
                 <div className="p-4 sm:p-5 rounded-2xl bg-[#bf5af2]/15 border border-[#bf5af2]/30 text-white mr-4 space-y-2 shadow-sm">
@@ -1931,7 +1950,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             </div>
 
             {/* Ekspor Laporan Multi-Format */}
-            <div className="p-6 sm:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
+            <div className="p-4 sm:p-6 md:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
               <span className="text-base font-black text-white flex items-center gap-2 border-b border-blue-400/20 pb-4">
                 <FileSpreadsheet className="w-5 h-5 text-[#30d158]" />
                 Ekspor Multi-Format Siap Pakai untuk Audit &amp; Direksi
@@ -1976,9 +1995,8 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
           </div>
         </div>
 
-        {/* Gradasi Lembut Menuju Hitam Pekat di Bawah Hero */}
-        <div className="absolute bottom-0 inset-x-0 h-48 pointer-events-none bg-gradient-to-b from-transparent via-[#000000]/70 to-[#000000] z-1" />
-      </section>
+
+            </section>
 
       <footer className="relative z-10 py-12 px-4 sm:px-8 lg:px-12 border-t border-blue-400/20 bg-[#040e28]/90 backdrop-blur-xl">
         <div className="w-full max-w-[1800px] mx-auto flex flex-col md:flex-row items-center justify-between gap-6 text-xs text-white/60">
