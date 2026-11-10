@@ -5829,9 +5829,7 @@ export default function App() {
           {/* TAB 3: LAPORAN KINERJA & SISTEM REPORT HASIL PEKERJAAN FULL AI PRO */}
           {activeMainTab === 'report' && reportData && (
             <div className="space-y-6">
-
-                <div className="space-y-6">
-                  {/* Toolbar Filter Periode Kustom (Print: Hidden) */}
+              {/* Toolbar Filter Periode Kustom (Print: Hidden) */}
               <div className="bg-white p-4 rounded-2xl border border-slate-200 flex flex-col gap-4 print:hidden">
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
@@ -6148,32 +6146,32 @@ export default function App() {
                     })()}
                   </div>
 
-                  {/* LINE CHART 2: PROGRES PROYEK & DURASI (DIURUTKAN DARI YANG PALING LAMA DIKERJAKAN) */}
+                  {/* LINE CHART 2: AKUMULASI DURASI KERJA PROYEK (DIURUTKAN DARI DAYS TERBANYAK) */}
                   <div className="bg-slate-50/80 p-5 sm:p-6 rounded-3xl border border-slate-200/90 shadow-2xs space-y-4">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 pb-3">
                       <div>
                         <div className="inline-flex items-center gap-1.5 text-xs font-black text-emerald-700 uppercase tracking-wider">
                           <Activity className="w-4 h-4 text-emerald-600" />
-                          <span>Grafik Peringkat Durasi &amp; Tingkat Ketercapaian</span>
+                          <span>Grafik Peringkat Durasi Pengerjaan (Days)</span>
                         </div>
                         <h3 className="text-base sm:text-lg font-black text-slate-900 tracking-tight mt-0.5">
-                          Progres Proyek &amp; Akumulasi Durasi Kerja (Mulai dari yang Paling Lama Dikerjakan)
+                          Akumulasi Durasi Kerja Proyek (Mulai dari Days Paling Lama Dikerjakan)
                         </h3>
                         <p className="text-xs text-slate-500">
-                          Urutan proyek berdasarkan akumulasi hari pengerjaan terlama ke tersingkat beserta rasio progres penyelesaiannya.
+                          Urutan proyek berdasarkan total akumulasi hari kerja (Days) dari yang terlama ke tersingkat beserta tingkat penyelesaiannya.
                         </p>
                       </div>
 
                       <div className="flex items-center gap-1.5 self-start sm:self-auto">
                         <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
-                          Diurutkan: Durasi Terpanjang
+                          Skala Sumbu Y: Durasi (Days)
                         </span>
                       </div>
                     </div>
 
-                    {/* SVG Line Chart 2 */}
+                    {/* SVG Line Chart 2: Skala Days */}
                     {(() => {
-                      // Calculate duration and progress per project, sorted descending by duration
+                      // Urutkan proyek dari yang paling lama dikerjakan (durasi days tertinggi ke terendah)
                       const sortedProjects = [...projects].map((p) => {
                         const projEntries = entries.filter((e) => e.projectId === p.id);
                         const total = projEntries.length;
@@ -6193,9 +6191,13 @@ export default function App() {
                         return <div className="text-xs text-slate-500 py-6 text-center">Belum ada proyek yang dapat ditampilkan.</div>;
                       }
 
+                      // Skala Maksimum Days
+                      const rawMaxDays = Math.max(...sortedProjects.map((p) => p.durationDays));
+                      const maxDays = Math.max(5, Math.ceil(rawMaxDays * 1.15));
+
                       const width = 720;
                       const height = 210;
-                      const padLeft = 45;
+                      const padLeft = 55;
                       const padRight = 45;
                       const padTop = 30;
                       const padBottom = 40;
@@ -6206,7 +6208,7 @@ export default function App() {
                         const x = sortedProjects.length === 1
                           ? width / 2
                           : padLeft + (idx / (sortedProjects.length - 1)) * chartW;
-                        const y = padTop + chartH * (1 - item.pct / 100);
+                        const y = padTop + chartH * (1 - item.durationDays / maxDays);
                         return { x, y, item };
                       });
 
@@ -6216,20 +6218,21 @@ export default function App() {
                         <div className="space-y-3">
                           <div className="w-full overflow-x-auto">
                             <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[580px] h-48 sm:h-52 select-none font-sans">
-                              {/* Horizontal Grid lines for % */}
-                              {[0, 25, 50, 75, 100].map((pct, i) => {
-                                const y = padTop + chartH * (1 - pct / 100);
+                              {/* Horizontal Grid lines untuk Skala Days */}
+                              {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => {
+                                const y = padTop + chartH * (1 - ratio);
+                                const dayVal = Math.round(maxDays * ratio);
                                 return (
                                   <g key={i}>
                                     <line x1={padLeft} y1={y} x2={width - padRight} y2={y} stroke="#e2e8f0" strokeDasharray="3 3" strokeWidth="1" />
-                                    <text x={padLeft - 8} y={y + 3.5} textAnchor="end" fontSize="10" fill="#94a3b8" fontWeight="600">
-                                      {pct}%
+                                    <text x={padLeft - 8} y={y + 3.5} textAnchor="end" fontSize="10" fill="#64748b" fontWeight="700">
+                                      {dayVal} Days
                                     </text>
                                   </g>
                                 );
                               })}
 
-                              {/* Connecting Area Gradient & Polyline */}
+                              {/* Garis Polyline Tren Durasi (Days) */}
                               <polyline
                                 fill="none"
                                 stroke="#10b981"
@@ -6240,13 +6243,13 @@ export default function App() {
                                 className="opacity-95"
                               />
 
-                              {/* Nodes and Labels */}
+                              {/* Nodes dan Label Days */}
                               {points.map((pt, i) => (
                                 <g key={i}>
-                                  {/* Vertical guide bar */}
+                                  {/* Bar Vertikal Panduan */}
                                   <line x1={pt.x} y1={pt.y} x2={pt.x} y2={height - padBottom} stroke="#cbd5e1" strokeWidth="1" strokeDasharray="2 2" />
 
-                                  {/* Node Circle */}
+                                  {/* Lingkaran Node */}
                                   <circle
                                     cx={pt.x}
                                     cy={pt.y}
@@ -6256,27 +6259,28 @@ export default function App() {
                                     strokeWidth="2.5"
                                     className="cursor-pointer"
                                   >
-                                    <title>{`${pt.item.project.name}: ${pt.item.pct}% selesai (${pt.item.durationDays} hari pengerjaan)`}</title>
+                                    <title>{`${pt.item.project.name}: ${pt.item.durationDays} Days (${pt.item.pct}% tuntas)`}</title>
                                   </circle>
 
-                                  {/* Percentage Label */}
+                                  {/* Label Keterangan Days di atas Titik */}
                                   <text x={pt.x} y={pt.y - 10} textAnchor="middle" fontSize="11" fill="#047857" fontWeight="800">
-                                    {pt.item.pct}%
+                                    {pt.item.durationDays} Days
                                   </text>
 
-                                  {/* Project Name and Duration below */}
+                                  {/* Nama Proyek di Sumbu X */}
                                   <text x={pt.x} y={height - 22} textAnchor="middle" fontSize="10.5" fill="#334155" fontWeight="700">
                                     {pt.item.project.name.length > 14 ? pt.item.project.name.slice(0, 12) + '..' : pt.item.project.name}
                                   </text>
+                                  {/* Status Progres Penyelesaian */}
                                   <text x={pt.x} y={height - 9} textAnchor="middle" fontSize="9.5" fill="#059669" fontWeight="600">
-                                    {pt.item.durationDays} hari kerja
+                                    {pt.item.pct}% tuntas
                                   </text>
                                 </g>
                               ))}
                             </svg>
                           </div>
 
-                          {/* Summary badges below Chart 2 */}
+                          {/* Kartu Ringkasan Peringkat Durasi di Bawah Chart */}
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-xs">
                             {sortedProjects.slice(0, 4).map((p, i) => (
                               <div key={p.project.id} className="p-2.5 rounded-xl bg-white border border-slate-200/80 shadow-2xs space-y-0.5">
@@ -6286,9 +6290,9 @@ export default function App() {
                                 <div className="font-extrabold text-slate-800 truncate" title={p.project.name}>
                                   {p.project.name}
                                 </div>
-                                <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
-                                  <span>{p.durationDays} hari</span>
-                                  <span className="font-bold text-emerald-600">{p.pct}% tuntas</span>
+                                <div className="flex items-center justify-between text-[11px] text-slate-600 pt-0.5">
+                                  <span className="font-black text-emerald-700">{p.durationDays} Days</span>
+                                  <span className="font-semibold text-slate-500">({p.pct}% selesai)</span>
                                 </div>
                               </div>
                             ))}
@@ -6298,27 +6302,7 @@ export default function App() {
                     })()}
                   </div>
                 </div>
-                    <p className="text-xs text-slate-600 mt-1 font-medium">
-                      Periode Evaluasi:{' '}
-                      <strong className="text-indigo-700">
-                        {formatDateShortIndo(reportData.startDate)} s/d{' '}
-                        {formatDateShortIndo(reportData.endDate)}
-                      </strong>{' '}
-                      • Generated via JadwalPro
-                    </p>
-                  </div>
 
-                  <div className="p-3.5 rounded-2xl bg-indigo-50/80 border border-indigo-100 text-right sm:min-w-[220px]">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">
-                      Nama Anggota / Penanggung Jawab
-                    </div>
-                    <div className="text-base font-bold text-slate-900">
-                      {reportData.owner.fullName}
-                    </div>
-                    <div className="text-xs text-slate-500 font-mono">
-                      Owner ID: {reportData.owner.id}
-                    </div>
-                  </div>
                 </div>
 
                 {/* 3 Kartu Metrik Utama */}
@@ -6554,6 +6538,157 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+
+                  {/* GRAFIK DINAMIS SVG 3: TREN DISIPLIN & PRESENSI KEHADIRAN HARIAN */}
+                  <div className="bg-slate-50/80 p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 pb-2.5">
+                      <div>
+                        <div className="inline-flex items-center gap-1.5 text-xs font-black text-indigo-700 uppercase tracking-wider">
+                          <Activity className="w-4 h-4 text-indigo-600" />
+                          <span>Grafik Tren Disiplin &amp; Presensi Harian</span>
+                        </div>
+                        <h4 className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight mt-0.5">
+                          Fluktuasi Kehadiran Tepat Waktu, Terlambat, dan Izin/Cuti
+                        </h4>
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-600 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs self-start sm:self-auto">
+                        Periode: {formatDateShortIndo(reportData.startDate)} – {formatDateShortIndo(reportData.endDate)}
+                      </span>
+                    </div>
+
+                    {(() => {
+                      // Filter attendance record sesuai rentang tanggal & owner
+                      const attFiltered = attendance.filter((a) => {
+                        if (reportOwnerFilter === 'MINE' && a.ownerId !== currentUser.id) return false;
+                        if (reportOwnerFilter !== 'MINE' && reportOwnerFilter !== 'ALL' && a.ownerId !== reportOwnerFilter) return false;
+                        return a.date >= reportData.startDate && a.date <= reportData.endDate;
+                      }).sort((a, b) => a.date.localeCompare(b.date));
+
+                      // Ambil daftar tanggal unik atau rentang harian
+                      const uniqueDates = Array.from(new Set(attFiltered.map((a) => a.date)));
+
+                      if (uniqueDates.length === 0) {
+                        return (
+                          <div className="text-xs text-slate-500 py-6 text-center">
+                            Belum ada riwayat kehadiran pada rentang tanggal evaluasi ini.
+                          </div>
+                        );
+                      }
+
+                      // Hitung data per tanggal
+                      const timelineData = uniqueDates.map((dateStr) => {
+                        const dayRecords = attFiltered.filter((a) => a.date === dateStr);
+                        const punctual = dayRecords.filter((a) => a.type === 'hadir' && !a.isLate).length;
+                        const late = dayRecords.filter((a) => a.type === 'hadir' && a.isLate).length;
+                        const leave = dayRecords.filter((a) => a.type === 'izin' || a.type === 'cuti' || a.type === 'sakit').length;
+                        return { dateStr, punctual, late, leave };
+                      });
+
+                      const maxVal = Math.max(3, ...timelineData.flatMap((d) => [d.punctual, d.late, d.leave]));
+                      const width = 720;
+                      const height = 180;
+                      const padLeft = 40;
+                      const padRight = 30;
+                      const padTop = 25;
+                      const padBottom = 35;
+                      const chartW = width - padLeft - padRight;
+                      const chartH = height - padTop - padBottom;
+
+                      // Titik garis
+                      const pointsPunctual = timelineData.map((d, i) => {
+                        const x = timelineData.length === 1 ? width / 2 : padLeft + (i / (timelineData.length - 1)) * chartW;
+                        const y = padTop + chartH * (1 - d.punctual / maxVal);
+                        return { x, y, val: d.punctual, date: d.dateStr };
+                      });
+
+                      const pointsLate = timelineData.map((d, i) => {
+                        const x = timelineData.length === 1 ? width / 2 : padLeft + (i / (timelineData.length - 1)) * chartW;
+                        const y = padTop + chartH * (1 - d.late / maxVal);
+                        return { x, y, val: d.late, date: d.dateStr };
+                      });
+
+                      const pointsLeave = timelineData.map((d, i) => {
+                        const x = timelineData.length === 1 ? width / 2 : padLeft + (i / (timelineData.length - 1)) * chartW;
+                        const y = padTop + chartH * (1 - d.leave / maxVal);
+                        return { x, y, val: d.leave, date: d.dateStr };
+                      });
+
+                      return (
+                        <div className="space-y-3">
+                          <div className="w-full overflow-x-auto">
+                            <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[550px] h-40 sm:h-44 select-none font-sans">
+                              {/* Grid lines */}
+                              {[0, 0.5, 1].map((ratio, i) => {
+                                const y = padTop + chartH * (1 - ratio);
+                                return (
+                                  <g key={i}>
+                                    <line x1={padLeft} y1={y} x2={width - padRight} y2={y} stroke="#e2e8f0" strokeDasharray="3 3" strokeWidth="1" />
+                                    <text x={padLeft - 8} y={y + 3.5} textAnchor="end" fontSize="10" fill="#94a3b8" fontWeight="600">
+                                      {Math.round(maxVal * ratio)}
+                                    </text>
+                                  </g>
+                                );
+                              })}
+
+                              {/* Label Tanggal X */}
+                              {timelineData.map((d, i) => {
+                                const x = timelineData.length === 1 ? width / 2 : padLeft + (i / (timelineData.length - 1)) * chartW;
+                                const shortDate = d.dateStr.slice(8) + ' ' + INDONESIAN_MONTHS[parseInt(d.dateStr.slice(5, 7), 10) - 1].slice(0, 3);
+                                return (
+                                  <text key={i} x={x} y={height - 10} textAnchor="middle" fontSize="10" fill="#64748b" fontWeight="700">
+                                    {shortDate}
+                                  </text>
+                                );
+                              })}
+
+                              {/* Line 1: Tepat Waktu (Hijau Emerald) */}
+                              <polyline fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={pointsPunctual.map((p) => `${p.x},${p.y}`).join(' ')} />
+                              {pointsPunctual.map((p, i) => (
+                                <circle key={i} cx={p.x} cy={p.y} r="3.5" fill="#10b981" stroke="#ffffff" strokeWidth="2">
+                                  <title>{`${p.date}: ${p.val} Hadir Tepat Waktu`}</title>
+                                </circle>
+                              ))}
+
+                              {/* Line 2: Terlambat (Rose) */}
+                              <polyline fill="none" stroke="#f43f5e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="4 2" points={pointsLate.map((p) => `${p.x},${p.y}`).join(' ')} />
+                              {pointsLate.map((p, i) => (
+                                <circle key={i} cx={p.x} cy={p.y} r="3.5" fill="#f43f5e" stroke="#ffffff" strokeWidth="2">
+                                  <title>{`${p.date}: ${p.val} Terlambat`}</title>
+                                </circle>
+                              ))}
+
+                              {/* Line 3: Izin / Cuti / Sakit (Amber) */}
+                              <polyline fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points={pointsLeave.map((p) => `${p.x},${p.y}`).join(' ')} />
+                              {pointsLeave.map((p, i) => (
+                                <circle key={i} cx={p.x} cy={p.y} r="3" fill="#f59e0b" stroke="#ffffff" strokeWidth="1.5">
+                                  <title>{`${p.date}: ${p.val} Izin / Cuti / Sakit`}</title>
+                                </circle>
+                              ))}
+                            </svg>
+                          </div>
+
+                          {/* Legenda Presensi */}
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200/80 text-xs">
+                            <div className="flex items-center gap-3">
+                              <span className="inline-flex items-center gap-1.5 font-bold text-emerald-700">
+                                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                                <span>Tepat Waktu: {reportData.totalHadir - attendanceStats.lateCount} sesi</span>
+                              </span>
+                              <span className="inline-flex items-center gap-1.5 font-bold text-rose-700">
+                                <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                                <span>Terlambat: {attendanceStats.lateCount} sesi</span>
+                              </span>
+                              <span className="inline-flex items-center gap-1.5 font-bold text-amber-700">
+                                <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                                <span>Izin/Cuti/Sakit: {reportData.totalIzin + reportData.totalCuti + reportData.totalSakit} hari</span>
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-slate-500 font-medium">Toleransi baku: {workPolicy.lateToleranceMinutes}m</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
 
                 {/* 3. Tolak Ukur Aturan Kerja & Kepatuhan */}
@@ -6583,6 +6718,166 @@ export default function App() {
                       <span className="font-extrabold text-emerald-600">{attendanceStats.punctualCount} Tepat Waktu</span>
                       <span className="text-slate-500 block text-[11px]">{attendanceStats.lateCount} kali terlambat ({workPolicy.lateToleranceMinutes}m toleransi)</span>
                     </div>
+                  </div>
+
+                  {/* GRAFIK DINAMIS SVG 4: REALISASI JAM KERJA BERSIH, LEMBUR & KETERLAMBATAN */}
+                  <div className="bg-slate-50/80 p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 pb-2.5">
+                      <div>
+                        <div className="inline-flex items-center gap-1.5 text-xs font-black text-indigo-700 uppercase tracking-wider">
+                          <Timer className="w-4 h-4 text-indigo-600" />
+                          <span>Grafik Realisasi Jam Kerja &amp; Lembur</span>
+                        </div>
+                        <h4 className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight mt-0.5">
+                          Perbandingan Jam Kerja Bersih (Genap), Lembur &amp; Keterlambatan
+                        </h4>
+                      </div>
+                      <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200 self-start sm:self-auto">
+                        Skala: Satuan Jam Bulat (Hours)
+                      </span>
+                    </div>
+
+                    {(() => {
+                      const attRecords = attendance.filter((a) => {
+                        if (reportOwnerFilter === 'MINE' && a.ownerId !== currentUser.id) return false;
+                        if (reportOwnerFilter !== 'MINE' && reportOwnerFilter !== 'ALL' && a.ownerId !== reportOwnerFilter) return false;
+                        return a.date >= reportData.startDate && a.date <= reportData.endDate && a.type === 'hadir';
+                      }).sort((a, b) => a.date.localeCompare(b.date));
+
+                      if (attRecords.length === 0) {
+                        return (
+                          <div className="text-xs text-slate-500 py-6 text-center">
+                            Belum ada riwayat jam kerja bersih pada rentang tanggal evaluasi ini.
+                          </div>
+                        );
+                      }
+
+                      // Hitung jam bersih, lembur, dan menit telat per hari kehadiran
+                      const chartData = attRecords.map((r) => {
+                        const cleanHours = Math.round(r.regularWorkHours || r.workDurationHours || 8);
+                        const otHours = Math.round(r.overtimeHours || 0);
+
+                        // Estimasi jam telat dari waktu masuk
+                        let lateHours = 0;
+                        if (r.isLate && r.checkInTime) {
+                          const [h, m] = r.checkInTime.split(':').map(Number);
+                          const [stdH, stdM] = (workPolicy.standardCheckInTime || '08:00').split(':').map(Number);
+                          const diff = (h * 60 + m) - (stdH * 60 + stdM);
+                          if (diff > 0) lateHours = Math.round((diff / 60) * 10) / 10;
+                        }
+
+                        return {
+                          date: r.date,
+                          cleanHours,
+                          otHours,
+                          lateHours,
+                        };
+                      });
+
+                      const maxVal = Math.max(10, ...chartData.flatMap((d) => [d.cleanHours + d.otHours, 9]));
+                      const width = 720;
+                      const height = 190;
+                      const padLeft = 45;
+                      const padRight = 30;
+                      const padTop = 25;
+                      const padBottom = 35;
+                      const chartW = width - padLeft - padRight;
+                      const chartH = height - padTop - padBottom;
+
+                      const pointsClean = chartData.map((d, i) => {
+                        const x = chartData.length === 1 ? width / 2 : padLeft + (i / (chartData.length - 1)) * chartW;
+                        const y = padTop + chartH * (1 - d.cleanHours / maxVal);
+                        return { x, y, val: d.cleanHours, date: d.date };
+                      });
+
+                      const pointsOt = chartData.map((d, i) => {
+                        const x = chartData.length === 1 ? width / 2 : padLeft + (i / (chartData.length - 1)) * chartW;
+                        const y = padTop + chartH * (1 - d.otHours / maxVal);
+                        return { x, y, val: d.otHours, date: d.date };
+                      });
+
+                      const pointsLate = chartData.map((d, i) => {
+                        const x = chartData.length === 1 ? width / 2 : padLeft + (i / (chartData.length - 1)) * chartW;
+                        const y = padTop + chartH * (1 - d.lateHours / maxVal);
+                        return { x, y, val: d.lateHours, date: d.date };
+                      });
+
+                      return (
+                        <div className="space-y-3">
+                          <div className="w-full overflow-x-auto">
+                            <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[550px] h-40 sm:h-44 select-none font-sans">
+                              {/* Grid lines untuk jam */}
+                              {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => {
+                                const y = padTop + chartH * (1 - ratio);
+                                const hVal = Math.round(maxVal * ratio);
+                                return (
+                                  <g key={i}>
+                                    <line x1={padLeft} y1={y} x2={width - padRight} y2={y} stroke="#e2e8f0" strokeDasharray="3 3" strokeWidth="1" />
+                                    <text x={padLeft - 8} y={y + 3.5} textAnchor="end" fontSize="10" fill="#94a3b8" fontWeight="600">
+                                      {hVal} Jam
+                                    </text>
+                                  </g>
+                                );
+                              })}
+
+                              {/* Label Tanggal X */}
+                              {chartData.map((d, i) => {
+                                const x = chartData.length === 1 ? width / 2 : padLeft + (i / (chartData.length - 1)) * chartW;
+                                const shortDate = d.date.slice(8) + ' ' + INDONESIAN_MONTHS[parseInt(d.date.slice(5, 7), 10) - 1].slice(0, 3);
+                                return (
+                                  <text key={i} x={x} y={height - 10} textAnchor="middle" fontSize="10" fill="#64748b" fontWeight="700">
+                                    {shortDate}
+                                  </text>
+                                );
+                              })}
+
+                              {/* Garis Jam Kerja Bersih (Indigo) */}
+                              <polyline fill="none" stroke="#6366f1" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points={pointsClean.map((p) => `${p.x},${p.y}`).join(' ')} />
+                              {pointsClean.map((p, i) => (
+                                <circle key={i} cx={p.x} cy={p.y} r="4" fill="#6366f1" stroke="#ffffff" strokeWidth="2">
+                                  <title>{`${p.date}: ${p.val} Jam Bersih Reguler`}</title>
+                                </circle>
+                              ))}
+
+                              {/* Garis Jam Lembur (Amber) */}
+                              <polyline fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={pointsOt.map((p) => `${p.x},${p.y}`).join(' ')} />
+                              {pointsOt.map((p, i) => (
+                                <circle key={i} cx={p.x} cy={p.y} r="3.5" fill="#f59e0b" stroke="#ffffff" strokeWidth="2">
+                                  <title>{`${p.date}: ${p.val} Jam Lembur`}</title>
+                                </circle>
+                              ))}
+
+                              {/* Garis Jam Keterlambatan (Rose) */}
+                              <polyline fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="3 3" points={pointsLate.map((p) => `${p.x},${p.y}`).join(' ')} />
+                              {pointsLate.map((p, i) => (
+                                <circle key={i} cx={p.x} cy={p.y} r="3" fill="#ef4444" stroke="#ffffff" strokeWidth="1.5">
+                                  <title>{`${p.date}: ${p.val > 0 ? p.val + ' Jam Telat' : 'Tepat Waktu'}`}</title>
+                                </circle>
+                              ))}
+                            </svg>
+                          </div>
+
+                          {/* Legenda Jam Kerja */}
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200/80 text-xs">
+                            <div className="flex items-center gap-3">
+                              <span className="inline-flex items-center gap-1.5 font-bold text-indigo-700">
+                                <span className="w-2.5 h-2.5 rounded-full bg-indigo-600" />
+                                <span>Jam Bersih (Target: {workPolicy.targetDailyWorkHours}j/hari)</span>
+                              </span>
+                              <span className="inline-flex items-center gap-1.5 font-bold text-amber-700">
+                                <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                                <span>Jam Lembur Terverifikasi</span>
+                              </span>
+                              <span className="inline-flex items-center gap-1.5 font-bold text-rose-700">
+                                <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                                <span>Jam Keterlambatan</span>
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-slate-500 font-medium">Kalkulasi: Genap per 1 jam kerja</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
 
