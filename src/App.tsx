@@ -73,6 +73,7 @@ import {
   Smartphone,
   Mail,
   HardDrive,
+  Lightbulb,
   Presentation,
   Activity,
   MessageSquare,
@@ -98,6 +99,23 @@ import type {
 } from './types';
 
 // Ekstensi lokal WorkPolicy & AttendanceRecord agar sinkron penuh dengan fitur lembur & aturan baku
+// Definisi mandiri IdeaItem di App.tsx agar bebas error jika types.ts lokal belum di-update
+export interface IdeaItem {
+  id: string;
+  ownerId: string;
+  ownerName: string;
+  title: string;
+  content: string; // Teks deskripsi / arahan ide
+  category?: string;
+  color?: string;
+  scheduledDate?: string | null;
+  scheduledEntryId?: string | null;
+  projectId?: string | null;
+  status: 'draft' | 'dijadwalkan' | 'selesai';
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface WorkPolicy extends BaseWorkPolicy {
   lateOvertimeThresholdMinutes?: number;
 }
@@ -169,6 +187,7 @@ export interface ScheduleEntry extends Omit<BaseScheduleEntry, 'status'> {
   completedDate?: string | null;
   suspendedDate?: string | null;
   durationDays?: number;
+  originIdeaId?: string | null; // ID ide asal jika pekerjaan dibuat dari Bank Ide
   additionalTasks?: ProjectAddonTask[];
 }
 
@@ -831,9 +850,9 @@ export default function App() {
     return { year: y || 2026, month: (m || 11) - 1 };
   }, [todayStr]);
 
-  // Tab Navigasi Utama: 'calendar' | 'attendance' | 'reminders' | 'report' | 'ai_performance' | 'voice_ai'
+  // Tab Navigasi Utama: 'calendar' | 'attendance' | 'reminders' | 'report' | 'ai_performance' | 'voice_ai' | 'ideas'
   const [activeMainTab, setActiveMainTab] = useState<
-    'calendar' | 'attendance' | 'reminders' | 'report' | 'ai_performance' | 'voice_ai'
+    'calendar' | 'attendance' | 'reminders' | 'report' | 'ai_performance' | 'voice_ai' | 'ideas'
   >('calendar');
 
   // State User & Auth (Auto-login membaca sesi tersimpan langsung saat inisialisasi)
@@ -1222,6 +1241,143 @@ export default function App() {
     },
   ]);
   const [aiPerfSubTab, setAiPerfSubTab] = useState<'upload' | 'appraisal'>('appraisal');
+
+  // State Bank Ide & Catatan Rencana (Brainstorming to Calendar)
+  const [ideas, setIdeas] = useState<IdeaItem[]>(() =>
+    (db as any).getIdeas ? (db as any).getIdeas() : []
+  );
+  const [isNewIdeaModalOpen, setIsNewIdeaModalOpen] = useState<boolean>(false);
+  const [ideaTitleInput, setIdeaTitleInput] = useState<string>('');
+  const [ideaContentInput, setIdeaContentInput] = useState<string>('');
+  const [ideaCategoryInput, setIdeaCategoryInput] = useState<string>('Riset & Konsep');
+  const [ideaProjectInput, setIdeaProjectInput] = useState<string>('');
+  const [editingIdeaId, setEditingIdeaId] = useState<string | null>(null);
+
+  // Modal Pindah Ide ke Kalender
+  const [schedulingIdea, setSchedulingIdea] = useState<IdeaItem | null>(null);
+  const [ideaScheduleDateInput, setIdeaScheduleDateInput] = useState<string>(todayStr);
+  const [ideaScheduleProjectInput, setIdeaScheduleProjectInput] = useState<string>('');
+
+  // Modal Popover Detail Arahan Ide Asal (ketika tugas diklik di kalender)
+  const [viewingOriginIdea, setViewingOriginIdea] = useState<IdeaItem | null>(null);
+
+  const handleOpenNewIdeaModal = (idea?: IdeaItem) => {
+    if (idea) {
+      setEditingIdeaId(idea.id);
+      setIdeaTitleInput(idea.title);
+      setIdeaContentInput(idea.content);
+      setIdeaCategoryInput(idea.category || 'Riset & Konsep');
+      setIdeaProjectInput(idea.projectId || '');
+    } else {
+      setEditingIdeaId(null);
+      setIdeaTitleInput('');
+      setIdeaContentInput('');
+      setIdeaCategoryInput('Riset & Konsep');
+      setIdeaProjectInput('');
+    }
+    setIsNewIdeaModalOpen(true);
+  };
+
+  const handleSaveIdea = () => {
+    if (!ideaTitleInput.trim() || !currentUser) return;
+    const newIdea: IdeaItem = {
+      id: editingIdeaId || `idea-${Date.now().toString(36)}`,
+      ownerId: currentUser.id,
+      ownerName: currentUser.fullName,
+      title: ideaTitleInput.trim(),
+      content: ideaContentInput.trim(),
+      category: ideaCategoryInput,
+      projectId: ideaProjectInput || null,
+      status: editingIdeaId
+        ? ideas.find((i) => i.id === editingIdeaId)?.status || 'draft'
+        : 'draft',
+      createdAt: editingIdeaId
+        ? ideas.find((i) => i.id === editingIdeaId)?.createdAt || new Date().toISOString()
+        : new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    if ((db as any).saveIdea) (db as any).saveIdea(newIdea);
+    setIdeas((prev) => {
+      const idx = prev.findIndex((i) => i.id === newIdea.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = newIdea;
+        return copy;
+      }
+      return [newIdea, ...prev];
+    });
+
+    setIsNewIdeaModalOpen(false);
+    setIdeaTitleInput('');
+    setIdeaContentInput('');
+    setEditingIdeaId(null);
+    showToast(editingIdeaId ? 'Ide berhasil diperbarui!' : 'Ide baru berhasil disimpan ke Bank Ide!');
+  };
+
+  const handleDeleteIdea = (id: string) => {
+    if ((db as any).deleteIdea) (db as any).deleteIdea(id);
+    setIdeas((prev) => prev.filter((i) => i.id !== id));
+    showToast('Ide berhasil dihapus.');
+  };
+
+  const handleOpenScheduleIdeaModal = (idea: IdeaItem) => {
+    setSchedulingIdea(idea);
+    setIdeaScheduleDateInput(todayStr);
+    setIdeaScheduleProjectInput(idea.projectId || '');
+  };
+
+  const handleConfirmScheduleIdea = () => {
+    if (!schedulingIdea || !currentUser) return;
+    const targetDate = ideaScheduleDateInput || todayStr;
+    const targetProject = ideaScheduleProjectInput || schedulingIdea.projectId || null;
+
+    // 1. Buat jadwal baru di kalender
+    const newEntry: ScheduleEntry = {
+      id: `entry-${Date.now().toString(36)}`,
+      date: targetDate,
+      title: schedulingIdea.title,
+      notes: schedulingIdea.content,
+      projectId: targetProject,
+      status: 'belum_mulai',
+      ownerId: currentUser.id,
+      ownerName: currentUser.fullName,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      originIdeaId: schedulingIdea.id,
+    };
+
+    if ((db as any).createEntry) {
+      (db as any).createEntry(newEntry);
+    } else if ((db as any).saveEntries) {
+      (db as any).saveEntries([newEntry, ...entries]);
+    } else if ((db as any).saveEntry) {
+      (db as any).saveEntry(newEntry);
+    }
+    setEntries((prev) => [newEntry, ...prev]);
+
+    // 2. Update status ide menjadi dijadwalkan
+    const updatedIdea: IdeaItem = {
+      ...schedulingIdea,
+      status: 'dijadwalkan',
+      scheduledDate: targetDate,
+      scheduledEntryId: newEntry.id,
+      projectId: targetProject,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if ((db as any).saveIdea) (db as any).saveIdea(updatedIdea);
+    setIdeas((prev) => prev.map((i) => (i.id === updatedIdea.id ? updatedIdea : i)));
+
+    setSchedulingIdea(null);
+    showToast(`Ide berhasil dipindahkan ke kalender tanggal ${formatDateShortIndo(targetDate)}!`);
+  };
+
+  const handleJumpToCalendarFromIdea = (targetDate?: string | null) => {
+    if (!targetDate) return;
+    setActiveMainTab('calendar');
+    openDayDrawer(targetDate);
+  };
 
   // Inisialisasi Data & Sinkronisasi Sesi (Auto-Login & Sinkronisasi Cloud)
   useEffect(() => {
@@ -3996,7 +4152,7 @@ export default function App() {
   const activeSelectedProjectInDrawer = entryProjectId ? projectMap[entryProjectId] : null;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans print:bg-white max-w-full overflow-x-hidden">
+    <div className="h-screen w-full bg-slate-50 text-slate-900 flex flex-col font-sans print:bg-white overflow-hidden">
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2 border border-slate-700 print:hidden">
@@ -4006,7 +4162,7 @@ export default function App() {
       )}
 
       {/* Top Navigation Bar */}
-      <header className="fixed top-0 left-0 right-0 z-30 bg-white border-b border-slate-200 print:hidden transition-all shadow-xs pt-[max(env(safe-area-inset-top,0px),12px)] sm:pt-0">
+      <header className="shrink-0 z-30 bg-white border-b border-slate-200 print:hidden shadow-xs">
         <div className="w-full px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4">
           <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
             <button
@@ -4236,7 +4392,7 @@ export default function App() {
       </header>
 
       {/* Main Content Layout (Maksimal Layar Penuh Ujung ke Ujung) */}
-      <div className="w-full flex-1 flex relative pt-[calc(116px+max(env(safe-area-inset-top,0px),12px))] md:pt-16">
+      <div className="w-full flex-1 flex overflow-hidden relative">
         {isMobileSidebarOpen && (
           <div
             className="fixed inset-0 bg-slate-900/40 z-40 lg:hidden"
@@ -4246,96 +4402,31 @@ export default function App() {
 
         {/* SIDEBAR PROYEK & CABANG PROGRAM */}
         <aside
-          className={`fixed lg:sticky top-16 left-0 bottom-0 z-20 w-64 xl:w-72 bg-white border-r border-slate-200 flex flex-col shrink-0 h-[calc(100vh-4rem)] overflow-y-auto transition-transform duration-200 ease-in-out print:hidden ${
+          className={`fixed inset-y-0 left-0 z-40 w-64 xl:w-72 bg-white border-r border-slate-200 flex flex-col shrink-0 h-full overflow-y-auto transition-transform duration-200 ease-in-out lg:static lg:h-full print:hidden ${
             isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
           }`}
         >
-          {/* Widget Record Voice to Text PRO */}
-          <div className="p-3.5 m-3 mb-1.5 rounded-2xl bg-gradient-to-br from-purple-50 via-indigo-50 to-indigo-100/60 border border-indigo-200/80 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-800 flex items-center gap-1.5">
-                <Mic className="w-3.5 h-3.5 text-indigo-600 animate-pulse" />
-                <span>Record Voice to Text</span>
-              </span>
-              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-600 text-white">
-                AI PRO
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-600 leading-tight">
-              Bicara langsung untuk merekam notulen rapat atau ide proyek. AI PRO otomatis merumuskan ringkasan detail dan pembagian tugas.
-            </p>
+          {/* Menu Akses Cepat Bank Ide */}
+          <div className="p-3 border-b border-slate-100">
             <button
               type="button"
-              onClick={() => setActiveMainTab('voice_ai')}
-              className="w-full py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs transition-colors"
+              onClick={() => {
+                setActiveMainTab('ideas');
+                setIsMobileSidebarOpen(false);
+              }}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                activeMainTab === 'ideas'
+                  ? 'bg-amber-500 text-white shadow-md'
+                  : 'bg-amber-50/80 hover:bg-amber-100/90 text-amber-900 border border-amber-200 shadow-2xs'
+              }`}
             >
-              <Mic className="w-3.5 h-3.5" />
-              <span>Buka Record Voice PRO</span>
-            </button>
-          </div>
-
-          {/* Widget Clock In / Clock Out Hari Ini */}
-          <div className="p-3.5 m-3 mb-2 rounded-2xl bg-gradient-to-br from-indigo-50 to-indigo-100/60 border border-indigo-200/80 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 flex items-center gap-1">
-                <Timer className="w-3.5 h-3.5" />
-                <span>Absensi Hari Ini</span>
+              <div className="flex items-center gap-2">
+                <Lightbulb className="w-4 h-4 text-amber-500" />
+                <span>Bank Ide &amp; Catatan</span>
+              </div>
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-white text-amber-800 shadow-2xs">
+                {ideas.length}
               </span>
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white text-indigo-800 shadow-xs">
-                {myTodayAttendance
-                  ? ATTENDANCE_META[myTodayAttendance.type].label
-                  : 'Belum Absen'}
-              </span>
-            </div>
-
-            <div className="bg-white p-2.5 rounded-xl border border-indigo-100 text-xs space-y-1">
-              <div className="flex justify-between text-slate-600">
-                <span>Jam Masuk:</span>
-                <span className="font-bold text-slate-900">
-                  {myTodayAttendance?.checkInTime || '-'}
-                </span>
-              </div>
-              <div className="flex justify-between text-slate-600">
-                <span>Jam Pulang:</span>
-                <span className="font-bold text-slate-900">
-                  {myTodayAttendance?.checkOutTime || '-'}
-                </span>
-              </div>
-              <div className="flex justify-between text-slate-600 border-t border-slate-100 pt-1 mt-1">
-                <span>Durasi Bekerja:</span>
-                <span className="font-bold text-indigo-600">
-                  {myTodayAttendance?.workDurationHours ? `${myTodayAttendance.workDurationHours} Jam` : '-'}
-                </span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-1.5">
-              <button
-                type="button"
-                onClick={() => openCameraForAttendance('in')}
-                disabled={Boolean(myTodayAttendance?.checkInTime)}
-                className="py-1.5 px-2 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white flex items-center justify-center gap-1 shadow-xs"
-              >
-                <Play className="w-3 h-3 fill-current" />
-                <span>Clock In</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => openCameraForAttendance('out')}
-                disabled={!myTodayAttendance?.checkInTime || Boolean(myTodayAttendance?.checkOutTime)}
-                className="py-1.5 px-2 rounded-lg text-[11px] font-bold bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white flex items-center justify-center gap-1 shadow-xs"
-              >
-                <Square className="w-3 h-3 fill-current" />
-                <span>Clock Out</span>
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={openNewAttendanceModal}
-              className="w-full py-1 text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 text-center"
-            >
-              + Ajukan Izin / Cuti / Koreksi
             </button>
           </div>
 
@@ -4547,7 +4638,7 @@ export default function App() {
         </aside>
 
         {/* AREA KONTEN UTAMA (MAKSIMAL SAMPAI SUDUT KANAN) */}
-        <main className="flex-1 min-w-0 p-3 sm:p-5 lg:p-6 space-y-5">
+        <main className="flex-1 h-full overflow-y-auto min-w-0 p-3 sm:p-5 lg:p-6 space-y-5">
           {/* TAB 1: KALENDER JADWAL PROYEK */}
           {activeMainTab === 'calendar' && (
             <>
@@ -11826,6 +11917,254 @@ export default function App() {
         </div>
       )}
 
-    </div>
+          {/* MODAL 1: BUAT / EDIT IDE BARU */}
+      {isNewIdeaModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs" onClick={() => setIsNewIdeaModalOpen(false)} />
+          <div className="relative z-10 w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-sm">
+                  <Lightbulb className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-slate-900">
+                    {editingIdeaId ? 'Edit Catatan Ide' : 'Tulis Ide &amp; Rencana Baru'}
+                  </h3>
+                  <p className="text-xs text-slate-500">Simpan ide dalam teks sebelum dipindahkan ke kalender</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNewIdeaModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1.5">Judul Ide / Konsep Proyek *</label>
+                <input
+                  type="text"
+                  value={ideaTitleInput}
+                  onChange={(e) => setIdeaTitleInput(e.target.value)}
+                  placeholder="Contoh: Rencana Kampanye Iklan Q4, Riset Fitur Baru..."
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1.5">Kategori Ide</label>
+                  <select
+                    value={ideaCategoryInput}
+                    onChange={(e) => setIdeaCategoryInput(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:outline-none"
+                  >
+                    <option value="Riset &amp; Konsep">Riset &amp; Konsep</option>
+                    <option value="Pemasaran &amp; Iklan">Pemasaran &amp; Iklan</option>
+                    <option value="Desain &amp; Kreatif">Desain &amp; Kreatif</option>
+                    <option value="Teknis &amp; Sistem">Teknis &amp; Sistem</option>
+                    <option value="Operasional Kantor">Operasional Kantor</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1.5">Hubungkan ke Proyek (Opsional)</label>
+                  <select
+                    value={ideaProjectInput}
+                    onChange={(e) => setIdeaProjectInput(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:outline-none"
+                  >
+                    <option value="">Pekerjaan Umum / Tanpa Proyek</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1.5">Teks Arahan &amp; Detail Penjelasan Ide *</label>
+                <textarea
+                  rows={5}
+                  value={ideaContentInput}
+                  onChange={(e) => setIdeaContentInput(e.target.value)}
+                  placeholder="Tuliskan arahan tugas, rincian teknis, langkah eksekusi, atau catatan penting di sini..."
+                  className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 leading-relaxed focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsNewIdeaModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveIdea}
+                disabled={!ideaTitleInput.trim()}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md disabled:opacity-50 transition-all"
+              >
+                {editingIdeaId ? 'Simpan Perubahan' : 'Simpan ke Bank Ide'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: PINDAHKAN IDE KE KALENDER */}
+      {schedulingIdea && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs" onClick={() => setSchedulingIdea(null)} />
+          <div className="relative z-10 w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
+                  <CalendarIcon className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-slate-900">Pindahkan Ide ke Kalender</h3>
+                  <p className="text-xs text-slate-500">Tentukan tanggal pelaksanaan tugas</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSchedulingIdea(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 space-y-1">
+              <span className="text-[10px] font-black uppercase text-amber-800 tracking-wider">Ide Terpilih</span>
+              <div className="font-extrabold text-sm text-slate-900">{schedulingIdea.title}</div>
+              <p className="text-xs text-slate-600 line-clamp-2">{schedulingIdea.content}</p>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1.5">Pilih Tanggal Pelaksanaan di Kalender *</label>
+                <input
+                  type="date"
+                  value={ideaScheduleDateInput}
+                  onChange={(e) => setIdeaScheduleDateInput(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1.5">Pilih Proyek Pelaksanaan</label>
+                <select
+                  value={ideaScheduleProjectInput}
+                  onChange={(e) => setIdeaScheduleProjectInput(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-800 focus:outline-none"
+                >
+                  <option value="">Pekerjaan Umum / Tanpa Proyek</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setSchedulingIdea(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmScheduleIdea}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all flex items-center gap-1.5"
+              >
+                <CalendarIcon className="w-3.5 h-3.5" />
+                <span>Jadwalkan Sekarang</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: DETAIL ARAHAN IDE ASAL (KLIK DARI JADWAL KALENDER) */}
+      {viewingOriginIdea && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs" onClick={() => setViewingOriginIdea(null)} />
+          <div className="relative z-10 w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-sm">
+                  <Lightbulb className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="inline-flex items-center gap-1 px-2 py-0.2 rounded text-[10px] font-black bg-amber-100 text-amber-800">
+                    <span>Ide Asal Kalender</span>
+                  </div>
+                  <h3 className="font-extrabold text-base text-slate-900 mt-0.5">
+                    Arahan Lengkap: {viewingOriginIdea.title}
+                  </h3>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingOriginIdea(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span className="font-semibold">Kategori: <strong className="text-slate-800">{viewingOriginIdea.category || 'Ide Rencana'}</strong></span>
+                <span>Dicatat: {formatDateShortIndo(viewingOriginIdea.createdAt.slice(0, 10))}</span>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-2">
+                <span className="text-[10px] font-black uppercase tracking-wider text-amber-900 block">Teks Arahan &amp; Catatan Lengkap:</span>
+                <p className="text-xs sm:text-sm text-slate-800 leading-relaxed whitespace-pre-wrap font-sans">
+                  {viewingOriginIdea.content || 'Tidak ada teks arahan tertulis.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setViewingOriginIdea(null);
+                  setActiveMainTab('ideas');
+                }}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-colors"
+              >
+                Buka di Bank Ide
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setViewingOriginIdea(null)}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white transition-colors"
+              >
+                Tutup Arahan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+</div>
   );
 }

@@ -94,12 +94,29 @@ export interface ProjectAddonTask {
 }
 
 // Definisi mandiri ScheduleEntry di db.ts agar mengenali status 'tertunda', completedDate, suspendedDate & additionalTasks
+export interface IdeaItem {
+  id: string;
+  ownerId: string;
+  ownerName: string;
+  title: string;
+  content: string; // Teks deskripsi / arahan ide
+  category?: string;
+  color?: string;
+  scheduledDate?: string | null;
+  scheduledEntryId?: string | null;
+  projectId?: string | null;
+  status: 'draft' | 'dijadwalkan' | 'selesai';
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ScheduleEntry {
   id: string;
   date: string;
   completedDate?: string | null;
   suspendedDate?: string | null;
   durationDays?: number;
+  originIdeaId?: string | null;
   additionalTasks?: ProjectAddonTask[];
   title: string;
   projectId: string | null;
@@ -138,6 +155,7 @@ const STORAGE_KEYS = {
   REMINDERS: 'jadwalpro_reminders_v3',
   VOICE_MEMOS: 'jadwalpro_voice_memos_v3',
   WORK_APPRAISALS: 'jadwalpro_work_appraisals_v3',
+  IDEAS: 'jadwalpro_ideas_v3',
 };
 
 // Data seed kosong murni agar akun baru tidak tercemar data demo
@@ -295,10 +313,13 @@ export const db = {
   },
 
   async signIn(
-    email: string,
-    password: string
+    emailOrPayload: string | { email: string; password?: string },
+    possiblePassword?: string
   ): Promise<{ user?: UserProfile; error?: string }> {
-    const cleanEmail = email.trim().toLowerCase();
+    const rawEmail = typeof emailOrPayload === 'string' ? emailOrPayload : emailOrPayload.email;
+    const rawPassword = typeof emailOrPayload === 'string' ? (possiblePassword || '') : (emailOrPayload.password || '');
+    const cleanEmail = (rawEmail || '').trim().toLowerCase();
+    const password = rawPassword;
 
     if (supabase) {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -854,6 +875,14 @@ export const db = {
     safeStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify(entries));
   },
 
+  saveEntry(entry: ScheduleEntry): void {
+    const all = this.getEntries();
+    const idx = all.findIndex((e) => e.id === entry.id);
+    if (idx >= 0) all[idx] = entry;
+    else all.unshift(entry);
+    this.saveEntries(all);
+  },
+
   createEntry(
     payload: {
       date: string;
@@ -864,6 +893,7 @@ export const db = {
       notes: string;
       completedDate?: string | null;
       durationDays?: number;
+  originIdeaId?: string | null;
     },
     owner?: UserProfile | null
   ): ScheduleEntry[] {
@@ -1598,5 +1628,31 @@ export const db = {
     }
 
     return updated;
+  },
+  // --- 11. BANK IDE & CATATAN RENCANA (IDEAS TO CALENDAR) ---
+  getIdeas(): IdeaItem[] {
+    const raw = safeStorage.getItem(STORAGE_KEYS.IDEAS);
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  },
+
+  saveIdea(idea: IdeaItem): void {
+    const list = this.getIdeas();
+    const idx = list.findIndex((i) => i.id === idea.id);
+    if (idx >= 0) {
+      list[idx] = { ...idea, updatedAt: new Date().toISOString() };
+    } else {
+      list.unshift({ ...idea, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    }
+    safeStorage.setItem(STORAGE_KEYS.IDEAS, JSON.stringify(list));
+  },
+
+  deleteIdea(id: string): void {
+    const list = this.getIdeas().filter((i) => i.id !== id);
+    safeStorage.setItem(STORAGE_KEYS.IDEAS, JSON.stringify(list));
   },
 };
