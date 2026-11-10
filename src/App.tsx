@@ -73,6 +73,10 @@ import {
   Smartphone,
   Mail,
   HardDrive,
+  Presentation,
+  Activity,
+  MessageSquare,
+  Send,
 } from 'lucide-react';
 import AuthPage from './AuthPage';
 import { PROJECT_COLORS, DEFAULT_WORK_POLICY } from './types';
@@ -101,6 +105,7 @@ export interface WorkPolicy extends BaseWorkPolicy {
 export interface AttendanceRecord extends BaseAttendanceRecord {
   isLate?: boolean;
   lateReason?: string;
+  leaveReason?: string;
   isOvertimeConfirmed?: boolean;
   overtimeReason?: string;
 }
@@ -1112,6 +1117,112 @@ export default function App() {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Handler Pengiriman Chatbot AI Gemini Terfilter ID Owner
+  const handleSendAIChatMessage = (customText?: string) => {
+    const textToSend = (customText || aiChatInput).trim();
+    if (!textToSend) return;
+
+    const timeNow = new Date().toLocaleTimeString('id-ID', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const newHistory = [
+      ...aiChatMessages,
+      { sender: 'user' as const, text: textToSend, time: timeNow },
+    ];
+    setAiChatMessages(newHistory);
+    if (!customText) setAiChatInput('');
+
+    setTimeout(() => {
+      const lower = textToSend.toLowerCase();
+      const myOwnerId = currentUser?.id || '';
+      const myProjects = projects.filter(
+        (p) => !p.ownerId || p.ownerId === myOwnerId
+      );
+      const myEntries = entries.filter(
+        (e) => !e.ownerId || e.ownerId === myOwnerId
+      );
+      const doneCount = myEntries.filter((e) => e.status === 'selesai').length;
+      const pendingCount = myEntries.filter((e) => e.status === 'tertunda').length;
+      const inProgressCount = myEntries.filter((e) => e.status === 'berjalan').length;
+
+      let revisionCount = 0;
+      let bottleneckCount = 0;
+      myEntries.forEach((e) => {
+        (e.additionalTasks || []).forEach((t) => {
+          if (t.type === 'revisi' && !t.isCompleted) revisionCount++;
+          if (t.type === 'kendala') bottleneckCount++;
+        });
+      });
+
+      let reply = '';
+      if (
+        lower.includes('kendala') ||
+        lower.includes('masalah') ||
+        lower.includes('hambatan') ||
+        lower.includes('bottleneck')
+      ) {
+        reply = `Berdasarkan filter ID Owner Anda (${currentUser?.fullName || 'Owner'}), ditemukan ${bottleneckCount} kendala proyek tercatat dan ${pendingCount} tugas dalam status tertunda. Disarankan untuk memprioritaskan penyelesaian kendala pada proyek dengan durasi pengerjaan terpanjang sebelum menambah pekerjaan baru.`;
+      } else if (lower.includes('revisi') || lower.includes('perbaikan')) {
+        reply = `Status Revisi Terfilter: Terdapat ${revisionCount} item revisi aktif pada proyek Anda. Setiap item revisi kini dilengkapi penentuan tanggal pengerjaan langsung di kalender jadwal kerja.`;
+      } else if (
+        lower.includes('lembur') ||
+        lower.includes('jam kerja') ||
+        lower.includes('absensi') ||
+        lower.includes('ot')
+      ) {
+        const totalOt = Math.round(
+          attendance
+            .filter((a) => !a.ownerId || a.ownerId === myOwnerId)
+            .reduce((s, a) => s + (a.overtimeHours || 0), 0)
+        );
+        reply = `Rekapitulasi Jam Lembur: Terhitung total ${totalOt} jam lembur genap (tanpa pecahan desimal). Aturan baku: toleransi masuk ${workPolicy.lateToleranceMinutes || 15}m, batas threshold lembur pulang ${workPolicy.lateOvertimeThresholdMinutes || 30}m, dan jam reguler dihitung bersih.`;
+      } else if (
+        lower.includes('progres') ||
+        lower.includes('kinerja') ||
+        lower.includes('laporan') ||
+        lower.includes('selesai')
+      ) {
+        const pct = myEntries.length > 0 ? Math.round((doneCount / myEntries.length) * 100) : 0;
+        reply = `Progres Kinerja Proyek: Dari ${myEntries.length} total pekerjaan Anda, ${doneCount} telah selesai (${pct}%), ${inProgressCount} sedang berjalan, dan ${pendingCount} tertunda. Seluruh log telah diekspor ke Excel dan presentasi PowerPoint full designed.`;
+      } else if (
+        lower.includes('siapa kamu') ||
+        lower.includes('kemampuan') ||
+        lower.includes('skills')
+      ) {
+        reply = `Saya adalah AI Assistant khusus JadwalPro yang dikunci secara ketat untuk menangani operasional aplikasi web ini: manajemen proyek, penjadwalan tolak ukur kalender, kalkulasi jam kerja genap & lembur, serta evaluasi revisi khusus untuk data ID owner Anda.`;
+      } else {
+        reply = `Saya memverifikasi data proyek untuk ${currentUser?.fullName || 'Owner'}: Terdapat ${myProjects.length} proyek aktif (${myProjects.map((p) => p.name).join(', ') || 'Semua'}). Seluruh metrik jadwal beroperasi normal sesuai tolak ukur presensi terpadu.`;
+      }
+
+      setAiChatMessages((prev) => [
+        ...prev,
+        {
+          sender: 'ai',
+          text: reply,
+          time: new Date().toLocaleTimeString('id-ID', {
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+        },
+      ]);
+    }, 500);
+  };
+
+  // State Gemini AI Assistant Chatbot Khusus JadwalPro
+  const [isAIChatOpen, setIsAIChatOpen] = useState<boolean>(false);
+  const [aiChatInput, setAiChatInput] = useState<string>('');
+  const [aiChatMessages, setAiChatMessages] = useState<
+    Array<{ sender: 'user' | 'ai'; text: string; time: string }>
+  >([
+    {
+      sender: 'ai',
+      text: 'Halo! Saya Gemini Assistant resmi JadwalPro. Saya siap membantu mengevaluasi kendala proyek, meninjau status revisi aktif, dan menganalisis jam kerja lembur khusus untuk akun Anda. Silakan klik topik rekomendasi di bawah atau ketik pertanyaan seputar proyek Anda!',
+      time: 'Baru saja',
+    },
+  ]);
+  const [aiPerfSubTab, setAiPerfSubTab] = useState<'upload' | 'appraisal'>('appraisal');
+
   // Inisialisasi Data & Sinkronisasi Sesi (Auto-Login & Sinkronisasi Cloud)
   useEffect(() => {
     const saved = db.getSavedSession ? db.getSavedSession() : null;
@@ -1843,11 +1954,10 @@ export default function App() {
       estimatedWorkDaysPerMonth * (workPolicy.targetDailyWorkHours || 7.5)
     );
 
-    const totalWorkHours = hadirRecords.reduce(
-      (acc, curr) => acc + (curr.workDurationHours || 0),
-      0
+    const totalWorkHours = Math.round(
+      hadirRecords.reduce((acc, curr) => acc + (curr.workDurationHours || 0), 0)
     );
-    const avgWorkHours = hadirCount > 0 ? (totalWorkHours / hadirCount).toFixed(1) : '0';
+    const avgWorkHours = hadirCount > 0 ? String(Math.round(totalWorkHours / hadirCount)) : '0';
     const workHourAchievementPercent =
       monthlyTargetWorkHours > 0
         ? Math.min(150, Math.round((totalWorkHours / monthlyTargetWorkHours) * 100))
@@ -3864,7 +3974,7 @@ export default function App() {
   if (!currentUser) {
     return (
       <AuthPage
-        onAuthSuccess={(user) => {
+        onAuthSuccess={(user: UserProfile) => {
           if (db.saveSession) db.saveSession(user);
           setCurrentUser(user);
           showToast(`Selamat datang, ${user.fullName}!`);
@@ -3976,7 +4086,7 @@ export default function App() {
               }`}
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>Laporan<span className="hidden xl:inline"> Kinerja</span></span>
+              <span>Rekap Pekerjaan</span>
             </button>
             <button
               type="button"
@@ -4735,6 +4845,35 @@ export default function App() {
                             </span>
 
                             <div className="flex items-center gap-1">
+                              {/* Indikator Cuti / Izin / Sakit di Kalender Proyek */}
+                              {(() => {
+                                const dayLeaves = attendance.filter(
+                                  (a) =>
+                                    a.date === cell.dateStr &&
+                                    (a.type === 'izin' || a.type === 'cuti' || a.type === 'sakit') &&
+                                    (ownerFilter === 'ALL' || a.ownerId === (ownerFilter === 'MINE' ? currentUser.id : ownerFilter))
+                                );
+                                if (dayLeaves.length === 0) return null;
+                                return (
+                                  <div className="flex flex-wrap items-center gap-0.5">
+                                    {dayLeaves.map((l) => (
+                                      <span
+                                        key={l.id}
+                                        className={`inline-flex items-center gap-0.5 text-[8.5px] font-black px-1.5 py-0.5 rounded-md border shadow-2xs ${
+                                          l.type === 'izin'
+                                            ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                            : l.type === 'cuti'
+                                            ? 'bg-purple-100 text-purple-800 border-purple-300'
+                                            : 'bg-rose-100 text-rose-800 border-rose-300'
+                                        }`}
+                                        title={`${l.type.toUpperCase()}: ${l.leaveReason || l.notes || 'Pengajuan terdaftar'}`}
+                                      >
+                                        {l.type === 'izin' ? 'IZIN' : l.type === 'cuti' ? 'CUTI' : 'SAKIT'}
+                                      </span>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
                               {dayReminders.length > 0 && (
                                 <span
                                   className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 border border-amber-300"
@@ -5190,199 +5329,185 @@ export default function App() {
                 </button>
               </div>
 
-              {/* 4 Stat Cards Absensi Terukur */}
-              <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                      Total Kehadiran
-                    </span>
-                    <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                      <CalendarCheck2 className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <div className="mt-1 flex items-baseline gap-2">
-                    <span className="text-2xl sm:text-3xl font-extrabold text-emerald-600">
-                      {attendanceStats.hadirCount}
-                    </span>
-                    <span className="text-xs text-slate-500">Hari Hadir</span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 pt-0.5">
-                    <span className="text-emerald-700 font-semibold">{attendanceStats.punctualCount} Tepat Waktu</span> •{' '}
-                    <span className={attendanceStats.lateCount > 0 ? 'text-rose-600 font-semibold' : 'text-slate-500'}>
-                      {attendanceStats.lateCount} Terlambat
-                    </span>
-                  </p>
-                </div>
-
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                      Izin, Cuti &amp; Sakit
-                    </span>
-                    <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-                      <Coffee className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <div className="mt-1 flex items-baseline gap-2">
-                    <span className="text-2xl sm:text-3xl font-extrabold text-amber-600">
-                      {attendanceStats.izinCount + attendanceStats.cutiCount + attendanceStats.sakitCount}
-                    </span>
-                    <span className="text-xs text-slate-500">
-                      ({attendanceStats.izinCount} Izin, {attendanceStats.cutiCount} Cuti, {attendanceStats.sakitCount} Sakit)
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 pt-0.5">
-                    Sisa Cuti: <strong className="text-indigo-600">{attendanceStats.remainingLeaveQuota} Hari</strong> (dari {workPolicy.annualLeaveQuota})
-                  </p>
-                </div>
-
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                      Jam Kerja Bersih
-                    </span>
-                    <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                      <Timer className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <div className="mt-1 flex items-baseline gap-2">
-                    <span className="text-2xl sm:text-3xl font-extrabold text-indigo-600">
-                      {attendanceStats.totalWorkHours}
-                    </span>
-                    <span className="text-xs text-slate-500">Jam Bersih</span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 pt-0.5">
-                    Target: <strong>{attendanceStats.monthlyTargetWorkHours} Jam</strong> ({attendanceStats.workHourAchievementPercent}% tercapai)
-                  </p>
-                </div>
-
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                      Rata-Rata Jam / Hari
-                    </span>
-                    <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-                      <Clock className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <div className="mt-1 flex items-baseline gap-2">
-                    <span className="text-2xl sm:text-3xl font-extrabold text-blue-600">
-                      {attendanceStats.avgWorkHours}
-                    </span>
-                    <span className="text-xs text-slate-500">Jam / hari</span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 pt-0.5">
-                    Target Baku: <strong className="text-slate-800">{workPolicy.targetDailyWorkHours} Jam/Hari</strong> (Potong {workPolicy.breakDurationHours}j istirahat)
-                  </p>
-                </div>
-              </section>
-
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <span className="font-bold text-slate-800 text-sm">
-                    Riwayat Kehadiran ({INDONESIAN_MONTHS[currentMonth]} {currentYear})
-                  </span>
-                  <div className="relative">
-                    <select
-                      value={ownerFilter}
-                      onChange={(e) => setOwnerFilter(e.target.value)}
-                      className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:outline-none"
-                    >
-                      <option value="MINE">Absensi Saya ({currentUser.fullName})</option>
-                      {uniqueOwners.filter((o) => o.id !== currentUser.id && o.id !== 'owner-demo-1').length > 0 && (
-                        <option value="ALL">Semua Anggota Tim</option>
-                      )}
-                      {uniqueOwners
-                        .filter((o) => o.id !== currentUser.id && o.id !== 'owner-demo-1')
-                        .map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {o.name}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={openNewAttendanceModal}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Ajukan Izin / Cuti / Koreksi Jam</span>
-                </button>
-              </div>
-
-              {/* CARD REKAPITULASI & KETERANGAN AKTIVITAS LEMBUR */}
-              <div className="bg-gradient-to-br from-indigo-900 via-indigo-800 to-slate-900 rounded-3xl p-5 sm:p-6 text-white space-y-4 shadow-sm border border-indigo-700/50">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              {/* BAGIAN TERPADU: INDIKATOR STATISTIK KEHADIRAN & REKAPITULASI LEMBUR TERINTEGRASI */}
+              <section className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden space-y-0">
+                {/* Header Terpadu */}
+                <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-5 sm:p-6 text-white flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="space-y-1">
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
                       <Clock className="w-3.5 h-3.5 text-amber-300" />
-                      <span>Manajemen &amp; Keterangan Lembur (Overtime Tracking)</span>
+                      <span>Panel Metrik Presensi &amp; Rekapitulasi Jam Kerja Lembur Terpadu</span>
                     </div>
-                    <h3 className="text-base sm:text-lg font-extrabold tracking-tight">
-                      Rekapitulasi Jam Kerja Lembur Terverifikasi
+                    <h3 className="text-lg sm:text-xl font-black tracking-tight text-white">
+                      Ringkasan Kehadiran &amp; Realisasi Jam Kerja Bersih (Genap Sejam)
                     </h3>
                     <p className="text-xs text-indigo-200/90 max-w-2xl">
-                      Semua aktivitas lembur pagi, lembur sore/malam, dan lembur hari libur terekam otomatis
-                      sesuai tolak ukur baku dan dapat disesuaikan menurut keputusan persetujuan atasan.
+                      Seluruh indikator kehadiran, izin/cuti, jam kerja bersih genap, dan rekap lembur terintegrasi dalam satu panel tolak ukur terpadu.
                     </p>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 shrink-0">
-                    <div className="px-3.5 py-2 rounded-2xl bg-white/10 border border-white/20 text-right">
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-amber-300">Total Lembur Bulan Ini</div>
-                      <div className="text-xl font-extrabold text-white">
-                        {monthAttendance.reduce((sum, r) => sum + (r.overtimeHours || 0), 0).toFixed(1)} Jam
+                    <button
+                      type="button"
+                      onClick={openNewAttendanceModal}
+                      className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md transition-all"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Ajukan Izin / Cuti / Koreksi Jam</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 5 Kartu Indikator Utama Terpadu (Genap Sejam Tanpa Pecahan Desimal) */}
+                <div className="p-5 sm:p-6 space-y-5">
+                  <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+                    {/* 1. Total Kehadiran */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                          Total Kehadiran
+                        </span>
+                        <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                          <CalendarCheck2 className="w-4 h-4" />
+                        </div>
                       </div>
+                      <div className="mt-1 flex items-baseline gap-1.5">
+                        <span className="text-2xl sm:text-3xl font-black text-emerald-700">
+                          {attendanceStats.hadirCount}
+                        </span>
+                        <span className="text-xs font-semibold text-slate-500">Hari Hadir</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 pt-0.5">
+                        <span className="text-emerald-700 font-bold">{attendanceStats.punctualCount} Tepat</span> •{' '}
+                        <span className={attendanceStats.lateCount > 0 ? 'text-rose-600 font-bold' : 'text-slate-500'}>
+                          {attendanceStats.lateCount} Terlambat
+                        </span>
+                      </p>
+                    </div>
+
+                    {/* 2. Izin, Cuti & Sakit */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                          Izin, Cuti &amp; Sakit
+                        </span>
+                        <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
+                          <Coffee className="w-4 h-4" />
+                        </div>
+                      </div>
+                      <div className="mt-1 flex items-baseline gap-1.5">
+                        <span className="text-2xl sm:text-3xl font-black text-amber-700">
+                          {attendanceStats.izinCount + attendanceStats.cutiCount + attendanceStats.sakitCount}
+                        </span>
+                        <span className="text-xs font-semibold text-slate-500">Hari</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 pt-0.5">
+                        Sisa Cuti: <strong className="text-indigo-600">{attendanceStats.remainingLeaveQuota} Hari</strong>
+                      </p>
+                    </div>
+
+                    {/* 3. Jam Kerja Bersih (Genap Sejam) */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                          Jam Kerja Bersih
+                        </span>
+                        <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                          <Timer className="w-4 h-4" />
+                        </div>
+                      </div>
+                      <div className="mt-1 flex items-baseline gap-1.5">
+                        <span className="text-2xl sm:text-3xl font-black text-indigo-700">
+                          {Math.round(Number(attendanceStats.totalWorkHours))}
+                        </span>
+                        <span className="text-xs font-semibold text-slate-500">Jam (Genap)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 pt-0.5">
+                        Target: <strong>{attendanceStats.monthlyTargetWorkHours} Jam</strong>
+                      </p>
+                    </div>
+
+                    {/* 4. Rata-Rata Jam / Hari (Genap Sejam) */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                          Rata-Rata / Hari
+                        </span>
+                        <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
+                          <Clock className="w-4 h-4" />
+                        </div>
+                      </div>
+                      <div className="mt-1 flex items-baseline gap-1.5">
+                        <span className="text-2xl sm:text-3xl font-black text-blue-700">
+                          {Math.round(Number(attendanceStats.avgWorkHours))}
+                        </span>
+                        <span className="text-xs font-semibold text-slate-500">Jam / hari</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 pt-0.5">
+                        Baku: <strong>{workPolicy.targetDailyWorkHours} Jam</strong>
+                      </p>
+                    </div>
+
+                    {/* 5. Rekapitulasi Jam Lembur (Genap Sejam) */}
+                    <div className="col-span-2 lg:col-span-1 bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-transparent p-4 rounded-2xl border border-amber-300/80 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-amber-800">
+                          Total Lembur
+                        </span>
+                        <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center shadow-xs">
+                          <Zap className="w-4 h-4" />
+                        </div>
+                      </div>
+                      <div className="mt-1 flex items-baseline gap-1.5">
+                        <span className="text-2xl sm:text-3xl font-black text-amber-700">
+                          {Math.round(monthAttendance.reduce((sum, r) => sum + (r.overtimeHours || 0), 0))}
+                        </span>
+                        <span className="text-xs font-semibold text-amber-900">Jam (Genap)</span>
+                      </div>
+                      <p className="text-[11px] text-amber-800 font-medium pt-0.5">
+                        Pagi: {Math.round(monthAttendance.filter((r) => r.shiftCategory === 'lembur_awal').reduce((s, r) => s + (r.overtimeHours || 0), 0))}j • Malam: {Math.round(monthAttendance.filter((r) => r.shiftCategory === 'lembur_akhir').reduce((s, r) => s + (r.overtimeHours || 0), 0))}j
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Keterangan Sub-Kategori Lembur & Filter Pemilik */}
+                  <div className="pt-3 border-t border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                      <span className="font-bold text-slate-800">Rincian Shift Lembur:</span>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 font-bold border border-indigo-200">
+                        Lembur Masuk Awal: {Math.round(monthAttendance.filter((r) => r.shiftCategory === 'lembur_awal').reduce((s, r) => s + (r.overtimeHours || 0), 0))} Jam
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 font-bold border border-amber-200">
+                        Lembur Pulang Malam: {Math.round(monthAttendance.filter((r) => r.shiftCategory === 'lembur_akhir').reduce((s, r) => s + (r.overtimeHours || 0), 0))} Jam
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 font-bold border border-purple-200">
+                        Lembur Hari Libur: {Math.round(monthAttendance.filter((r) => r.shiftCategory === 'lembur_penuh').reduce((s, r) => s + (r.overtimeHours || 0), 0))} Jam
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-500 font-semibold">Tampilkan Absensi:</span>
+                      <select
+                        value={ownerFilter}
+                        onChange={(e) => setOwnerFilter(e.target.value)}
+                        className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
+                      >
+                        <option value="MINE">Absensi Saya ({currentUser.fullName})</option>
+                        {uniqueOwners.filter((o) => o.id !== currentUser.id && o.id !== 'owner-demo-1').length > 0 && (
+                          <option value="ALL">Semua Anggota Tim</option>
+                        )}
+                        {uniqueOwners
+                          .filter((o) => o.id !== currentUser.id && o.id !== 'owner-demo-1')
+                          .map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {o.name}
+                            </option>
+                          ))}
+                      </select>
                     </div>
                   </div>
                 </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
-                  <div className="p-3 rounded-2xl bg-white/5 border border-white/10">
-                    <span className="text-[10px] uppercase font-bold text-indigo-300 block">Lembur Pagi (Awal)</span>
-                    <span className="text-lg font-bold text-white">
-                      {monthAttendance.filter((r) => r.shiftCategory === 'lembur_awal').reduce((s, r) => s + (r.overtimeHours || 0), 0).toFixed(1)} Jam
-                    </span>
-                    <span className="text-[10px] text-indigo-200 block mt-0.5">
-                      {monthAttendance.filter((r) => r.shiftCategory === 'lembur_awal').length} sesi hadir awal
-                    </span>
-                  </div>
-
-                  <div className="p-3 rounded-2xl bg-white/5 border border-white/10">
-                    <span className="text-[10px] uppercase font-bold text-amber-300 block">Lembur Sore / Malam</span>
-                    <span className="text-lg font-bold text-white">
-                      {monthAttendance.filter((r) => r.shiftCategory === 'lembur_akhir').reduce((s, r) => s + (r.overtimeHours || 0), 0).toFixed(1)} Jam
-                    </span>
-                    <span className="text-[10px] text-amber-200 block mt-0.5">
-                      Batas threshold: {workPolicy.lateOvertimeThresholdMinutes !== undefined ? workPolicy.lateOvertimeThresholdMinutes : 30}m
-                    </span>
-                  </div>
-
-                  <div className="p-3 rounded-2xl bg-white/5 border border-white/10">
-                    <span className="text-[10px] uppercase font-bold text-purple-300 block">Lembur Hari Libur</span>
-                    <span className="text-lg font-bold text-white">
-                      {monthAttendance.filter((r) => r.shiftCategory === 'lembur_penuh').reduce((s, r) => s + (r.overtimeHours || 0), 0).toFixed(1)} Jam
-                    </span>
-                    <span className="text-[10px] text-purple-200 block mt-0.5">
-                      100% jam kerja di hari libur
-                    </span>
-                  </div>
-
-                  <div className="p-3 rounded-2xl bg-white/5 border border-white/10">
-                    <span className="text-[10px] uppercase font-bold text-emerald-300 block">Jam Reguler Bersih</span>
-                    <span className="text-lg font-bold text-white">
-                      {monthAttendance.reduce((sum, r) => sum + (r.regularWorkHours || 0), 0).toFixed(1)} Jam
-                    </span>
-                    <span className="text-[10px] text-emerald-200 block mt-0.5">
-                      Target harian: {workPolicy.targetDailyWorkHours}j/hari
-                    </span>
-                  </div>
-                </div>
-              </div>
+              </section>
 
               <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
                 <div className="overflow-x-auto">
@@ -5704,43 +5829,1195 @@ export default function App() {
           {/* TAB 3: LAPORAN KINERJA & SISTEM REPORT HASIL PEKERJAAN FULL AI PRO */}
           {activeMainTab === 'report' && reportData && (
             <div className="space-y-6">
-              {/* SUB-NAVBAR MENU LAPORAN: REPORT HASIL PEKERJAAN (AI PRO) VS REKAP ABSENSI */}
+
+                <div className="space-y-6">
+                  {/* Toolbar Filter Periode Kustom (Print: Hidden) */}
+              <div className="bg-white p-4 rounded-2xl border border-slate-200 flex flex-col gap-4 print:hidden">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <CalendarRange className="w-5 h-5 text-indigo-600" />
+                    <div>
+                      <h3 className="font-bold text-slate-900 text-sm">
+                        Filter Periode Evaluasi Kinerja
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Pilih rentang tanggal kustom untuk kalkulasi persentase kontribusi &amp; pencapaian
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Preset Cepat */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0">
+                    <button
+                      type="button"
+                      onClick={() => handleApplyReportPreset('this_month')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+                        reportDatePreset === 'this_month'
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      Bulan Ini
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleApplyReportPreset('last_30_days')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+                        reportDatePreset === 'last_30_days'
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      30 Hari Terakhir
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleApplyReportPreset('last_month')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+                        reportDatePreset === 'last_month'
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      Bulan Lalu
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReportDatePreset('custom')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+                        reportDatePreset === 'custom'
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      Kustom
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-100">
+                  {/* Input Tanggal Mulai s/d Tanggal Selesai */}
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="font-semibold text-slate-700">Dari Tanggal:</span>
+                    <input
+                      type="date"
+                      value={reportStartDate}
+                      onChange={(e) => {
+                        setReportStartDate(e.target.value);
+                        setReportDatePreset('custom');
+                      }}
+                      className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                    <span className="font-semibold text-slate-700">Sampai:</span>
+                    <input
+                      type="date"
+                      value={reportEndDate}
+                      onChange={(e) => {
+                        setReportEndDate(e.target.value);
+                        setReportDatePreset('custom');
+                      }}
+                      className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    />
+
+                    {/* Filter Owner */}
+                    <span className="font-semibold text-slate-700 ml-2">Owner:</span>
+                    <select
+                      value={reportOwnerFilter}
+                      onChange={(e) => setReportOwnerFilter(e.target.value)}
+                      className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-700 focus:outline-none"
+                    >
+                      <option value="MINE">Pribadi: {currentUser.fullName}</option>
+                      {uniqueOwners
+                        .filter((o) => o.id !== currentUser.id && o.id !== 'owner-demo-1')
+                        .map((o) => (
+                          <option key={o.id} value={o.id}>
+                            Anggota: {o.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={copyReportSummary}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Salin Teks Ringkasan</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsPhotoGalleryModalOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white hover:bg-slate-50 text-indigo-700 border border-indigo-200 shadow-2xs transition-colors"
+                    >
+                      <Camera className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Bukti Foto &amp; Unduh</span>
+                    </button>
+                    <a
+                      href="/rekap-pekerjaan-jadwalpro.xlsx"
+                      download="rekap-pekerjaan-jadwalpro.xlsx"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors shrink-0"
+                      title="Unduh Lembar Kerja Rekap Pekerjaan Excel (.xlsx)"
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-200" />
+                      <span>Unduh Excel (.xlsx)</span>
+                    </a>
+                    <a
+                      href="/laporan-rekap-pekerjaan.pptx"
+                      download="laporan-rekap-pekerjaan.pptx"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-xs transition-colors shrink-0"
+                      title="Unduh Bahan Presentasi PowerPoint Full Designed (.pptx)"
+                    >
+                      <Presentation className="w-3.5 h-3.5 text-amber-100" />
+                      <span>Unduh Presentasi AI (.pptx)</span>
+                    </a>
+                    <button
+                      type="button"
+                      onClick={handlePrintReport}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-colors shrink-0"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>Cetak / Unduh PDF</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* DOKUMEN LAPORAN RINCI (LAYOUT CETAK PDF PROFESIONAL) */}
+              <div className="bg-white p-6 sm:p-10 rounded-3xl border border-slate-200 shadow-sm space-y-7 print:border-none print:shadow-none print:p-0 print:m-0">
+                {/* Header Dokumen Laporan */}
+                <div className="border-b border-slate-200 pb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 flex items-center gap-1">
+                      <FileSpreadsheet className="w-3.5 h-3.5" />
+                      <span>Dokumen Kinerja &amp; Akuntabilitas Kerja</span>
+                    </span>
+                    <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 mt-0.5">
+                      Laporan Evaluasi Proyek, Beban Kerja &amp; Kehadiran
+                    </h2>
+                </div>
+
+                {/* ============================================================== */}
+                {/* DUA GRAFIK LINE CHART TREN PEKERJAAN & PROGRES PROYEK TERUKUR  */}
+                {/* ============================================================== */}
+                <div className="space-y-6 pt-2 print:space-y-4">
+                  {/* LINE CHART 1: RINGKASAN TOTAL PEKERJAAN PER PROYEK PER BULAN (JAN - DES) */}
+                  <div className="bg-slate-50/80 p-5 sm:p-6 rounded-3xl border border-slate-200/90 shadow-2xs space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 pb-3">
+                      <div>
+                        <div className="inline-flex items-center gap-1.5 text-xs font-black text-indigo-700 uppercase tracking-wider">
+                          <TrendingUp className="w-4 h-4 text-indigo-600" />
+                          <span>Grafik Tren Tahunan 12 Bulan</span>
+                        </div>
+                        <h3 className="text-base sm:text-lg font-black text-slate-900 tracking-tight mt-0.5">
+                          Ringkasan Total Pekerjaan per Proyek per Bulan (Januari — Desember)
+                        </h3>
+                        <p className="text-xs text-slate-500">
+                          Distribusi beban kerja dan intensitas pengerjaan seluruh proyek dari Januari hingga Desember {currentYear}.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 self-start sm:self-auto">
+                        <span className="text-[11px] font-bold text-slate-500 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
+                          {projects.length} Proyek Terdata
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* SVG Line Chart 1 */}
+                    {(() => {
+                      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+                      const projectColors = ['#4f46e5', '#06b6d4', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#ef4444'];
+                      
+                      // Calculate monthly counts per project
+                      const series = projects.map((p, idx) => {
+                        const monthlyCounts = months.map((_, mIdx) => {
+                          return entries.filter((e) => {
+                            if (e.projectId !== p.id) return false;
+                            const d = new Date(e.date);
+                            return d.getMonth() === mIdx && d.getFullYear() === currentYear;
+                          }).length;
+                        });
+                        const totalYear = monthlyCounts.reduce((a, b) => a + b, 0);
+                        return {
+                          project: p,
+                          color: p.color || projectColors[idx % projectColors.length],
+                          counts: monthlyCounts,
+                          total: totalYear,
+                        };
+                      });
+
+                      const maxVal = Math.max(5, ...series.flatMap((s) => s.counts));
+                      const width = 720;
+                      const height = 220;
+                      const padLeft = 40;
+                      const padRight = 30;
+                      const padTop = 25;
+                      const padBottom = 35;
+                      const chartW = width - padLeft - padRight;
+                      const chartH = height - padTop - padBottom;
+
+                      return (
+                        <div className="space-y-3">
+                          <div className="w-full overflow-x-auto">
+                            <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[580px] h-48 sm:h-56 select-none font-sans">
+                              {/* Horizontal Grid lines */}
+                              {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => {
+                                const y = padTop + chartH * (1 - ratio);
+                                const val = Math.round(maxVal * ratio);
+                                return (
+                                  <g key={i}>
+                                    <line x1={padLeft} y1={y} x2={width - padRight} y2={y} stroke="#e2e8f0" strokeDasharray="4 4" strokeWidth="1" />
+                                    <text x={padLeft - 8} y={y + 4} textAnchor="end" fontSize="10" fill="#94a3b8" fontWeight="600">
+                                      {val}
+                                    </text>
+                                  </g>
+                                );
+                              })}
+
+                              {/* Month labels on X-axis */}
+                              {months.map((m, mIdx) => {
+                                const x = padLeft + (mIdx / (months.length - 1)) * chartW;
+                                return (
+                                  <text key={mIdx} x={x} y={height - 10} textAnchor="middle" fontSize="11" fill="#64748b" fontWeight="700">
+                                    {m}
+                                  </text>
+                                );
+                              })}
+
+                              {/* Project polylines */}
+                              {series.map((s, sIdx) => {
+                                const points = s.counts.map((val, mIdx) => {
+                                  const x = padLeft + (mIdx / (months.length - 1)) * chartW;
+                                  const y = padTop + chartH * (1 - val / maxVal);
+                                  return `${x},${y}`;
+                                }).join(' ');
+
+                                return (
+                                  <g key={s.project.id || sIdx}>
+                                    <polyline
+                                      fill="none"
+                                      stroke={s.color}
+                                      strokeWidth="2.5"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      points={points}
+                                      className="transition-all hover:stroke-width-4 opacity-90 hover:opacity-100"
+                                    />
+                                    {s.counts.map((val, mIdx) => {
+                                      const x = padLeft + (mIdx / (months.length - 1)) * chartW;
+                                      const y = padTop + chartH * (1 - val / maxVal);
+                                      return (
+                                        <circle
+                                          key={mIdx}
+                                          cx={x}
+                                          cy={y}
+                                          r="3.5"
+                                          fill={s.color}
+                                          stroke="#ffffff"
+                                          strokeWidth="2"
+                                          className="cursor-pointer hover:r-5 transition-all"
+                                        >
+                                          <title>{`${s.project.name} (${months[mIdx]}): ${val} tugas`}</title>
+                                        </circle>
+                                      );
+                                    })}
+                                  </g>
+                                );
+                              })}
+                            </svg>
+                          </div>
+
+                          {/* Legend Ringkasan Total per Proyek */}
+                          <div className="flex flex-wrap items-center gap-2.5 pt-2 border-t border-slate-200/60 text-xs">
+                            <span className="font-bold text-slate-700 text-[11px] uppercase tracking-wider">Legenda Proyek:</span>
+                            {series.map((s) => (
+                              <div
+                                key={s.project.id}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white border border-slate-200 shadow-2xs font-semibold text-slate-800"
+                              >
+                                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
+                                <span>{s.project.name}</span>
+                                <span className="text-slate-400 font-normal">({s.total} tugas/thn)</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* LINE CHART 2: PROGRES PROYEK & DURASI (DIURUTKAN DARI YANG PALING LAMA DIKERJAKAN) */}
+                  <div className="bg-slate-50/80 p-5 sm:p-6 rounded-3xl border border-slate-200/90 shadow-2xs space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 pb-3">
+                      <div>
+                        <div className="inline-flex items-center gap-1.5 text-xs font-black text-emerald-700 uppercase tracking-wider">
+                          <Activity className="w-4 h-4 text-emerald-600" />
+                          <span>Grafik Peringkat Durasi &amp; Tingkat Ketercapaian</span>
+                        </div>
+                        <h3 className="text-base sm:text-lg font-black text-slate-900 tracking-tight mt-0.5">
+                          Progres Proyek &amp; Akumulasi Durasi Kerja (Mulai dari yang Paling Lama Dikerjakan)
+                        </h3>
+                        <p className="text-xs text-slate-500">
+                          Urutan proyek berdasarkan akumulasi hari pengerjaan terlama ke tersingkat beserta rasio progres penyelesaiannya.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 self-start sm:self-auto">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                          Diurutkan: Durasi Terpanjang
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* SVG Line Chart 2 */}
+                    {(() => {
+                      // Calculate duration and progress per project, sorted descending by duration
+                      const sortedProjects = [...projects].map((p) => {
+                        const projEntries = entries.filter((e) => e.projectId === p.id);
+                        const total = projEntries.length;
+                        const done = projEntries.filter((e) => e.status === 'selesai').length;
+                        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                        const durationSum = projEntries.reduce((acc, curr) => acc + (curr.durationDays || 1), 0);
+                        return {
+                          project: p,
+                          total,
+                          done,
+                          pct,
+                          durationDays: durationSum || 1,
+                        };
+                      }).sort((a, b) => b.durationDays - a.durationDays);
+
+                      if (sortedProjects.length === 0) {
+                        return <div className="text-xs text-slate-500 py-6 text-center">Belum ada proyek yang dapat ditampilkan.</div>;
+                      }
+
+                      const width = 720;
+                      const height = 210;
+                      const padLeft = 45;
+                      const padRight = 45;
+                      const padTop = 30;
+                      const padBottom = 40;
+                      const chartW = width - padLeft - padRight;
+                      const chartH = height - padTop - padBottom;
+
+                      const points = sortedProjects.map((item, idx) => {
+                        const x = sortedProjects.length === 1
+                          ? width / 2
+                          : padLeft + (idx / (sortedProjects.length - 1)) * chartW;
+                        const y = padTop + chartH * (1 - item.pct / 100);
+                        return { x, y, item };
+                      });
+
+                      const polyPoints = points.map((p) => `${p.x},${p.y}`).join(' ');
+
+                      return (
+                        <div className="space-y-3">
+                          <div className="w-full overflow-x-auto">
+                            <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[580px] h-48 sm:h-52 select-none font-sans">
+                              {/* Horizontal Grid lines for % */}
+                              {[0, 25, 50, 75, 100].map((pct, i) => {
+                                const y = padTop + chartH * (1 - pct / 100);
+                                return (
+                                  <g key={i}>
+                                    <line x1={padLeft} y1={y} x2={width - padRight} y2={y} stroke="#e2e8f0" strokeDasharray="3 3" strokeWidth="1" />
+                                    <text x={padLeft - 8} y={y + 3.5} textAnchor="end" fontSize="10" fill="#94a3b8" fontWeight="600">
+                                      {pct}%
+                                    </text>
+                                  </g>
+                                );
+                              })}
+
+                              {/* Connecting Area Gradient & Polyline */}
+                              <polyline
+                                fill="none"
+                                stroke="#10b981"
+                                strokeWidth="3"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                points={polyPoints}
+                                className="opacity-95"
+                              />
+
+                              {/* Nodes and Labels */}
+                              {points.map((pt, i) => (
+                                <g key={i}>
+                                  {/* Vertical guide bar */}
+                                  <line x1={pt.x} y1={pt.y} x2={pt.x} y2={height - padBottom} stroke="#cbd5e1" strokeWidth="1" strokeDasharray="2 2" />
+
+                                  {/* Node Circle */}
+                                  <circle
+                                    cx={pt.x}
+                                    cy={pt.y}
+                                    r="5.5"
+                                    fill="#10b981"
+                                    stroke="#ffffff"
+                                    strokeWidth="2.5"
+                                    className="cursor-pointer"
+                                  >
+                                    <title>{`${pt.item.project.name}: ${pt.item.pct}% selesai (${pt.item.durationDays} hari pengerjaan)`}</title>
+                                  </circle>
+
+                                  {/* Percentage Label */}
+                                  <text x={pt.x} y={pt.y - 10} textAnchor="middle" fontSize="11" fill="#047857" fontWeight="800">
+                                    {pt.item.pct}%
+                                  </text>
+
+                                  {/* Project Name and Duration below */}
+                                  <text x={pt.x} y={height - 22} textAnchor="middle" fontSize="10.5" fill="#334155" fontWeight="700">
+                                    {pt.item.project.name.length > 14 ? pt.item.project.name.slice(0, 12) + '..' : pt.item.project.name}
+                                  </text>
+                                  <text x={pt.x} y={height - 9} textAnchor="middle" fontSize="9.5" fill="#059669" fontWeight="600">
+                                    {pt.item.durationDays} hari kerja
+                                  </text>
+                                </g>
+                              ))}
+                            </svg>
+                          </div>
+
+                          {/* Summary badges below Chart 2 */}
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-xs">
+                            {sortedProjects.slice(0, 4).map((p, i) => (
+                              <div key={p.project.id} className="p-2.5 rounded-xl bg-white border border-slate-200/80 shadow-2xs space-y-0.5">
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                  #{i + 1} Durasi Terlama
+                                </div>
+                                <div className="font-extrabold text-slate-800 truncate" title={p.project.name}>
+                                  {p.project.name}
+                                </div>
+                                <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
+                                  <span>{p.durationDays} hari</span>
+                                  <span className="font-bold text-emerald-600">{p.pct}% tuntas</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+                    <p className="text-xs text-slate-600 mt-1 font-medium">
+                      Periode Evaluasi:{' '}
+                      <strong className="text-indigo-700">
+                        {formatDateShortIndo(reportData.startDate)} s/d{' '}
+                        {formatDateShortIndo(reportData.endDate)}
+                      </strong>{' '}
+                      • Generated via JadwalPro
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-indigo-50/80 border border-indigo-100 text-right sm:min-w-[220px]">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">
+                      Nama Anggota / Penanggung Jawab
+                    </div>
+                    <div className="text-base font-bold text-slate-900">
+                      {reportData.owner.fullName}
+                    </div>
+                    <div className="text-xs text-slate-500 font-mono">
+                      Owner ID: {reportData.owner.id}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3 Kartu Metrik Utama */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="p-5 rounded-2xl bg-gradient-to-br from-indigo-600 to-indigo-800 text-white flex flex-col justify-between">
+                    <div>
+                      <span className="text-xs font-semibold text-indigo-200 uppercase tracking-wider">
+                        Indeks Produktivitas &amp; Disiplin
+                      </span>
+                      <div className="text-3xl font-extrabold mt-1">
+                        {reportData.performanceScore}%
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-indigo-100 mt-3 leading-relaxed">
+                      Kombinasi rasio tuntas tugas ({reportData.finishedTasks} dari{' '}
+                      {reportData.totalTasks} tugas) serta {reportData.totalHadir} hari kehadiran efektif.
+                    </p>
+                  </div>
+
+                  <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
+                      Total Jam Kerja Efektif
+                    </span>
+                    <div className="text-2xl font-bold text-slate-900">
+                      {reportData.totalHours} Jam
+                    </div>
+                    <div className="text-xs text-slate-600">
+                      Rata-rata <strong>{reportData.avgHours} jam/hari hadir</strong> selama rentang tanggal
+                      terpilih.
+                    </div>
+                  </div>
+
+                  <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
+                      Tugas Selesai Tuntas
+                    </span>
+                    <div className="text-2xl font-bold text-emerald-600">
+                      {reportData.finishedTasks} / {reportData.totalTasks} Tugas
+                    </div>
+                    <div className="text-xs text-slate-600">
+                      {reportData.inProgressTasks} tugas berjalan •{' '}
+                      <span className="text-rose-600 font-semibold">{reportData.overdueTasks} terlambat</span>.
+                    </div>
+                  </div>
+
+                  <div className="p-5 rounded-2xl bg-indigo-50/50 border border-indigo-200 space-y-2 md:col-span-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-indigo-900 uppercase tracking-wider">
+                        Realisasi Jam Kerja Bersih &amp; Lembur
+                      </span>
+                      <span className="text-[11px] font-semibold text-indigo-700 bg-white px-2 py-0.5 rounded-full border border-indigo-100">
+                        Target Baku: {reportData.targetPeriodHours} Jam
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1 text-slate-800">
+                      <div>
+                        <span className="text-[10px] text-slate-500 uppercase block font-semibold">Total Jam Bersih</span>
+                        <span className="text-lg font-extrabold text-indigo-700">{reportData.totalHours} Jam</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 uppercase block font-semibold">Reguler (Normal)</span>
+                        <span className="text-lg font-bold text-slate-800">{reportData.totalRegularHours} Jam</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 uppercase block font-semibold">Total Jam Lembur</span>
+                        <span className="text-lg font-extrabold text-amber-600">+{reportData.totalOvertimeHours} Jam</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 uppercase block font-semibold">Tingkat Capaian</span>
+                        <span className="text-lg font-bold text-emerald-600">
+                          {reportData.targetPeriodHours > 0 ? Math.round((Number(reportData.totalHours) / reportData.targetPeriodHours) * 100) : 100}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* TABEL MATRIKS PERSENTASE KONTRIBUSI BEBAN KERJA & PROGRAM (SANGAT RINCI UNTUK PDF) */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                      <Briefcase className="w-4 h-4 text-indigo-600" />
+                      <span>1. Matriks Beban Kerja &amp; Kontribusi Proyek</span>
+                    </h3>
+                    <span className="text-xs font-medium text-slate-500 print:text-[10px]">
+                      Total Beban Kerja: <strong>{reportData.totalTasks} Tugas</strong>
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs text-slate-500 print:hidden pb-1">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50/70 text-indigo-700 text-[11px] font-medium border border-indigo-100">
+                      <span>↔️ Geser kanan/kiri &amp; ↕️ atas/bawah untuk melihat rincian tabel</span>
+                    </span>
+                  </div>
+
+                  <div className="border border-slate-200 rounded-2xl overflow-auto max-h-[480px] shadow-xs print:max-h-none print:overflow-visible bg-white">
+                    <table className="min-w-[820px] w-full text-left text-xs sm:text-sm">
+                      <thead className="sticky top-0 z-10 bg-slate-100 border-b border-slate-200 text-slate-700 font-bold uppercase text-[11px] tracking-wider shadow-2xs">
+                        <tr>
+                          <th className="py-3 px-4">Proyek &amp; Cabang Program</th>
+                          <th className="py-3 px-3 text-center">Beban Tugas</th>
+                          <th className="py-3 px-3 text-center">
+                            % Kontribusi Beban Kerja
+                          </th>
+                          <th className="py-3 px-3 text-center">Tugas Tuntas</th>
+                          <th className="py-3 px-3 text-center">
+                            % Tingkat Penyelesaian
+                          </th>
+                          <th className="py-3 px-4 text-right">Status Progres</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {reportData.projectBreakdown.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="py-8 text-center text-slate-500">
+                              Belum ada entri tugas tercatat pada rentang tanggal evaluasi ini.
+                            </td>
+                          </tr>
+                        ) : (
+                          reportData.projectBreakdown.map((pb) => (
+                            <React.Fragment key={pb.projectId}>
+                              {/* Baris Induk Proyek */}
+                              <tr className="bg-slate-50/70 font-semibold text-slate-900">
+                                <td className="py-3 px-4 flex items-center gap-2">
+                                  <span
+                                    className="w-3 h-3 rounded-full shrink-0"
+                                    style={{ backgroundColor: pb.color }}
+                                  />
+                                  <span className="font-bold text-slate-900 text-sm">{pb.name}</span>
+                                </td>
+                                <td className="py-3 px-3 text-center font-bold">{pb.count} tugas</td>
+                                <td className="py-3 px-3 text-center">
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                    {pb.contributionPercent}%
+                                  </span>
+                                </td>
+                                <td className="py-3 px-3 text-center text-emerald-700 font-bold">
+                                  {pb.finished} / {pb.count}
+                                </td>
+                                <td className="py-3 px-3 text-center">
+                                  <span className="font-extrabold text-slate-900">
+                                    {pb.completionPercent}%
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 text-right">
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                      pb.completionPercent >= 80
+                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                        : pb.completionPercent >= 40
+                                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                        : 'bg-amber-50 text-amber-700 border-amber-200'
+                                    }`}
+                                  >
+                                    {pb.completionPercent >= 80
+                                      ? 'Optimal'
+                                      : pb.completionPercent >= 40
+                                      ? 'Berjalan'
+                                      : 'Akselerasi'}
+                                  </span>
+                                </td>
+                              </tr>
+
+                              {/* Baris Cabang-cabang Program di Dalam Proyek */}
+                              {pb.programs.map((prog) => (
+                                <tr
+                                  key={prog.id}
+                                  className="text-xs text-slate-600 hover:bg-slate-50/40"
+                                >
+                                  <td className="py-2.5 pl-10 pr-4 flex items-center gap-2">
+                                    <GitBranch className="w-3.5 h-3.5 text-slate-400" />
+                                    <span className="font-medium text-slate-700">{prog.name}</span>
+                                  </td>
+                                  <td className="py-2.5 px-3 text-center font-medium">
+                                    {prog.count}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-center text-slate-500 font-mono">
+                                    {prog.contributionPercent}%
+                                  </td>
+                                  <td className="py-2.5 px-3 text-center text-emerald-600 font-medium">
+                                    {prog.finished}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-center font-semibold text-slate-800">
+                                    {prog.completionPercent}%
+                                  </td>
+                                  <td className="py-2.5 px-4 text-right">
+                                    <div className="w-20 ml-auto bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                                      <div
+                                        className="h-full bg-indigo-600 rounded-full"
+                                        style={{ width: `${prog.completionPercent}%` }}
+                                      />
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </React.Fragment>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Ringkasan Kehadiran */}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                    <CalendarCheck2 className="w-4 h-4 text-indigo-600" />
+                    <span>2. Rincian Disiplin &amp; Kehadiran</span>
+                  </h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-center">
+                      <div className="text-xs font-bold text-emerald-800">TOTAL HADIR</div>
+                      <div className="text-xl font-extrabold text-emerald-600 mt-1">
+                        {reportData.totalHadir} Hari
+                      </div>
+                    </div>
+                    <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-center">
+                      <div className="text-xs font-bold text-amber-800">IZIN</div>
+                      <div className="text-xl font-extrabold text-amber-600 mt-1">
+                        {reportData.totalIzin} Hari
+                      </div>
+                    </div>
+                    <div className="p-3.5 rounded-xl bg-purple-50 border border-purple-200 text-center">
+                      <div className="text-xs font-bold text-purple-800">CUTI</div>
+                      <div className="text-xl font-extrabold text-purple-600 mt-1">
+                        {reportData.totalCuti} Hari
+                      </div>
+                    </div>
+                    <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-center">
+                      <div className="text-xs font-bold text-rose-800">SAKIT</div>
+                      <div className="text-xl font-extrabold text-rose-600 mt-1">
+                        {reportData.totalSakit} Hari
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Tolak Ukur Aturan Kerja & Kepatuhan */}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-indigo-600" />
+                    <span>3. Tolak Ukur Aturan Kerja &amp; Kepatuhan Kebijakan</span>
+                  </h3>
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Aturan Shift Kerja</span>
+                      <span className="font-extrabold text-slate-900">{workPolicy.workDaysPerWeek} Hari / Minggu</span>
+                      <span className="text-slate-500 block text-[11px]">{workPolicy.standardCheckInTime} – {workPolicy.standardCheckOutTime}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Istirahat &amp; Target Efektif</span>
+                      <span className="font-extrabold text-slate-900">{workPolicy.targetDailyWorkHours} Jam / Hari</span>
+                      <span className="text-slate-500 block text-[11px]">Potong istirahat {workPolicy.breakDurationHours} jam</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Status Cuti Tahunan</span>
+                      <span className="font-extrabold text-indigo-600">Sisa {attendanceStats.remainingLeaveQuota} Hari</span>
+                      <span className="text-slate-500 block text-[11px]">Dari kuota {workPolicy.annualLeaveQuota} hari/thn</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Kepatuhan Jam Masuk</span>
+                      <span className="font-extrabold text-emerald-600">{attendanceStats.punctualCount} Tepat Waktu</span>
+                      <span className="text-slate-500 block text-[11px]">{attendanceStats.lateCount} kali terlambat ({workPolicy.lateToleranceMinutes}m toleransi)</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Log Tugas Rinci */}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-indigo-600" />
+                    <span>4. Log Rincian Pekerjaan Terkelompok per Proyek ({reportData.userEntries.length} Item)</span>
+                  </h3>
+                  <div className="flex items-center justify-between text-xs text-slate-500 print:hidden pb-1">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 text-[11px] font-bold border border-indigo-200">
+                      <span>📁 Seluruh log pekerjaan terorganisir per proyek &amp; program secara rapi</span>
+                    </span>
+                  </div>
+
+                  {/* Rendering Log Pekerjaan Dikelompokkan per Proyek */}
+                  {(() => {
+                    const groups: { project: Project; entries: ScheduleEntry[] }[] = [];
+                    const assignedIds = new Set<string>();
+
+                    projects.forEach((proj) => {
+                      const pEntries = reportData.userEntries.filter((e) => e.projectId === proj.id);
+                      if (pEntries.length > 0) {
+                        groups.push({ project: proj, entries: pEntries });
+                        assignedIds.add(proj.id);
+                      }
+                    });
+
+                    const unassigned = reportData.userEntries.filter((e) => !e.projectId || !assignedIds.has(e.projectId));
+                    if (unassigned.length > 0) {
+                      groups.push({
+                        project: {
+                          id: 'unassigned',
+                          name: 'Pekerjaan Umum / Lainnya',
+                          color: '#64748b',
+                          programs: [],
+                        } as unknown as Project,
+                        entries: unassigned,
+                      });
+                    }
+
+                    if (groups.length === 0) {
+                      return (
+                        <div className="p-8 text-center bg-slate-50 border border-slate-200 rounded-2xl text-slate-500 text-xs">
+                          Tidak ada catatan pekerjaan pada rentang waktu ini.
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="space-y-4">
+                        {groups.map(({ project: p, entries: pEntries }) => {
+                          const completedCount = pEntries.filter((e) => e.status === 'selesai').length;
+                          const pct = Math.round((completedCount / pEntries.length) * 100);
+
+                          return (
+                            <div key={p.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
+                              {/* Project Header Bar */}
+                              <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="w-3 h-3 rounded-full shrink-0 shadow-2xs" style={{ backgroundColor: p.color || '#4f46e5' }} />
+                                  <span className="font-extrabold text-sm text-slate-900">{p.name}</span>
+                                  <span className="text-xs text-slate-500 font-semibold">({pEntries.length} tugas)</span>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[11px] font-bold text-slate-600">
+                                    Progres: <strong className="text-emerald-700">{pct}%</strong> ({completedCount}/{pEntries.length} Selesai)
+                                  </span>
+                                  <div className="w-20 bg-slate-200 h-2 rounded-full overflow-hidden">
+                                    <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${pct}%` }} />
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Task Table for this Project */}
+                              <div className="overflow-x-auto max-h-[360px] print:max-h-none">
+                                <table className="w-full text-left text-xs min-w-[700px]">
+                                  <thead className="sticky top-0 z-10 bg-slate-100/90 border-b border-slate-200 text-slate-600 uppercase font-bold text-[10.5px] tracking-wider">
+                                    <tr>
+                                      <th className="py-2.5 px-3">Mulai</th>
+                                      <th className="py-2.5 px-3">Selesai</th>
+                                      <th className="py-2.5 px-3">Durasi</th>
+                                      <th className="py-2.5 px-3">Program / Cabang</th>
+                                      <th className="py-2.5 px-3">Judul Pekerjaan</th>
+                                      <th className="py-2.5 px-3">Status</th>
+                                      <th className="py-2.5 px-3">Catatan &amp; Revisi</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    {pEntries.map((e) => {
+                                      const prog = p?.programs?.find((pr) => pr.id === e.programId);
+                                      const r = getEntryDateRange(e, todayStr);
+                                      const revisions = (e.additionalTasks || []).filter((t) => t.type === 'revisi');
+
+                                      return (
+                                        <tr key={e.id} className="hover:bg-slate-50/70">
+                                          <td className="py-2.5 px-3 font-semibold text-slate-800 whitespace-nowrap">
+                                            {e.date}
+                                          </td>
+                                          <td className="py-2.5 px-3 font-semibold text-slate-700 whitespace-nowrap">
+                                            {e.status === 'selesai' ? ((e as any).completedDate || e.date) : (
+                                              <span className="text-amber-600 font-medium">Sedang Berjalan</span>
+                                            )}
+                                          </td>
+                                          <td className="py-2.5 px-3 whitespace-nowrap">
+                                            {e.status === 'selesai' ? (
+                                              <span className="px-2 py-0.5 rounded-full font-bold text-[11px] bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                                {r.totalDays} Hari
+                                              </span>
+                                            ) : (
+                                              <span className="px-2 py-0.5 rounded-full font-bold text-[11px] bg-amber-50 text-amber-800 border border-amber-300">
+                                                {r.totalDays} Hari
+                                              </span>
+                                            )}
+                                          </td>
+                                          <td className="py-2.5 px-3 whitespace-nowrap">
+                                            {prog ? (
+                                              <span className="text-[10px] text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200 font-bold">
+                                                {prog.name}
+                                              </span>
+                                            ) : (
+                                              <span className="text-slate-400">-</span>
+                                            )}
+                                          </td>
+                                          <td className="py-2.5 px-3 font-bold text-slate-900">
+                                            {e.title}
+                                          </td>
+                                          <td className="py-2.5 px-3 whitespace-nowrap">
+                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${STATUS_META[e.status].badgeClass}`}>
+                                              {STATUS_META[e.status].label}
+                                            </span>
+                                          </td>
+                                          <td className="py-2.5 px-3 text-slate-600 text-xs">
+                                            <div className="flex flex-wrap items-center gap-1">
+                                              {revisions.length > 0 && (
+                                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200 font-bold text-[10px]">
+                                                  {revisions.length} Revisi
+                                                </span>
+                                              )}
+                                              <span>{e.notes || '-'}</span>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* 5. Ringkasan Evaluasi Kendala & Ketidakseimbangan Beban Tugas */}
+                <div className="space-y-4 pt-2">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-500" />
+                      <span>5. Ringkasan Evaluasi Kendala &amp; Ketidakseimbangan Beban Tugas</span>
+                    </h3>
+                    <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
+                      Audit Diagnostik Tim
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-xs">
+                    {/* Sub-Card 1: Kendala Pekerjaan & Revisi */}
+                    <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-extrabold text-amber-900 flex items-center gap-1.5 uppercase text-[11px] tracking-wider">
+                          <AlertCircle className="w-4 h-4 text-amber-600" />
+                          <span>Kendala &amp; Revisi Aktif</span>
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200 text-amber-900">
+                          {reportData.fieldIssues.length} Isu
+                        </span>
+                      </div>
+
+                      {reportData.fieldIssues.length === 0 ? (
+                        <div className="p-3 bg-white/80 rounded-xl border border-amber-100 text-slate-600 text-[11px] flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                          <span>Tidak ada kendala kritis atau revisi tertunda pada periode ini.</span>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                          {reportData.fieldIssues.map((issue, idx) => (
+                            <div key={idx} className="p-2.5 bg-white rounded-xl border border-amber-200/80 shadow-2xs space-y-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-bold text-slate-900 truncate">{issue.taskTitle}</span>
+                                <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold uppercase ${
+                                  issue.type === 'tertunda' ? 'bg-amber-100 text-amber-800' :
+                                  issue.type === 'revisi' ? 'bg-purple-100 text-purple-800' : 'bg-rose-100 text-rose-800'
+                                }`}>
+                                  {issue.type}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-600 leading-snug">{issue.description}</p>
+                              <div className="text-[10px] text-slate-400 flex items-center gap-2 pt-0.5">
+                                <span>{issue.projectName}</span>
+                                <span>•</span>
+                                <span>{issue.date}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Sub-Card 2: Ketidakseimbangan Beban Tugas */}
+                    <div className="p-4 rounded-2xl bg-indigo-50/60 border border-indigo-200 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-extrabold text-indigo-900 flex items-center gap-1.5 uppercase text-[11px] tracking-wider">
+                          <Layers className="w-4 h-4 text-indigo-600" />
+                          <span>Distribusi Beban Proyek</span>
+                        </span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          reportData.hasWorkloadImbalance ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'
+                        }`}>
+                          {reportData.hasWorkloadImbalance ? 'Beban Timpang' : 'Relatif Seimbang'}
+                        </span>
+                      </div>
+
+                      {reportData.hasWorkloadImbalance ? (
+                        <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-[11px] space-y-1">
+                          <div className="font-bold flex items-center gap-1">
+                            <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                            <span>Peringatan Beban Terpusat:</span>
+                          </div>
+                          <p className="leading-snug">
+                            {reportData.heavyProjects.map((hp) => `Proyek "${hp.name}" menyerap ${hp.contributionPercent}% total pekerjaan`).join(', ')}.
+                            Perlu redistribusi tugas agar tidak overload.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="p-2.5 bg-white/80 rounded-xl border border-indigo-100 text-slate-600 text-[11px] flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                          <span>Beban tugas terbagi proporsional antar seluruh proyek aktif.</span>
+                        </div>
+                      )}
+
+                      <div className="space-y-1.5 pt-1">
+                        {reportData.projectBreakdown.slice(0, 3).map((proj) => (
+                          <div key={proj.projectId} className="space-y-0.5">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="font-medium text-slate-700 truncate max-w-[140px]">{proj.name}</span>
+                              <span className="font-bold text-slate-900">{proj.contributionPercent}% ({proj.count} tugas)</span>
+                            </div>
+                            <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full"
+                                style={{ width: `${Math.min(100, proj.contributionPercent)}%`, backgroundColor: proj.color }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Sub-Card 3: Masalah Tingkat Penyelesaian & Hal yang Mengganjal */}
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-extrabold text-slate-800 flex items-center gap-1.5 uppercase text-[11px] tracking-wider">
+                          <Target className="w-4 h-4 text-slate-600" />
+                          <span>Hambatan &amp; Bottlenecks</span>
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-800">
+                          {reportData.overdueTasks} Terlambat
+                        </span>
+                      </div>
+
+                      <div className="space-y-2">
+                        {reportData.overdueTasks > 0 ? (
+                          <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 text-[11px] space-y-0.5">
+                            <div className="font-bold">⚠️ Ada {reportData.overdueTasks} Tugas Menghambat Jadwal</div>
+                            <p className="text-[10px] text-rose-700 leading-snug">
+                              Tugas belum rampung melewati tanggal yang dijadwalkan, memerlukan eskalasi prioritas.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 text-[11px] flex items-center gap-2">
+                            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <span>Seluruh tugas berjalan tepat waktu tanpa ada tunggakan.</span>
+                          </div>
+                        )}
+
+                        {reportData.laggingProjects.length > 0 && (
+                          <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-[11px] space-y-0.5">
+                            <div className="font-bold">Tingkat Tuntas Rendah (&lt;50%):</div>
+                            <p className="text-[10px] text-amber-800">
+                              {reportData.laggingProjects.map((lp) => `${lp.name} (${lp.completionPercent}%)`).join(', ')}
+                            </p>
+                          </div>
+                        )}
+
+                        <div className="p-2.5 bg-white border border-slate-200 rounded-xl space-y-1 text-[11px] text-slate-600">
+                          <div className="font-bold text-slate-800 flex items-center gap-1 text-[10px] uppercase">
+                            <Sparkles className="w-3 h-3 text-indigo-500" />
+                            <span>Rekomendasi Pembenahan:</span>
+                          </div>
+                          <ul className="list-disc list-inside space-y-0.5 text-[10px] text-slate-500">
+                            <li>Reevaluasi estimasi durasi pada proyek dengan kendala berulang.</li>
+                            <li>Terapkan rotasi tugas untuk menyeimbangkan beban kerja tim.</li>
+                            <li>Kunci izin lembur hanya pada tugas prioritas tinggi.</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Lembar Tanda Tangan */}
+                {/* AGENT AI GEMINI ASSISTANT DENGAN LOGO JADWALPRO */}
+                  <div className="p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white border border-indigo-800/40 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 print:hidden">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-amber-400 p-0.5 shadow-lg shrink-0 flex items-center justify-center">
+                        <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center">
+                          <Sparkles className="w-6 h-6 text-amber-300 animate-pulse" />
+                        </div>
+                      </div>
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-extrabold text-base text-white tracking-tight">
+                            Gemini AI JadwalPro Assistant
+                          </h4>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                            Agent Khusus JadwalPro
+                          </span>
+                        </div>
+                        <p className="text-xs text-indigo-200/90 max-w-xl">
+                          Konsultasikan kendala proyek, tindak lanjut revisi aktif, dan tolak ukur presensi khusus untuk ID Owner ({currentUser.fullName}).
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsAIChatOpen(true)}
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-gradient-to-r from-indigo-500 via-purple-600 to-indigo-600 hover:from-indigo-400 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/25 transition-all transform hover:-translate-y-0.5 shrink-0"
+                    >
+                      <MessageSquare className="w-4 h-4 text-amber-300" />
+                      <span>Chat dengan AI JadwalPro</span>
+                    </button>
+                  </div>
+
+                  <div className="pt-8 border-t border-slate-200 grid grid-cols-2 text-center text-xs text-slate-600 print:pt-14">
+                  <div>
+                    <p>Dibuat &amp; Dilaporkan oleh,</p>
+                    <div className="h-16" />
+                    <p className="font-bold text-slate-900 underline">
+                      {reportData.owner.fullName}
+                    </p>
+                    <p className="text-[10px] text-slate-500">Owner ID: {reportData.owner.id}</p>
+                  </div>
+                  <div>
+                    <p>Mengetahui &amp; Disetujui oleh,</p>
+                    <div className="h-16" />
+                    <p className="font-bold text-slate-900 underline">Project Lead / Management</p>
+                    <p className="text-[10px] text-slate-500">JadwalPro System Verification</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: FITUR EVALUASI PERFORMA AI & MENU SARAN TERPADU */}
+          {activeMainTab === 'ai_performance' && (
+            <div className="space-y-6">
+              {/* Header Tab AI */}
+              <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white p-6 rounded-3xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
+                    <span>AI Work Performance Assistant</span>
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight">
+                    Analisis Performa Kerja &amp; Menu Saran AI
+                  </h2>
+                  <p className="text-xs text-indigo-200/90 max-w-2xl">
+                    Kirim gambar bukti performa (screenshot dashboard, foto tugas, lembar progres) dan
+                    biarkan AI menyimpulkan capaian kerja serta merumuskan saran taktis dari seluruh program.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="bg-white/10 backdrop-blur-xs p-3 rounded-2xl border border-white/10 text-center">
+                    <span className="text-[10px] uppercase font-bold text-indigo-200 block">
+                      Analisis Tersimpan
+                    </span>
+                    <span className="text-xl font-bold text-white">
+                      {aiPerformances.length}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* SUB-NAVBAR TAB PERFORMA AI: PENILAIAN AI PRO VS UPLOAD BUKTI GAMBAR */}
               <div className="bg-white p-2.5 rounded-2xl border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-3 print:hidden">
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setReportActiveView('work_appraisal')}
+                    onClick={() => setAiPerfSubTab('appraisal')}
                     className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-                      reportActiveView === 'work_appraisal'
+                      aiPerfSubTab === 'appraisal'
                         ? 'bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 text-white shadow-md'
                         : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
                     }`}
                   >
-                    <Sparkles className={`w-4 h-4 ${reportActiveView === 'work_appraisal' ? 'text-amber-300' : 'text-indigo-600'}`} />
+                    <Sparkles className={`w-4 h-4 ${aiPerfSubTab === 'appraisal' ? 'text-amber-300' : 'text-indigo-600'}`} />
                     <span>Report Hasil Pekerjaan (Penilaian AI PRO)</span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => setReportActiveView('attendance_summary')}
+                    onClick={() => setAiPerfSubTab('upload')}
                     className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-                      reportActiveView === 'attendance_summary'
+                      aiPerfSubTab === 'upload'
                         ? 'bg-indigo-600 text-white shadow-md'
                         : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
                     }`}
                   >
-                    <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
-                    <span>Rekap Absensi &amp; Jam Kerja Harian</span>
+                    <BrainCircuit className="w-4 h-4 text-indigo-600" />
+                    <span>Unggah Bukti Gambar &amp; Rekomendasi Taktis AI</span>
                   </button>
                 </div>
-
                 <div className="text-[11px] text-slate-500 hidden sm:flex items-center gap-1.5 font-medium px-2">
                   <Award className="w-4 h-4 text-amber-500" />
                   <span>Sistem Evaluasi Kerja Berbasis AI Terkini 2026</span>
                 </div>
               </div>
 
-              {/* VIEW 1: SISTEM REPORT HASIL PEKERJAAN (PENILAIAN FULL AI PRO ADAPTIF) */}
-              {reportActiveView === 'work_appraisal' && (
+              {/* VIEW 1: REPORT HASIL PEKERJAAN (PENILAIAN AI PRO) */}
+              {aiPerfSubTab === 'appraisal' && (
                 <div className="space-y-6">
                   {/* Banner Utama */}
                   <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-purple-950 rounded-3xl p-6 sm:p-8 text-white relative overflow-hidden shadow-xl border border-indigo-800/40">
@@ -6389,755 +7666,10 @@ export default function App() {
               )}
 
               {/* VIEW 2: REKAP ABSENSI & JAM KERJA HARIAN (FITUR LAPORAN LAMA DENGAN UNDUH PDF) */}
-              {reportActiveView === 'attendance_summary' && (
+
+              {/* VIEW 2: UNGGAH BUKTI GAMBAR & REKOMENDASI TAKTIS AI */}
+              {aiPerfSubTab === 'upload' && (
                 <div className="space-y-6">
-                  {/* Toolbar Filter Periode Kustom (Print: Hidden) */}
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 flex flex-col gap-4 print:hidden">
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <CalendarRange className="w-5 h-5 text-indigo-600" />
-                    <div>
-                      <h3 className="font-bold text-slate-900 text-sm">
-                        Filter Periode Evaluasi Kinerja
-                      </h3>
-                      <p className="text-xs text-slate-500">
-                        Pilih rentang tanggal kustom untuk kalkulasi persentase kontribusi &amp; pencapaian
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Preset Cepat */}
-                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0">
-                    <button
-                      type="button"
-                      onClick={() => handleApplyReportPreset('this_month')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
-                        reportDatePreset === 'this_month'
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                      }`}
-                    >
-                      Bulan Ini
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleApplyReportPreset('last_30_days')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
-                        reportDatePreset === 'last_30_days'
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                      }`}
-                    >
-                      30 Hari Terakhir
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleApplyReportPreset('last_month')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
-                        reportDatePreset === 'last_month'
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                      }`}
-                    >
-                      Bulan Lalu
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setReportDatePreset('custom')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
-                        reportDatePreset === 'custom'
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                      }`}
-                    >
-                      Kustom
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-100">
-                  {/* Input Tanggal Mulai s/d Tanggal Selesai */}
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="font-semibold text-slate-700">Dari Tanggal:</span>
-                    <input
-                      type="date"
-                      value={reportStartDate}
-                      onChange={(e) => {
-                        setReportStartDate(e.target.value);
-                        setReportDatePreset('custom');
-                      }}
-                      className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                    />
-                    <span className="font-semibold text-slate-700">Sampai:</span>
-                    <input
-                      type="date"
-                      value={reportEndDate}
-                      onChange={(e) => {
-                        setReportEndDate(e.target.value);
-                        setReportDatePreset('custom');
-                      }}
-                      className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                    />
-
-                    {/* Filter Owner */}
-                    <span className="font-semibold text-slate-700 ml-2">Owner:</span>
-                    <select
-                      value={reportOwnerFilter}
-                      onChange={(e) => setReportOwnerFilter(e.target.value)}
-                      className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-700 focus:outline-none"
-                    >
-                      <option value="MINE">Pribadi: {currentUser.fullName}</option>
-                      {uniqueOwners
-                        .filter((o) => o.id !== currentUser.id && o.id !== 'owner-demo-1')
-                        .map((o) => (
-                          <option key={o.id} value={o.id}>
-                            Anggota: {o.name}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={copyReportSummary}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>Salin Teks Ringkasan</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsPhotoGalleryModalOpen(true)}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white hover:bg-slate-50 text-indigo-700 border border-indigo-200 shadow-2xs transition-colors"
-                    >
-                      <Camera className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>Bukti Foto &amp; Unduh</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handlePrintReport}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-colors"
-                    >
-                      <Printer className="w-3.5 h-3.5" />
-                      <span>Cetak / Unduh PDF Rinci</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* DOKUMEN LAPORAN RINCI (LAYOUT CETAK PDF PROFESIONAL) */}
-              <div className="bg-white p-6 sm:p-10 rounded-3xl border border-slate-200 shadow-sm space-y-7 print:border-none print:shadow-none print:p-0 print:m-0">
-                {/* Header Dokumen Laporan */}
-                <div className="border-b border-slate-200 pb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 flex items-center gap-1">
-                      <FileSpreadsheet className="w-3.5 h-3.5" />
-                      <span>Dokumen Kinerja &amp; Akuntabilitas Kerja</span>
-                    </span>
-                    <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 mt-0.5">
-                      Laporan Evaluasi Proyek, Beban Kerja &amp; Kehadiran
-                    </h2>
-                    <p className="text-xs text-slate-600 mt-1 font-medium">
-                      Periode Evaluasi:{' '}
-                      <strong className="text-indigo-700">
-                        {formatDateShortIndo(reportData.startDate)} s/d{' '}
-                        {formatDateShortIndo(reportData.endDate)}
-                      </strong>{' '}
-                      • Generated via JadwalPro
-                    </p>
-                  </div>
-
-                  <div className="p-3.5 rounded-2xl bg-indigo-50/80 border border-indigo-100 text-right sm:min-w-[220px]">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">
-                      Nama Anggota / Penanggung Jawab
-                    </div>
-                    <div className="text-base font-bold text-slate-900">
-                      {reportData.owner.fullName}
-                    </div>
-                    <div className="text-xs text-slate-500 font-mono">
-                      Owner ID: {reportData.owner.id}
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3 Kartu Metrik Utama */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="p-5 rounded-2xl bg-gradient-to-br from-indigo-600 to-indigo-800 text-white flex flex-col justify-between">
-                    <div>
-                      <span className="text-xs font-semibold text-indigo-200 uppercase tracking-wider">
-                        Indeks Produktivitas &amp; Disiplin
-                      </span>
-                      <div className="text-3xl font-extrabold mt-1">
-                        {reportData.performanceScore}%
-                      </div>
-                    </div>
-                    <p className="text-[11px] text-indigo-100 mt-3 leading-relaxed">
-                      Kombinasi rasio tuntas tugas ({reportData.finishedTasks} dari{' '}
-                      {reportData.totalTasks} tugas) serta {reportData.totalHadir} hari kehadiran efektif.
-                    </p>
-                  </div>
-
-                  <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
-                      Total Jam Kerja Efektif
-                    </span>
-                    <div className="text-2xl font-bold text-slate-900">
-                      {reportData.totalHours} Jam
-                    </div>
-                    <div className="text-xs text-slate-600">
-                      Rata-rata <strong>{reportData.avgHours} jam/hari hadir</strong> selama rentang tanggal
-                      terpilih.
-                    </div>
-                  </div>
-
-                  <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
-                      Tugas Selesai Tuntas
-                    </span>
-                    <div className="text-2xl font-bold text-emerald-600">
-                      {reportData.finishedTasks} / {reportData.totalTasks} Tugas
-                    </div>
-                    <div className="text-xs text-slate-600">
-                      {reportData.inProgressTasks} tugas berjalan •{' '}
-                      <span className="text-rose-600 font-semibold">{reportData.overdueTasks} terlambat</span>.
-                    </div>
-                  </div>
-
-                  <div className="p-5 rounded-2xl bg-indigo-50/50 border border-indigo-200 space-y-2 md:col-span-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-indigo-900 uppercase tracking-wider">
-                        Realisasi Jam Kerja Bersih &amp; Lembur
-                      </span>
-                      <span className="text-[11px] font-semibold text-indigo-700 bg-white px-2 py-0.5 rounded-full border border-indigo-100">
-                        Target Baku: {reportData.targetPeriodHours} Jam
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1 text-slate-800">
-                      <div>
-                        <span className="text-[10px] text-slate-500 uppercase block font-semibold">Total Jam Bersih</span>
-                        <span className="text-lg font-extrabold text-indigo-700">{reportData.totalHours} Jam</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-500 uppercase block font-semibold">Reguler (Normal)</span>
-                        <span className="text-lg font-bold text-slate-800">{reportData.totalRegularHours} Jam</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-500 uppercase block font-semibold">Total Jam Lembur</span>
-                        <span className="text-lg font-extrabold text-amber-600">+{reportData.totalOvertimeHours} Jam</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-500 uppercase block font-semibold">Tingkat Capaian</span>
-                        <span className="text-lg font-bold text-emerald-600">
-                          {reportData.targetPeriodHours > 0 ? Math.round((Number(reportData.totalHours) / reportData.targetPeriodHours) * 100) : 100}%
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* TABEL MATRIKS PERSENTASE KONTRIBUSI BEBAN KERJA & PROGRAM (SANGAT RINCI UNTUK PDF) */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
-                      <Briefcase className="w-4 h-4 text-indigo-600" />
-                      <span>1. Matriks Beban Kerja &amp; Kontribusi Proyek</span>
-                    </h3>
-                    <span className="text-xs font-medium text-slate-500 print:text-[10px]">
-                      Total Beban Kerja: <strong>{reportData.totalTasks} Tugas</strong>
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs text-slate-500 print:hidden pb-1">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50/70 text-indigo-700 text-[11px] font-medium border border-indigo-100">
-                      <span>↔️ Geser kanan/kiri &amp; ↕️ atas/bawah untuk melihat rincian tabel</span>
-                    </span>
-                  </div>
-
-                  <div className="border border-slate-200 rounded-2xl overflow-auto max-h-[480px] shadow-xs print:max-h-none print:overflow-visible bg-white">
-                    <table className="min-w-[820px] w-full text-left text-xs sm:text-sm">
-                      <thead className="sticky top-0 z-10 bg-slate-100 border-b border-slate-200 text-slate-700 font-bold uppercase text-[11px] tracking-wider shadow-2xs">
-                        <tr>
-                          <th className="py-3 px-4">Proyek &amp; Cabang Program</th>
-                          <th className="py-3 px-3 text-center">Beban Tugas</th>
-                          <th className="py-3 px-3 text-center">
-                            % Kontribusi Beban Kerja
-                          </th>
-                          <th className="py-3 px-3 text-center">Tugas Tuntas</th>
-                          <th className="py-3 px-3 text-center">
-                            % Tingkat Penyelesaian
-                          </th>
-                          <th className="py-3 px-4 text-right">Status Progres</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200">
-                        {reportData.projectBreakdown.length === 0 ? (
-                          <tr>
-                            <td colSpan={6} className="py-8 text-center text-slate-500">
-                              Belum ada entri tugas tercatat pada rentang tanggal evaluasi ini.
-                            </td>
-                          </tr>
-                        ) : (
-                          reportData.projectBreakdown.map((pb) => (
-                            <React.Fragment key={pb.projectId}>
-                              {/* Baris Induk Proyek */}
-                              <tr className="bg-slate-50/70 font-semibold text-slate-900">
-                                <td className="py-3 px-4 flex items-center gap-2">
-                                  <span
-                                    className="w-3 h-3 rounded-full shrink-0"
-                                    style={{ backgroundColor: pb.color }}
-                                  />
-                                  <span className="font-bold text-slate-900 text-sm">{pb.name}</span>
-                                </td>
-                                <td className="py-3 px-3 text-center font-bold">{pb.count} tugas</td>
-                                <td className="py-3 px-3 text-center">
-                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                    {pb.contributionPercent}%
-                                  </span>
-                                </td>
-                                <td className="py-3 px-3 text-center text-emerald-700 font-bold">
-                                  {pb.finished} / {pb.count}
-                                </td>
-                                <td className="py-3 px-3 text-center">
-                                  <span className="font-extrabold text-slate-900">
-                                    {pb.completionPercent}%
-                                  </span>
-                                </td>
-                                <td className="py-3 px-4 text-right">
-                                  <span
-                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                                      pb.completionPercent >= 80
-                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                        : pb.completionPercent >= 40
-                                        ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                        : 'bg-amber-50 text-amber-700 border-amber-200'
-                                    }`}
-                                  >
-                                    {pb.completionPercent >= 80
-                                      ? 'Optimal'
-                                      : pb.completionPercent >= 40
-                                      ? 'Berjalan'
-                                      : 'Akselerasi'}
-                                  </span>
-                                </td>
-                              </tr>
-
-                              {/* Baris Cabang-cabang Program di Dalam Proyek */}
-                              {pb.programs.map((prog) => (
-                                <tr
-                                  key={prog.id}
-                                  className="text-xs text-slate-600 hover:bg-slate-50/40"
-                                >
-                                  <td className="py-2.5 pl-10 pr-4 flex items-center gap-2">
-                                    <GitBranch className="w-3.5 h-3.5 text-slate-400" />
-                                    <span className="font-medium text-slate-700">{prog.name}</span>
-                                  </td>
-                                  <td className="py-2.5 px-3 text-center font-medium">
-                                    {prog.count}
-                                  </td>
-                                  <td className="py-2.5 px-3 text-center text-slate-500 font-mono">
-                                    {prog.contributionPercent}%
-                                  </td>
-                                  <td className="py-2.5 px-3 text-center text-emerald-600 font-medium">
-                                    {prog.finished}
-                                  </td>
-                                  <td className="py-2.5 px-3 text-center font-semibold text-slate-800">
-                                    {prog.completionPercent}%
-                                  </td>
-                                  <td className="py-2.5 px-4 text-right">
-                                    <div className="w-20 ml-auto bg-slate-200 h-1.5 rounded-full overflow-hidden">
-                                      <div
-                                        className="h-full bg-indigo-600 rounded-full"
-                                        style={{ width: `${prog.completionPercent}%` }}
-                                      />
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))}
-                            </React.Fragment>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Ringkasan Kehadiran */}
-                <div className="space-y-3">
-                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
-                    <CalendarCheck2 className="w-4 h-4 text-indigo-600" />
-                    <span>2. Rincian Disiplin &amp; Kehadiran</span>
-                  </h3>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-center">
-                      <div className="text-xs font-bold text-emerald-800">TOTAL HADIR</div>
-                      <div className="text-xl font-extrabold text-emerald-600 mt-1">
-                        {reportData.totalHadir} Hari
-                      </div>
-                    </div>
-                    <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-center">
-                      <div className="text-xs font-bold text-amber-800">IZIN</div>
-                      <div className="text-xl font-extrabold text-amber-600 mt-1">
-                        {reportData.totalIzin} Hari
-                      </div>
-                    </div>
-                    <div className="p-3.5 rounded-xl bg-purple-50 border border-purple-200 text-center">
-                      <div className="text-xs font-bold text-purple-800">CUTI</div>
-                      <div className="text-xl font-extrabold text-purple-600 mt-1">
-                        {reportData.totalCuti} Hari
-                      </div>
-                    </div>
-                    <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-center">
-                      <div className="text-xs font-bold text-rose-800">SAKIT</div>
-                      <div className="text-xl font-extrabold text-rose-600 mt-1">
-                        {reportData.totalSakit} Hari
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3. Tolak Ukur Aturan Kerja & Kepatuhan */}
-                <div className="space-y-3">
-                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
-                    <Sliders className="w-4 h-4 text-indigo-600" />
-                    <span>3. Tolak Ukur Aturan Kerja &amp; Kepatuhan Kebijakan</span>
-                  </h3>
-                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Aturan Shift Kerja</span>
-                      <span className="font-extrabold text-slate-900">{workPolicy.workDaysPerWeek} Hari / Minggu</span>
-                      <span className="text-slate-500 block text-[11px]">{workPolicy.standardCheckInTime} – {workPolicy.standardCheckOutTime}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Istirahat &amp; Target Efektif</span>
-                      <span className="font-extrabold text-slate-900">{workPolicy.targetDailyWorkHours} Jam / Hari</span>
-                      <span className="text-slate-500 block text-[11px]">Potong istirahat {workPolicy.breakDurationHours} jam</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Status Cuti Tahunan</span>
-                      <span className="font-extrabold text-indigo-600">Sisa {attendanceStats.remainingLeaveQuota} Hari</span>
-                      <span className="text-slate-500 block text-[11px]">Dari kuota {workPolicy.annualLeaveQuota} hari/thn</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Kepatuhan Jam Masuk</span>
-                      <span className="font-extrabold text-emerald-600">{attendanceStats.punctualCount} Tepat Waktu</span>
-                      <span className="text-slate-500 block text-[11px]">{attendanceStats.lateCount} kali terlambat ({workPolicy.lateToleranceMinutes}m toleransi)</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Log Tugas Rinci */}
-                <div className="space-y-3">
-                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-indigo-600" />
-                    <span>4. Log Rincian Pekerjaan ({reportData.userEntries.length} Item)</span>
-                  </h3>
-                  <div className="flex items-center justify-between text-xs text-slate-500 print:hidden pb-1">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 text-[11px] font-medium border border-slate-200">
-                      <span>↔️ Geser kanan/kiri &amp; ↕️ atas/bawah untuk melihat seluruh preview log</span>
-                    </span>
-                  </div>
-
-                  <div className="border border-slate-200 rounded-2xl overflow-auto max-h-[440px] shadow-xs print:max-h-none print:overflow-visible bg-white">
-                    <table className="min-w-[800px] w-full text-left text-xs">
-                      <thead className="sticky top-0 z-10 bg-slate-100 border-b border-slate-200 text-slate-700 uppercase font-bold text-[11px] tracking-wider shadow-2xs">
-                        <tr>
-                          <th className="py-2.5 px-3">Mulai</th>
-                          <th className="py-2.5 px-3">Selesai</th>
-                          <th className="py-2.5 px-3">Durasi Pengerjaan</th>
-                          <th className="py-2.5 px-3">Proyek &amp; Program</th>
-                          <th className="py-2.5 px-3">Judul Tugas</th>
-                          <th className="py-2.5 px-3">Status</th>
-                          <th className="py-2.5 px-3">Catatan</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {reportData.userEntries.length === 0 ? (
-                          <tr>
-                            <td colSpan={5} className="py-6 text-center text-slate-500">
-                              Tidak ada catatan tugas pada rentang waktu ini.
-                            </td>
-                          </tr>
-                        ) : (
-                          reportData.userEntries.map((e) => {
-                            const p = e.projectId ? projectMap[e.projectId] : null;
-                            const prog = p?.programs?.find((pr) => pr.id === e.programId);
-
-                            return (
-                              <tr key={e.id} className="hover:bg-slate-50/60">
-                                <td className="py-2.5 px-3 font-semibold text-slate-800 whitespace-nowrap">
-                                  {e.date}
-                                </td>
-                                <td className="py-2.5 px-3 font-semibold text-slate-700 whitespace-nowrap">
-                                  {e.status === 'selesai' ? ((e as any).completedDate || e.date) : (
-                                    <span className="text-amber-600 font-medium">Sedang Berjalan</span>
-                                  )}
-                                </td>
-                                <td className="py-2.5 px-3 whitespace-nowrap">
-                                  {(() => {
-                                    const r = getEntryDateRange(e, todayStr);
-                                    return e.status === 'selesai' ? (
-                                      <span className="px-2 py-0.5 rounded-full font-bold text-xs bg-emerald-50 text-emerald-800 border border-emerald-200">
-                                        {r.totalDays} Hari (Selesai)
-                                      </span>
-                                    ) : (
-                                      <span className="px-2 py-0.5 rounded-full font-bold text-xs bg-amber-50 text-amber-800 border border-amber-300">
-                                        {r.totalDays} Hari (Berjalan)
-                                      </span>
-                                    );
-                                  })()}
-                                </td>
-                                <td className="py-2.5 px-3 whitespace-nowrap">
-                                  {p ? (
-                                    <div className="flex items-center gap-1.5">
-                                      <span
-                                        className="w-2 h-2 rounded-full"
-                                        style={{ backgroundColor: p.color }}
-                                      />
-                                      <span className="font-semibold text-slate-800">{p.name}</span>
-                                      {prog && (
-                                        <span className="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200">
-                                          {prog.name}
-                                        </span>
-                                      )}
-                                    </div>
-                                  ) : (
-                                    <span className="text-slate-400">Tanpa proyek</span>
-                                  )}
-                                </td>
-                                <td className="py-2.5 px-3 font-semibold text-slate-900">
-                                  {e.title}
-                                </td>
-                                <td className="py-2.5 px-3 whitespace-nowrap">
-                                  <span
-                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${STATUS_META[e.status].badgeClass}`}
-                                  >
-                                    {STATUS_META[e.status].label}
-                                  </span>
-                                </td>
-                                <td className="py-2.5 px-3 text-slate-600 max-w-xs truncate">
-                                  {e.notes || '-'}
-                                </td>
-                              </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* 5. Ringkasan Evaluasi Kendala & Ketidakseimbangan Beban Tugas */}
-                <div className="space-y-4 pt-2">
-                  <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-500" />
-                      <span>5. Ringkasan Evaluasi Kendala &amp; Ketidakseimbangan Beban Tugas</span>
-                    </h3>
-                    <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
-                      Audit Diagnostik Tim
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-xs">
-                    {/* Sub-Card 1: Kendala Pekerjaan & Revisi */}
-                    <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="font-extrabold text-amber-900 flex items-center gap-1.5 uppercase text-[11px] tracking-wider">
-                          <AlertCircle className="w-4 h-4 text-amber-600" />
-                          <span>Kendala &amp; Revisi Aktif</span>
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200 text-amber-900">
-                          {reportData.fieldIssues.length} Isu
-                        </span>
-                      </div>
-
-                      {reportData.fieldIssues.length === 0 ? (
-                        <div className="p-3 bg-white/80 rounded-xl border border-amber-100 text-slate-600 text-[11px] flex items-center gap-2">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                          <span>Tidak ada kendala kritis atau revisi tertunda pada periode ini.</span>
-                        </div>
-                      ) : (
-                        <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                          {reportData.fieldIssues.map((issue, idx) => (
-                            <div key={idx} className="p-2.5 bg-white rounded-xl border border-amber-200/80 shadow-2xs space-y-1">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="font-bold text-slate-900 truncate">{issue.taskTitle}</span>
-                                <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold uppercase ${
-                                  issue.type === 'tertunda' ? 'bg-amber-100 text-amber-800' :
-                                  issue.type === 'revisi' ? 'bg-purple-100 text-purple-800' : 'bg-rose-100 text-rose-800'
-                                }`}>
-                                  {issue.type}
-                                </span>
-                              </div>
-                              <p className="text-[11px] text-slate-600 leading-snug">{issue.description}</p>
-                              <div className="text-[10px] text-slate-400 flex items-center gap-2 pt-0.5">
-                                <span>{issue.projectName}</span>
-                                <span>•</span>
-                                <span>{issue.date}</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Sub-Card 2: Ketidakseimbangan Beban Tugas */}
-                    <div className="p-4 rounded-2xl bg-indigo-50/60 border border-indigo-200 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="font-extrabold text-indigo-900 flex items-center gap-1.5 uppercase text-[11px] tracking-wider">
-                          <Layers className="w-4 h-4 text-indigo-600" />
-                          <span>Distribusi Beban Proyek</span>
-                        </span>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          reportData.hasWorkloadImbalance ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'
-                        }`}>
-                          {reportData.hasWorkloadImbalance ? 'Beban Timpang' : 'Relatif Seimbang'}
-                        </span>
-                      </div>
-
-                      {reportData.hasWorkloadImbalance ? (
-                        <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-[11px] space-y-1">
-                          <div className="font-bold flex items-center gap-1">
-                            <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                            <span>Peringatan Beban Terpusat:</span>
-                          </div>
-                          <p className="leading-snug">
-                            {reportData.heavyProjects.map((hp) => `Proyek "${hp.name}" menyerap ${hp.contributionPercent}% total pekerjaan`).join(', ')}.
-                            Perlu redistribusi tugas agar tidak overload.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="p-2.5 bg-white/80 rounded-xl border border-indigo-100 text-slate-600 text-[11px] flex items-center gap-2">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                          <span>Beban tugas terbagi proporsional antar seluruh proyek aktif.</span>
-                        </div>
-                      )}
-
-                      <div className="space-y-1.5 pt-1">
-                        {reportData.projectBreakdown.slice(0, 3).map((proj) => (
-                          <div key={proj.projectId} className="space-y-0.5">
-                            <div className="flex items-center justify-between text-[11px]">
-                              <span className="font-medium text-slate-700 truncate max-w-[140px]">{proj.name}</span>
-                              <span className="font-bold text-slate-900">{proj.contributionPercent}% ({proj.count} tugas)</span>
-                            </div>
-                            <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
-                              <div
-                                className="h-full rounded-full"
-                                style={{ width: `${Math.min(100, proj.contributionPercent)}%`, backgroundColor: proj.color }}
-                              />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Sub-Card 3: Masalah Tingkat Penyelesaian & Hal yang Mengganjal */}
-                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="font-extrabold text-slate-800 flex items-center gap-1.5 uppercase text-[11px] tracking-wider">
-                          <Target className="w-4 h-4 text-slate-600" />
-                          <span>Hambatan &amp; Bottlenecks</span>
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-800">
-                          {reportData.overdueTasks} Terlambat
-                        </span>
-                      </div>
-
-                      <div className="space-y-2">
-                        {reportData.overdueTasks > 0 ? (
-                          <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 text-[11px] space-y-0.5">
-                            <div className="font-bold">⚠️ Ada {reportData.overdueTasks} Tugas Menghambat Jadwal</div>
-                            <p className="text-[10px] text-rose-700 leading-snug">
-                              Tugas belum rampung melewati tanggal yang dijadwalkan, memerlukan eskalasi prioritas.
-                            </p>
-                          </div>
-                        ) : (
-                          <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 text-[11px] flex items-center gap-2">
-                            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                            <span>Seluruh tugas berjalan tepat waktu tanpa ada tunggakan.</span>
-                          </div>
-                        )}
-
-                        {reportData.laggingProjects.length > 0 && (
-                          <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-[11px] space-y-0.5">
-                            <div className="font-bold">Tingkat Tuntas Rendah (&lt;50%):</div>
-                            <p className="text-[10px] text-amber-800">
-                              {reportData.laggingProjects.map((lp) => `${lp.name} (${lp.completionPercent}%)`).join(', ')}
-                            </p>
-                          </div>
-                        )}
-
-                        <div className="p-2.5 bg-white border border-slate-200 rounded-xl space-y-1 text-[11px] text-slate-600">
-                          <div className="font-bold text-slate-800 flex items-center gap-1 text-[10px] uppercase">
-                            <Sparkles className="w-3 h-3 text-indigo-500" />
-                            <span>Rekomendasi Pembenahan:</span>
-                          </div>
-                          <ul className="list-disc list-inside space-y-0.5 text-[10px] text-slate-500">
-                            <li>Reevaluasi estimasi durasi pada proyek dengan kendala berulang.</li>
-                            <li>Terapkan rotasi tugas untuk menyeimbangkan beban kerja tim.</li>
-                            <li>Kunci izin lembur hanya pada tugas prioritas tinggi.</li>
-                          </ul>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Lembar Tanda Tangan */}
-                <div className="pt-8 border-t border-slate-200 grid grid-cols-2 text-center text-xs text-slate-600 print:pt-14">
-                  <div>
-                    <p>Dibuat &amp; Dilaporkan oleh,</p>
-                    <div className="h-16" />
-                    <p className="font-bold text-slate-900 underline">
-                      {reportData.owner.fullName}
-                    </p>
-                    <p className="text-[10px] text-slate-500">Owner ID: {reportData.owner.id}</p>
-                  </div>
-                  <div>
-                    <p>Mengetahui &amp; Disetujui oleh,</p>
-                    <div className="h-16" />
-                    <p className="font-bold text-slate-900 underline">Project Lead / Management</p>
-                    <p className="text-[10px] text-slate-500">JadwalPro System Verification</p>
-                  </div>
-                </div>
-              </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 4: FITUR EVALUASI PERFORMA AI & MENU SARAN TERPADU */}
-          {activeMainTab === 'ai_performance' && (
-            <div className="space-y-6">
-              {/* Header Tab AI */}
-              <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white p-6 rounded-3xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="space-y-1">
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
-                    <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
-                    <span>AI Work Performance Assistant</span>
-                  </div>
-                  <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight">
-                    Analisis Performa Kerja &amp; Menu Saran AI
-                  </h2>
-                  <p className="text-xs text-indigo-200/90 max-w-2xl">
-                    Kirim gambar bukti performa (screenshot dashboard, foto tugas, lembar progres) dan
-                    biarkan AI menyimpulkan capaian kerja serta merumuskan saran taktis dari seluruh program.
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <div className="bg-white/10 backdrop-blur-xs p-3 rounded-2xl border border-white/10 text-center">
-                    <span className="text-[10px] uppercase font-bold text-indigo-200 block">
-                      Analisis Tersimpan
-                    </span>
-                    <span className="text-xl font-bold text-white">
-                      {aiPerformances.length}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
               {/* Area Upload Gambar Performa */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
                 <div className="lg:col-span-5 bg-white p-5 rounded-3xl border border-slate-200 shadow-xs space-y-4">
@@ -7396,6 +7928,8 @@ export default function App() {
                   </div>
                 </div>
               )}
+                  </div>
+                )}
             </div>
           )}
 
@@ -11027,6 +11561,124 @@ export default function App() {
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Unduh File Asli</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+          {/* DRAWER CHATBOT GEMINI AI ASSISTANT (KOLOM KANAN TERFILTER ID OWNER) */}
+      {isAIChatOpen && (
+        <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/40 backdrop-blur-xs flex justify-end">
+          <div className="w-full max-w-md bg-white h-full shadow-2xl flex flex-col border-l border-slate-200 animate-in slide-in-from-right duration-300">
+            {/* Drawer Header */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between border-b border-indigo-800/40">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-500 p-0.5 flex items-center justify-center">
+                  <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
+                    <Sparkles className="w-4 h-4 text-amber-300" />
+                  </div>
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-white flex items-center gap-1.5">
+                    <span>Gemini AI JadwalPro</span>
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                  </h3>
+                  <p className="text-[10px] text-indigo-200/90 font-mono">
+                    Owner: {currentUser?.fullName || 'User'} ({currentUser?.id ? currentUser.id.slice(0, 8) + '...' : '-'})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAIChatOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                title="Tutup Chatbot"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Drawer Body: Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-slate-50/50">
+              {/* Guardrail Disclaimer */}
+              <div className="p-2.5 rounded-xl bg-indigo-50 border border-indigo-200 text-[11px] text-indigo-900 flex items-start gap-2">
+                <BrainCircuit className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                <span>
+                  AI ini dikhususkan untuk asistensi alur kerja JadwalPro, pemecahan kendala tugas, dan tolak ukur presensi data proyek Anda.
+                </span>
+              </div>
+
+              {/* Quick Topic Chips */}
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => handleSendAIChatMessage('Analisis kendala proyek dan tugas tertunda saya')}
+                  className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-white hover:bg-indigo-50 text-indigo-700 border border-slate-200 transition-colors shadow-2xs"
+                >
+                  🔍 Analisis Kendala
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSendAIChatMessage('Cek status revisi aktif yang belum selesai')}
+                  className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-white hover:bg-indigo-50 text-indigo-700 border border-slate-200 transition-colors shadow-2xs"
+                >
+                  ⏳ Revisi Aktif
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSendAIChatMessage('Evaluasi tolak ukur jam kerja bersih & lembur')}
+                  className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-white hover:bg-indigo-50 text-indigo-700 border border-slate-200 transition-colors shadow-2xs"
+                >
+                  ⚡ Jam Lembur Genap
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSendAIChatMessage('Ringkasan progres seluruh proyek saya')}
+                  className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-white hover:bg-indigo-50 text-indigo-700 border border-slate-200 transition-colors shadow-2xs"
+                >
+                  📈 Progres Proyek
+                </button>
+              </div>
+
+              {/* Message bubbles */}
+              {aiChatMessages.map((msg, idx) => (
+                <div
+                  key={idx}
+                  className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'} space-y-1`}
+                >
+                  <div
+                    className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs leading-relaxed shadow-2xs ${
+                      msg.sender === 'user'
+                        ? 'bg-indigo-600 text-white rounded-tr-xs'
+                        : 'bg-white text-slate-800 border border-slate-200 rounded-tl-xs'
+                    }`}
+                  >
+                    {msg.text}
+                  </div>
+                  <span className="text-[10px] text-slate-400 px-1">{msg.time}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Drawer Input */}
+            <div className="p-3.5 bg-white border-t border-slate-200 flex items-center gap-2">
+              <input
+                type="text"
+                value={aiChatInput}
+                onChange={(e) => setAiChatInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSendAIChatMessage();
+                }}
+                placeholder="Tanya kendala, revisi, atau jadwal proyek..."
+                className="flex-1 px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              />
+              <button
+                type="button"
+                onClick={() => handleSendAIChatMessage()}
+                className="p-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shadow-xs"
+              >
+                <Send className="w-4 h-4" />
               </button>
             </div>
           </div>

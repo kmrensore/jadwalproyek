@@ -73,7 +73,8 @@ export interface AttendanceRecord {
   shiftCategory?: WorkShiftCategory; // 'normal' | 'lembur_awal' | 'lembur_akhir' | 'lembur_penuh'
   shiftNotes?: string; // Keterangan lembur atau catatan shift
   isLate?: boolean; // Menandai apakah clock-in melewati jam baku + toleransi
-  lateReason?: string; // Alasan izin terlambat atau telat
+  lateReason?: string;
+  leaveReason?: string; // Alasan izin terlambat atau telat
   isOvertimeConfirmed?: boolean; // Konfirmasi interaktif apakah dihitung lembur
   overtimeReason?: string; // Keterangan tugas lembur / persetujuan atasan
   // Bukti Absensi Foto (Auto-compressed ~40KB dengan watermark jam & lokasi)

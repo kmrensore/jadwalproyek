@@ -88,6 +88,7 @@ export interface ProjectAddonTask {
   type: 'revisi' | 'tambahan' | 'kendala' | 'instruksi';
   title: string;
   dateAdded: string;
+  scheduledDate?: string;
   isCompleted: boolean;
   notes?: string;
 }
@@ -1067,6 +1068,45 @@ export const db = {
       }
     }
 
+    // Tolak Ukur Jam Baku Kerja
+    const stdInStr = policy.standardCheckInTime || '08:00';
+    const stdOutStr = policy.standardCheckOutTime || '17:00';
+    const [stdInH, stdInM] = stdInStr.split(':').map(Number);
+    const [stdOutH, stdOutM] = stdOutStr.split(':').map(Number);
+    const stdInTotalMin = stdInH * 60 + stdInM;
+    const stdOutTotalMin = stdOutH * 60 + stdOutM;
+
+    // Deteksi apakah hari ini merupakan Hari Libur (Weekend berdasarkan workDaysPerWeek)
+    const entryDateObj = new Date(payload.date + 'T00:00:00');
+    const dayOfWeek = entryDateObj.getDay(); // 0 = Minggu, 6 = Sabtu
+    const isDayOff = dayOfWeek === 0 || (policy.workDaysPerWeek <= 5 && dayOfWeek === 6);
+
+    // KALKULASI JAM KERJA BERSIH & LEMBUR: SELALU BULAT GENAP PER JAM (TANPA KOMA DESIMAL)
+    // Contoh: Hadir reguler = 8 jam genap. Lembur 1 jam = total 9 jam genap.
+    let earlyOtHours = 0;
+    let lateOtHours = 0;
+
+    if (inTime) {
+      const [hIn, mIn] = inTime.split(':').map(Number);
+      const inMin = hIn * 60 + mIn;
+      if (inMin < stdInTotalMin) {
+        // Masuk lebih awal dari jam baku (misal jam 7 masuk vs jam 8 baku = 60 menit = 1 jam lembur)
+        const diffEarly = stdInTotalMin - inMin;
+        earlyOtHours = Math.max(0, Math.round(diffEarly / 60));
+      }
+    }
+
+    if (outTime) {
+      const [hOut, mOut] = outTime.split(':').map(Number);
+      const outMin = hOut * 60 + mOut;
+      if (outMin > stdOutTotalMin) {
+        // Pulang lebih lama dari jam baku (misal jam 18 pulang vs jam 17 baku = 60 menit = 1 jam lembur, jam 19 = 2 jam)
+        const diffLate = outMin - stdOutTotalMin;
+        lateOtHours = Math.max(0, Math.round(diffLate / 60));
+      }
+    }
+
+    let rawDurationHours = 0;
     if (inTime && outTime) {
       const [hIn, mIn] = inTime.split(':').map(Number);
       const [hOut, mOut] = outTime.split(':').map(Number);
@@ -1074,36 +1114,44 @@ export const db = {
       const grossHours = Math.max(0, diffMinutes / 60);
       const breakDeduction = policy.breakDurationHours || 0;
       const netHours = grossHours > breakDeduction ? grossHours - breakDeduction : grossHours;
-      duration = Math.round(netHours * 10) / 10;
+      rawDurationHours = Math.round(netHours);
     }
-
-    // Deteksi apakah hari ini merupakan Hari Libur (Weekend berdasarkan workDaysPerWeek)
-    const entryDateObj = new Date(payload.date + 'T00:00:00');
-    const dayOfWeek = entryDateObj.getDay(); // 0 = Minggu, 6 = Sabtu
-    const isDayOff = dayOfWeek === 0 || (policy.workDaysPerWeek <= 5 && dayOfWeek === 6);
 
     const now = new Date().toISOString();
     let updatedItem: AttendanceRecord;
     let updatedList: AttendanceRecord[];
 
-    // Tolak ukur jam reguler vs lembur:
-    // Jika di hari libur ada aktifitas pekerjaan, maka SEMUANYA MASUK KE LEMBUR PENUH!
     let regHours = 0;
     let otHours = 0;
     let autoShiftCategory: WorkShiftCategory = 'normal';
     let autoShiftNote = '';
 
     if (isDayOff) {
+      // HARI LIBUR: SELURUH JAM KERJA ADALAH LEMBUR PENUH (GENAP PER JAM)
       regHours = 0;
-      otHours = duration;
+      otHours = payload.overtimeHours !== undefined ? Math.round(payload.overtimeHours) : (rawDurationHours > 0 ? rawDurationHours : Math.max(1, earlyOtHours + lateOtHours));
+      duration = otHours;
       autoShiftCategory = 'lembur_penuh';
-      autoShiftNote = `Lembur Hari Libur / Akhir Pekan (${dayOfWeek === 0 ? 'Minggu' : 'Sabtu'})`;
+      autoShiftNote = `Lembur Hari Libur / Akhir Pekan (${dayOfWeek === 0 ? 'Minggu' : 'Sabtu'}) - ${otHours} Jam Genap`;
     } else {
-      const targetHours = policy.targetDailyWorkHours || 8.0;
-      regHours = Math.min(duration, targetHours);
-      otHours = Math.max(0, Math.round((duration - regHours) * 10) / 10);
-      autoShiftCategory = otHours > 0 ? 'lembur_akhir' : 'normal';
-      autoShiftNote = otHours > 0 ? `Shift Reguler + Lembur ${otHours} Jam` : 'Shift Normal';
+      // HARI KERJA REGULER: JAM BERSIH GENAP PER JAM (CONTOH 8 JAM, LEMBUR 1 JAM = 9 JAM)
+      const targetDailyHours = Math.round(policy.targetDailyWorkHours || 8.0);
+      
+      // Jika user eksplisit mengonfirmasi jam lembur
+      const confirmedOt = payload.overtimeHours !== undefined ? Math.round(payload.overtimeHours) : (earlyOtHours + lateOtHours);
+      otHours = Math.max(0, confirmedOt);
+
+      // Jam kerja reguler bersih dibulatkan genap ke target harian (misal 8 jam)
+      if (inTime && outTime) {
+        regHours = Math.min(targetDailyHours, Math.max(1, rawDurationHours - otHours));
+        if (regHours <= 0) regHours = targetDailyHours;
+      } else {
+        regHours = targetDailyHours;
+      }
+
+      duration = regHours + otHours; // Genap per jam: 8, 9, 10, dst.
+      autoShiftCategory = otHours > 0 ? (earlyOtHours > 0 && lateOtHours === 0 ? 'lembur_awal' : 'lembur_akhir') : 'normal';
+      autoShiftNote = otHours > 0 ? `Shift Reguler ${regHours}j + Lembur ${otHours}j (Total ${duration} Jam Genap)` : 'Shift Normal';
     }
 
     if (existingIndex >= 0) {
@@ -1189,13 +1237,45 @@ export const db = {
       };
 
       try {
+        // 1. Pastikan profil owner ada di Supabase agar tidak ditolak foreign key
+        try {
+          await supabase.from('profiles').upsert(
+            {
+              owner_id: updatedItem.ownerId,
+              full_name: updatedItem.ownerName || 'User',
+            },
+            { onConflict: 'owner_id' }
+          );
+        } catch {}
+
+        // 2. Upsert ke tabel attendance secara langsung
         const { error: upsertErr } = await supabase
           .from('attendance')
           .upsert(dbPayload, { onConflict: 'owner_id,entry_date' });
 
         if (upsertErr) {
-          console.warn('Upsert on conflict (owner_id, entry_date) failed, retrying on conflict id:', upsertErr.message);
-          await supabase.from('attendance').upsert(dbPayload, { onConflict: 'id' });
+          console.warn('Upsert on conflict (owner_id, entry_date) notice, mencoba fallback payload standar:', upsertErr.message);
+          // Fallback tanpa kolom tambahan jika skema di Supabase user belum dimigrasi
+          const corePayload = {
+            id: updatedItem.id,
+            owner_id: updatedItem.ownerId,
+            owner_name: updatedItem.ownerName,
+            entry_date: updatedItem.date,
+            type: updatedItem.type,
+            check_in_time: updatedItem.checkInTime,
+            check_out_time: updatedItem.checkOutTime,
+            work_duration_hours: updatedItem.workDurationHours,
+            regular_work_hours: updatedItem.regularWorkHours,
+            overtime_hours: updatedItem.overtimeHours,
+            shift_category: updatedItem.shiftCategory,
+            shift_notes: updatedItem.shiftNotes,
+            notes: updatedItem.notes,
+            updated_at: now,
+          };
+          const { error: retryErr } = await supabase.from('attendance').upsert(corePayload, { onConflict: 'owner_id,entry_date' });
+          if (retryErr) {
+            await supabase.from('attendance').upsert(corePayload, { onConflict: 'id' });
+          }
         }
       } catch (err) {
         console.error('Supabase attendance save error:', err);
