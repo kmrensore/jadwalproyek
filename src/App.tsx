@@ -4957,12 +4957,12 @@ export default function App() {
               {/* GRID KALENDER */}
               {viewMode === 'calendar' ? (
                 <section className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-                  <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50/80">
+                  <div className="grid grid-cols-5 sm:grid-cols-7 border-b border-slate-200 bg-slate-50/80">
                     {INDONESIAN_DAYS_SHORT.map((dayName, idx) => (
                       <div
                         key={dayName}
                         className={`py-2.5 text-center text-xs font-bold uppercase tracking-wider ${
-                          idx >= 5 ? 'text-rose-500' : 'text-slate-500'
+                          idx >= 5 ? 'hidden sm:block text-rose-500' : 'text-slate-600'
                         }`}
                       >
                         {dayName}
@@ -4970,7 +4970,7 @@ export default function App() {
                     ))}
                   </div>
 
-                  <div className="grid grid-cols-7 divide-x divide-y divide-slate-200">
+                  <div className="grid grid-cols-5 sm:grid-cols-7 divide-x divide-y divide-slate-200">
                     {calendarCells.map((cell) => {
                       const dayEntries = entriesByDate[cell.dateStr] || [];
                       const dayReminders = remindersByDate[cell.dateStr] || [];
@@ -4991,7 +4991,7 @@ export default function App() {
                         <div
                           key={cell.dateStr}
                           onClick={() => openDayDrawer(cell.dateStr)}
-                          className={`min-h-[104px] sm:min-h-[128px] p-1.5 sm:p-2 transition-colors cursor-pointer flex flex-col justify-between group ${
+                          className={`${isWeekend ? 'hidden sm:block' : 'block'} min-h-[104px] sm:min-h-[128px] p-1.5 sm:p-2 transition-colors cursor-pointer flex flex-col justify-between group ${
                             !cell.isCurrentMonth ? 'bg-slate-50/60 text-slate-400' : 'bg-white'
                           } ${
                             isSelected
