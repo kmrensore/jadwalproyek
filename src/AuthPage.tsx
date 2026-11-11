@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   Calendar,
+  Plus,
   Lock,
   Mail,
   User,
@@ -652,27 +653,26 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
               </div>
             </div>
 
-            {/* Nama Hari */}
-            <div className="overflow-x-auto w-full no-scrollbar">
-              <div className="min-w-[760px] sm:min-w-full grid grid-cols-7 border-b border-slate-300/25 text-center text-xs font-black py-3 bg-slate-900/95 uppercase tracking-wider text-blue-200">
+            {/* Nama Hari: 5 Hari Kerja Produktif di Mobile, 7 Hari Penuh di Desktop */}
+            <div className="w-full">
+              <div className="grid grid-cols-5 sm:grid-cols-7 border-b border-slate-300/25 text-center text-xs font-black py-3 bg-slate-900/95 uppercase tracking-wider text-blue-200">
                 <span>Senin</span>
                 <span>Selasa</span>
                 <span>Rabu</span>
                 <span>Kamis</span>
                 <span>Jumat</span>
-                <span className="text-[#ff6b81]">Sabtu</span>
-                <span className="text-[#ff6b81]">Minggu</span>
+                <span className="hidden sm:block text-[#ff6b81]">Sabtu</span>
+                <span className="hidden sm:block text-[#ff6b81]">Minggu</span>
               </div>
             </div>
 
             {/* Grid Kalender Responsif: Preview Sebulan Penuh Proyek Aktif (November 2026) */}
-            {/* Wrapper Horisontal Kalender agar rapi dan tidak nimpah-nimpah di layar HP */}
-            <div className="flex sm:hidden items-center justify-between px-4 py-2.5 bg-blue-500/15 border-b border-slate-300/20 text-[11px] text-[#38bdf8] font-bold">
-              <span>&larr; Geser kalender untuk melihat seluruh hari &rarr;</span>
-              <span className="text-[10px] text-slate-300 font-mono">Nov 2026</span>
+            {/* Mode Mobile: Hari Libur (Sabtu & Minggu) Di-hide sehingga 5 Hari Kerja Produktif Lebih Lega & Jelas */}
+            <div className="flex sm:hidden items-center justify-between px-4 py-2 bg-blue-500/15 border-b border-slate-300/20 text-[11px] text-[#38bdf8] font-bold">
+              <span>Mode Produktif: Senin &mdash; Jumat (Hari Libur Disembunyikan)</span>
             </div>
-            <div className="overflow-x-auto w-full no-scrollbar">
-              <div className="min-w-[760px] sm:min-w-full grid grid-cols-7 auto-rows-fr divide-x divide-y divide-slate-400/20 text-xs">
+            <div className="w-full">
+              <div className="grid grid-cols-5 sm:grid-cols-7 auto-rows-fr divide-x divide-y divide-slate-400/20 text-xs">
               {/* Baris 1: 26 Okt - 1 Nov (Awal Bulan) */}
               <div className="p-2 sm:p-3 min-h-[110px] sm:min-h-[135px] bg-black/40 text-slate-500">
                 <span className="font-semibold text-slate-500">26</span>
@@ -698,12 +698,12 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                 <span className="font-semibold text-slate-500">30</span>
                 <div className="mt-1 p-1 rounded bg-white/[0.03] text-[10px] text-slate-500 truncate">Pre-launch Briefing</div>
               </div>
-              <div className="p-2 sm:p-3 min-h-[110px] sm:min-h-[135px] bg-black/40 text-slate-500">
+              <div className="hidden sm:block p-2 sm:p-3 min-h-[110px] sm:min-h-[135px] bg-black/40 text-slate-500">
                 <span className="font-semibold text-slate-500">31</span>
                 <div className="mt-1 p-1 rounded bg-white/[0.03] text-[10px] text-slate-500 truncate">Closing Oktober</div>
               </div>
               {/* 1 November (Minggu) */}
-              <div className="p-2 sm:p-3 min-h-[110px] sm:min-h-[135px] bg-[#0c162c]/50 text-[#ff6b81] space-y-1">
+              <div className="hidden sm:block p-2 sm:p-3 min-h-[110px] sm:min-h-[135px] bg-[#0c162c]/50 text-[#ff6b81] space-y-1">
                 <div className="flex justify-between items-center">
                   <span className="font-bold text-sm">1</span>
                   <span className="text-[9px] px-1 rounded bg-[#ff375f]/20 text-[#ff6b81] font-bold">Min</span>
@@ -775,7 +775,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                 <span className="text-[10px] text-[#38bdf8] font-bold cursor-pointer block hover:underline">+2 lagi &gt;</span>
               </div>
 
-              <div className="p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-[#0c162c]/50 text-[#ff6b81] space-y-1">
+              <div className="hidden sm:block p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-[#0c162c]/50 text-[#ff6b81] space-y-1">
                 <div className="flex justify-between items-center">
                   <span className="font-bold text-sm">7</span>
                   <span className="text-[9px] px-1 rounded bg-slate-800 text-slate-300 font-bold">Sab</span>
@@ -785,7 +785,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                 </div>
               </div>
 
-              <div className="p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-[#0c162c]/50 text-[#ff6b81] space-y-1">
+              <div className="hidden sm:block p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-[#0c162c]/50 text-[#ff6b81] space-y-1">
                 <div className="flex justify-between items-center">
                   <span className="font-bold text-sm">8</span>
                   <span className="text-[9px] px-1 rounded bg-[#ff375f]/20 text-[#ff6b81] font-bold">Min</span>
@@ -864,7 +864,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
               </div>
 
               {/* 14 November */}
-              <div className="p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-[#0c162c]/50 text-[#ff6b81] space-y-1">
+              <div className="hidden sm:block p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-[#0c162c]/50 text-[#ff6b81] space-y-1">
                 <div className="flex justify-between items-center">
                   <span className="font-bold text-sm">14</span>
                   <span className="text-[9px] px-1 rounded bg-slate-800 text-slate-300 font-bold">Sab</span>
@@ -875,7 +875,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
               </div>
 
               {/* 15 November */}
-              <div className="p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-[#0c162c]/50 text-[#ff6b81] space-y-1">
+              <div className="hidden sm:block p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-[#0c162c]/50 text-[#ff6b81] space-y-1">
                 <div className="flex justify-between items-center">
                   <span className="font-bold text-sm">15</span>
                   <span className="text-[9px] px-1 rounded bg-[#ff375f]/20 text-[#ff6b81] font-bold">Min</span>
@@ -941,7 +941,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                 </div>
               </div>
 
-              <div className="p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-[#0c162c]/50 text-[#ff6b81] space-y-1">
+              <div className="hidden sm:block p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-[#0c162c]/50 text-[#ff6b81] space-y-1">
                 <div className="flex justify-between items-center">
                   <span className="font-bold text-sm">21</span>
                   <span className="text-[9px] px-1 rounded bg-slate-800 text-slate-300 font-bold">Sab</span>
@@ -951,7 +951,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                 </div>
               </div>
 
-              <div className="p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-[#0c162c]/50 text-[#ff6b81] space-y-1">
+              <div className="hidden sm:block p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-[#0c162c]/50 text-[#ff6b81] space-y-1">
                 <div className="flex justify-between items-center">
                   <span className="font-bold text-sm">22</span>
                   <span className="text-[9px] px-1 rounded bg-[#ff375f]/20 text-[#ff6b81] font-bold">Min</span>
@@ -1016,7 +1016,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                 </div>
               </div>
 
-              <div className="p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-[#0c162c]/50 text-[#ff6b81] space-y-1">
+              <div className="hidden sm:block p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-[#0c162c]/50 text-[#ff6b81] space-y-1">
                 <div className="flex justify-between items-center">
                   <span className="font-bold text-sm">28</span>
                   <span className="text-[9px] px-1 rounded bg-slate-800 text-slate-300 font-bold">Sab</span>
@@ -1026,7 +1026,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                 </div>
               </div>
 
-              <div className="p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-[#0c162c]/50 text-[#ff6b81] space-y-1">
+              <div className="hidden sm:block p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-[#0c162c]/50 text-[#ff6b81] space-y-1">
                 <div className="flex justify-between items-center">
                   <span className="font-bold text-sm">29</span>
                   <span className="text-[9px] px-1 rounded bg-[#ff375f]/20 text-[#ff6b81] font-bold">Min</span>
@@ -1065,11 +1065,11 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                 <span className="font-semibold text-slate-500">4 Des</span>
                 <div className="mt-1 p-1 rounded bg-white/[0.03] text-[10px] text-slate-500 truncate">Audit ISO Internal</div>
               </div>
-              <div className="p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-black/40 text-slate-500 space-y-1">
+              <div className="hidden sm:block p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-black/40 text-slate-500 space-y-1">
                 <span className="font-semibold text-slate-500">5 Des</span>
                 <div className="mt-1 p-1 rounded bg-white/[0.03] text-[10px] text-slate-500 truncate">Gala Dinner Direksi</div>
               </div>
-              <div className="p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-black/40 text-slate-500 space-y-1">
+              <div className="hidden sm:block p-2 sm:p-3 min-h-[120px] sm:min-h-[145px] bg-black/40 text-slate-500 space-y-1">
                 <span className="font-semibold text-[#ff6b81]/50">6 Des</span>
                 <div className="mt-1 p-1 rounded bg-white/[0.03] text-[10px] text-slate-500 truncate">Libur Akhir Pekan</div>
               </div>
@@ -1533,7 +1533,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                 <button
                   type="button"
                   onClick={() => openAuth(true)}
-                  className="px-5 py-2.5 rounded-full bg-[#0071e3] hover:bg-[#1a82f7] text-white font-bold text-xs shadow-lg shadow-[#0071e3]/40 flex items-center gap-1.5 transition-all"
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-full bg-[#0071e3] hover:bg-[#1a82f7] text-white font-bold text-xs shadow-lg shadow-[#0071e3]/40 flex items-center justify-center gap-1.5 transition-all text-center"
                 >
                   <FileSpreadsheet className="w-4 h-4" />
                   <span>Unduh Rekap Excel (XLSX)</span>
@@ -1784,116 +1784,232 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
          ===================================================================== */}
       <section id="bank-ide-section" className="relative z-10 py-20 px-4 sm:px-8 lg:px-16 w-full max-w-[1800px] mx-auto">
         <div className="space-y-10 text-left">
+          {/* Header Fitur 04 dengan Identitas Apple Notes iPhone */}
           <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 border-b border-blue-400/25 pb-6">
             <div className="space-y-2.5 max-w-4xl">
-              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-[#ff9f0a]/20 text-[#ff9f0a] border border-[#ff9f0a]/40 text-xs font-bold uppercase tracking-wider shadow-sm">
+              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-[#ffd60a]/20 text-[#ffd60a] border border-[#ffd60a]/40 text-xs font-bold uppercase tracking-wider shadow-sm">
                 <Lightbulb className="w-3.5 h-3.5" />
-                <span>Fitur Unggulan 04 &bull; Sirkulasi Ide &amp; Jadwal Balik</span>
+                <span>Fitur Unggulan 04 &bull; Antarmuka Catatan Apple iPhone</span>
               </div>
               <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
-                Bank Ide &amp; Catatan Arahan Balik Kalender
+                Bank Ide &amp; Catatan Bergaya Apple iPhone Notes
               </h2>
               <p className="text-sm sm:text-base text-blue-100/80 leading-relaxed font-normal">
-                Menyimpan ide rencana kerja dalam bentuk teks terstruktur, memindahkannya ke jadwal kalender dengan 1-klik, dan menautkan balik ke arahan ide asal saat dilihat detail kegiatannya.
+                Menyimpan ide rencana kerja dalam format catatan iPhone yang intuitif, memindahkannya ke jadwal kalender dengan 1-klik, dan otomatis menautkan balik ke catatan arahan asal saat dilihat di kalender.
               </p>
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#ff9f0a]/20 text-[#ff9f0a] border border-[#ff9f0a]/40">
-                1-Click Scheduling &bull; 100% Backlink Terhubung
+              <span className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#ffd60a]/20 text-[#ffd60a] border border-[#ffd60a]/40 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-[#ffd60a]" />
+                <span>iPhone Notes Style &bull; 1-Click Scheduling</span>
               </span>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Daftar Ide Tersimpan */}
-            <div className="p-4 sm:p-6 md:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
-              <span className="text-base font-black text-white flex items-center gap-2 border-b border-blue-400/20 pb-4">
-                <Lightbulb className="w-5 h-5 text-[#ff9f0a]" />
-                Daftar Catatan Rencana Tersimpan (Bank Ide)
-              </span>
-
-              <div className="space-y-4">
-                <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-white/[0.06] via-[#0a1835]/70 to-[#061126]/80 border border-slate-300/20 border-t-white/30 shadow-lg border border-blue-400/25 space-y-2.5">
-                  <div className="flex justify-between items-start gap-3">
-                    <h4 className="font-bold text-sm sm:text-base text-white">Standardisasi Protokol Keamanan &amp; Single Sign-On (SSO)</h4>
-                    <span className="px-2.5 py-0.5 rounded text-[10px] font-black bg-[#2997ff]/30 text-[#38bdf8] border border-[#2997ff]/40">
-                      Siap Dijadwalkan
-                    </span>
-                  </div>
-                  <p className="text-xs text-blue-100/80 leading-relaxed font-normal">
-                    Menerapkan autentikasi terpusat berbasis OAuth2 dan enkripsi data end-to-end guna meningkatkan efisiensi dan keamanan akses tim.
-                  </p>
-                  <div className="pt-2 flex items-center justify-between text-xs">
-                    <span className="text-[11px] text-blue-300 font-mono">ID: #IDE-2026-089</span>
-                    <button
-                      type="button"
-                      onClick={() => openAuth(true)}
-                      className="px-3.5 py-1.5 rounded-full bg-[#0071e3] hover:bg-[#1a82f7] text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-[#0071e3]/30 transition-all"
-                    >
-                      <Calendar className="w-3.5 h-3.5" />
-                      Jadwalkan ke Kalender
-                    </button>
-                  </div>
+          {/* =====================================================================
+              MOCKUP ANTARMUKA CATATAN IPHONE (APPLE NOTES DARK LUXURY)
+             ===================================================================== */}
+          <div className="rounded-3xl bg-[#1c1c1e] border border-white/[0.12] shadow-2xl shadow-black/90 overflow-hidden backdrop-blur-2xl">
+            {/* Top Toolbar iPhone Window Header */}
+            <div className="px-4 sm:px-6 py-3.5 bg-[#2c2c2e]/90 border-b border-white/[0.08] flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-full bg-[#ff5f56]" />
+                  <span className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
+                  <span className="w-3 h-3 rounded-full bg-[#27c93f]" />
                 </div>
-
-                <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-white/[0.06] via-[#0a1835]/70 to-[#061126]/80 border border-slate-300/20 border-t-white/30 shadow-lg border border-blue-400/25 space-y-2.5">
-                  <div className="flex justify-between items-start gap-3">
-                    <h4 className="font-bold text-sm sm:text-base text-white">Pelatihan Internal: SOP Presensi Mandiri &amp; Lembur</h4>
-                    <span className="px-2.5 py-0.5 rounded text-[10px] font-black bg-[#30d158]/30 text-[#30d158] border border-[#30d158]/40">
-                      Terjadwal di Kalender
-                    </span>
-                  </div>
-                  <p className="text-xs text-blue-100/80 leading-relaxed font-normal">
-                    Sesi pengenalan geofencing GPS dan foto selfie agar tidak ada selisih perhitungan lembur di audit akhir tahun.
-                  </p>
-                  <div className="pt-2 flex items-center justify-between text-xs">
-                    <span className="text-[11px] text-[#30d158] font-bold">Terjadwal: 12 Nov 2026</span>
-                    <span className="text-[11px] text-[#38bdf8] font-bold">&crarr; Terhubung ke Kalender</span>
-                  </div>
+                <div className="h-4 w-px bg-white/20 mx-1" />
+                <div className="flex items-center gap-2 text-xs font-bold text-white">
+                  <span className="text-[#ffd60a] font-serif font-black text-base">iCloud</span>
+                  <span className="text-white/40">/</span>
+                  <span>Semua Catatan (Bank Ide)</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-white/10 text-[#ffd60a] font-mono">
+                    3 Catatan
+                  </span>
                 </div>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => openAuth(true)}
+                  className="px-3 py-1 rounded-lg bg-[#ffd60a] hover:bg-[#ffe043] text-black font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Catatan Baru</span>
+                </button>
               </div>
             </div>
 
-            {/* Alur Tautan Balik Arahan Asal di Kalender */}
-            <div className="p-4 sm:p-6 md:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
-              <span className="text-base font-black text-white flex items-center gap-2 border-b border-blue-400/20 pb-4">
-                <FolderKanban className="w-5 h-5 text-[#38bdf8]" />
-                Alur Tautan Balik Arahan Asal di Kalender
-              </span>
-
-              <div className="p-5 rounded-2xl bg-[#0071e3]/15 border border-[#0071e3]/30 space-y-3.5">
-                <div className="flex items-center gap-2 text-sm font-bold text-[#38bdf8]">
-                  <ArrowRight className="w-4 h-4" />
-                  <span>Sirkulasi Rencana ke Eksekusi Terukur</span>
+            {/* Split View 2 Kolom Khas Apple Notes (Sidebar List + Note Sheet Detail) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 min-h-[520px] divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
+              {/* Kolom Kiri: Daftar Catatan iPhone (4 Kolom di Desktop) */}
+              <div className="lg:col-span-5 bg-[#161618] p-3 sm:p-4 space-y-2">
+                <div className="relative mb-3">
+                  <input
+                    type="text"
+                    readOnly
+                    value=""
+                    placeholder="Cari ide atau arahan kerja..."
+                    className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-[#2c2c2e] border border-white/10 text-xs text-white placeholder-white/40 focus:outline-none"
+                  />
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 text-xs">🔍</span>
                 </div>
-                <p className="text-xs text-blue-100/80 leading-relaxed font-normal">
-                  Ketika suatu kegiatan di jadwal kalender diklik oleh tim atau pimpinan, panel detail otomatis menampilkan kartu informasi asal:
-                </p>
-                <div className="p-4 rounded-xl bg-black/60 border border-blue-400/30 space-y-2 text-xs shadow-md">
-                  <div className="flex justify-between items-center">
-                    <span className="text-blue-300 font-mono text-[10px]">Tautan Sumber Rencana:</span>
-                    <span className="px-2 py-0.5 rounded bg-blue-500/20 text-[#38bdf8] text-[9px] font-bold">Terverifikasi</span>
+
+                {/* Item Catatan 1 (Aktif / Terpilih) */}
+                <div className="p-3.5 rounded-2xl bg-[#2c2c2e] border-l-4 border-[#ffd60a] space-y-1.5 cursor-pointer shadow-md">
+                  <div className="flex justify-between items-start gap-2">
+                    <h4 className="font-bold text-sm text-white line-clamp-1">
+                      Standardisasi Protokol Keamanan &amp; SSO
+                    </h4>
+                    <span className="text-[10px] font-bold text-[#ffd60a] font-mono shrink-0">14.30</span>
                   </div>
-                  <div className="font-bold text-white text-sm flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-[#38bdf8]" />
-                    <span>Berasal dari Bank Ide: #IDE-2026-089</span>
-                  </div>
-                  <p className="text-blue-100/80 text-[11px] italic leading-relaxed">
-                    &ldquo;Instruksi Pimpinan: Tinjau kembali arsitektur enkripsi dan integrasi SSO sebelum sesi implementasi kuartal 4.&rdquo;
+                  <p className="text-xs text-white/60 line-clamp-2 leading-relaxed">
+                    Menerapkan autentikasi terpusat OAuth2 dan enkripsi data end-to-end guna meningkatkan efisiensi dan keamanan akses tim.
                   </p>
+                  <div className="pt-1 flex items-center gap-1.5 text-[10px] text-white/40 font-mono">
+                    <span>📁 Ide Proyek</span>
+                    <span>&bull;</span>
+                    <span className="text-[#38bdf8]">#IDE-2026-089</span>
+                  </div>
+                </div>
+
+                {/* Item Catatan 2 */}
+                <div className="p-3.5 rounded-2xl bg-[#1c1c1e] hover:bg-[#2c2c2e]/60 border border-white/[0.04] space-y-1.5 cursor-pointer transition-colors">
+                  <div className="flex justify-between items-start gap-2">
+                    <h4 className="font-bold text-sm text-white/90 line-clamp-1">
+                      SOP Presensi Mandiri &amp; Geofencing GPS
+                    </h4>
+                    <span className="text-[10px] text-white/40 font-mono shrink-0">Kemarin</span>
+                  </div>
+                  <p className="text-xs text-white/50 line-clamp-2 leading-relaxed">
+                    Sesi pengenalan fitur geofencing GPS dan foto selfie agar tidak ada selisih perhitungan lembur di akhir bulan.
+                  </p>
+                  <div className="pt-1 flex items-center gap-1.5 text-[10px] text-white/40 font-mono">
+                    <span>📁 Kebijakan</span>
+                    <span>&bull;</span>
+                    <span className="text-[#30d158]">Terjadwal 12 Nov</span>
+                  </div>
+                </div>
+
+                {/* Item Catatan 3 */}
+                <div className="p-3.5 rounded-2xl bg-[#1c1c1e] hover:bg-[#2c2c2e]/60 border border-white/[0.04] space-y-1.5 cursor-pointer transition-colors">
+                  <div className="flex justify-between items-start gap-2">
+                    <h4 className="font-bold text-sm text-white/90 line-clamp-1">
+                      Evaluasi Anggaran &amp; Kapasitas Server Q4
+                    </h4>
+                    <span className="text-[10px] text-white/40 font-mono shrink-0">5 Nov</span>
+                  </div>
+                  <p className="text-xs text-white/50 line-clamp-2 leading-relaxed">
+                    Optimalisasi query database Supabase dan pengurangan latensi respon API untuk antisipasi lonjakan trafik akhir tahun.
+                  </p>
+                  <div className="pt-1 flex items-center gap-1.5 text-[10px] text-white/40 font-mono">
+                    <span>📁 Keuangan &amp; IT</span>
+                    <span>&bull;</span>
+                    <span className="text-[#ffd60a]">Draft Rencana</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Kolom Kanan: Lembar Catatan Aktif (iPhone Notes Paper Pad - 7 Kolom) */}
+              <div className="lg:col-span-7 bg-[#1c1c1e] p-5 sm:p-7 flex flex-col justify-between space-y-6">
+                <div className="space-y-5">
+                  {/* Action Bar Lembar Catatan */}
+                  <div className="flex items-center justify-between border-b border-white/[0.08] pb-3 text-xs">
+                    <span className="text-[#ffd60a] font-bold flex items-center gap-1 cursor-pointer">
+                      <span>&lsaquo; Catatan</span>
+                    </span>
+                    <div className="flex items-center gap-3 text-white/60">
+                      <span className="cursor-pointer hover:text-white" title="Checklist">&#9745;</span>
+                      <span className="cursor-pointer hover:text-white" title="Kamera">&#128247;</span>
+                      <span className="cursor-pointer hover:text-white" title="Bagikan">&#8679;</span>
+                      <span className="text-[#ffd60a] font-bold cursor-pointer hover:underline">Selesai</span>
+                    </div>
+                  </div>
+
+                  {/* Tanggal & Waktu Pembuatan Catatan Khas Apple */}
+                  <div className="text-center">
+                    <span className="text-xs text-[#86868b] font-medium tracking-wide">
+                      10 November 2026 pukul 14.30
+                    </span>
+                  </div>
+
+                  {/* Judul Catatan */}
+                  <div className="space-y-1">
+                    <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                      Standardisasi Protokol Keamanan &amp; Single Sign-On (SSO)
+                    </h3>
+                    <div className="flex items-center gap-2 pt-1">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-[#ffd60a]/20 text-[#ffd60a] border border-[#ffd60a]/30">
+                        Catatan Arahan #IDE-2026-089
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#30d158]/20 text-[#30d158]">
+                        Status: Siap Dijadwalkan
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Checklist Interaktif Bergaya Apple Notes */}
+                  <div className="space-y-2.5 pt-2">
+                    <div className="flex items-start gap-3">
+                      <div className="w-5 h-5 rounded-full border-2 border-[#ffd60a] bg-[#ffd60a] flex items-center justify-center text-black font-black text-xs shrink-0 mt-0.5">
+                        &check;
+                      </div>
+                      <span className="text-xs sm:text-sm text-white/90 line-through text-white/50">
+                        Tinjau arsitektur enkripsi OAuth2 &amp; manajemen JWT tokens terpusat.
+                      </span>
+                    </div>
+
+                    <div className="flex items-start gap-3">
+                      <div className="w-5 h-5 rounded-full border-2 border-[#ffd60a] bg-[#ffd60a] flex items-center justify-center text-black font-black text-xs shrink-0 mt-0.5">
+                        &check;
+                      </div>
+                      <span className="text-xs sm:text-sm text-white/90 line-through text-white/50">
+                        Verifikasi radius toleransi geofencing GPS 15 meter pada lokasi kantor.
+                      </span>
+                    </div>
+
+                    <div className="flex items-start gap-3">
+                      <div className="w-5 h-5 rounded-full border-2 border-[#ffd60a]/60 flex items-center justify-center text-[#ffd60a] text-xs shrink-0 mt-0.5 cursor-pointer">
+                      </div>
+                      <span className="text-xs sm:text-sm text-white font-medium">
+                        Uji coba integrasi webhook dengan sistem evaluasi kinerja berbasis AI Gemini.
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Teks Catatan / Notulen Rencana */}
+                  <div className="p-4 rounded-2xl bg-[#2c2c2e]/70 border border-white/[0.06] space-y-1.5 text-xs">
+                    <span className="text-[#ffd60a] font-bold block text-[11px]">Instruksi Rencana Kerja:</span>
+                    <p className="text-white/80 leading-relaxed font-normal">
+                      &ldquo;Pastikan seluruh kredensial API tersimpan dalam environment terenkripsi. Sebelum diluncurkan ke seluruh pegawai, jadwalkan sesi pengujian pada kalender kerja tim.&rdquo;
+                    </p>
+                  </div>
+                </div>
+
+                {/* Footer Lembar Catatan: Fitur 1-Klik Jadwalkan ke Kalender & Tautan Balik */}
+                <div className="pt-4 border-t border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-2 text-xs text-white/70">
+                    <span className="w-2 h-2 rounded-full bg-[#38bdf8] animate-pulse" />
+                    <span>Tautan Balik Aktif: <strong className="text-white">Terhubung ke Kalender 12 Nov 2026</strong></span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => openAuth(true)}
+                    className="w-full sm:w-auto px-6 py-2.5 rounded-full bg-[#ffd60a] hover:bg-[#ffe043] text-black font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#ffd60a]/20 transition-all transform hover:-translate-y-0.5"
+                  >
+                    <Calendar className="w-4 h-4" />
+                    <span>Jadwalkan ke Kalender (1-Klik)</span>
+                  </button>
                 </div>
               </div>
             </div>
           </div>
         </div>
+      </section>
 
-
-            </section>
-
-      {/* =====================================================================
-          FITUR 05 & 06: ASISTEN AI JADWALPRO & PUSAT EKSPOR LAPORAN
-         ===================================================================== */}
       <section id="ai-section" className="relative z-10 py-20 px-4 sm:px-8 lg:px-16 w-full max-w-[1800px] mx-auto">
         <div className="space-y-10 text-left">
           <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 border-b border-blue-400/25 pb-6">
@@ -1956,7 +2072,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                 Ekspor Multi-Format Siap Pakai untuk Audit &amp; Direksi
               </span>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 w-full">
                 <div className="p-5 rounded-2xl bg-gradient-to-b from-white/[0.06] via-[#0a1835]/70 to-[#061126]/80 border border-slate-300/20 border-t-white/30 shadow-lg border border-blue-400/25 text-center space-y-2.5 hover:border-blue-400/50 transition-colors">
                   <div className="w-12 h-12 mx-auto rounded-2xl bg-[#ff375f]/20 text-[#ff375f] flex items-center justify-center font-black text-base border border-[#ff375f]/30">
                     PDF
@@ -1986,7 +2102,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                 <button
                   type="button"
                   onClick={() => openAuth(true)}
-                  className="w-full py-3.5 rounded-full bg-[#0071e3] hover:bg-[#1a82f7] text-sm font-bold text-white shadow-xl shadow-[#0071e3]/30 transition-all"
+                  className="w-full py-3 sm:py-3.5 rounded-full bg-[#0071e3] hover:bg-[#1a82f7] text-xs sm:text-sm font-bold text-white shadow-xl shadow-[#0071e3]/30 transition-all text-center flex items-center justify-center gap-2"
                 >
                   Unduh Sampel Laporan Tahunan Terpadu (PDF &bull; XLSX &bull; PPTX)
                 </button>

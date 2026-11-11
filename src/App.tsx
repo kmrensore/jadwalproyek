@@ -618,25 +618,62 @@ function playHarmonicAlarmChime() {
 // HELPER WATERMARK & AUTO-KOMPRESI FOTO ABSENSI (~40 KB, SANGAT RINGAN)
 // ============================================================================
 function captureAndWatermarkSnapshot(
-  video: HTMLVideoElement,
+  video: HTMLVideoElement | null,
   info: { userName: string; date: string; time: string; location: string; status: string }
 ): string {
   const canvas = document.createElement('canvas');
   const targetWidth = 640;
-  const vidW = video.videoWidth || 640;
-  const vidH = video.videoHeight || 480;
+  const hasLiveVideo = Boolean(video && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0);
+  const vidW = hasLiveVideo && video ? video.videoWidth : 640;
+  const vidH = hasLiveVideo && video ? video.videoHeight : 480;
   const targetHeight = Math.round((vidH / vidW) * targetWidth) || 480;
   canvas.width = targetWidth;
   canvas.height = targetHeight;
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
 
-  // Mirror selfie horizontal agar orientasi foto sama seperti tampilan di layar
-  ctx.save();
-  ctx.translate(targetWidth, 0);
-  ctx.scale(-1, 1);
-  ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
-  ctx.restore();
+  let drewVideo = false;
+  if (hasLiveVideo && video) {
+    try {
+      ctx.save();
+      ctx.translate(targetWidth, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+      ctx.restore();
+      drewVideo = true;
+    } catch (e) {
+      console.warn('Fallback digital card used because video frame was not ready:', e);
+    }
+  }
+
+  if (!drewVideo) {
+    // Fallback Digital Presence Card jika perangkat tidak memiliki kamera / izin kamera ditolak
+    const grad = ctx.createLinearGradient(0, 0, targetWidth, targetHeight);
+    grad.addColorStop(0, '#0f172a');
+    grad.addColorStop(0.5, '#1e1b4b');
+    grad.addColorStop(1, '#090d16');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, targetWidth, targetHeight);
+
+    ctx.fillStyle = 'rgba(99, 102, 241, 0.18)';
+    ctx.beginPath();
+    ctx.arc(targetWidth / 2, targetHeight / 2 - 30, 84, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.font = 'bold 28px Inter, sans-serif';
+    ctx.fillStyle = '#38bdf8';
+    ctx.textAlign = 'center';
+    ctx.fillText('VERIFIED DIGITAL PRESENCE', targetWidth / 2, targetHeight / 2 - 35);
+
+    ctx.font = 'bold 18px Inter, sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(info.userName.toUpperCase(), targetWidth / 2, targetHeight / 2 + 5);
+
+    ctx.font = '14px monospace';
+    ctx.fillStyle = '#a5b4fc';
+    ctx.fillText(`${info.date} • ${info.time} WIB`, targetWidth / 2, targetHeight / 2 + 35);
+    ctx.textAlign = 'left';
+  }
 
   // Banner Watermark gelap elegan di bagian bawah
   const bannerH = 76;
@@ -1351,14 +1388,23 @@ export default function App() {
       originIdeaId: schedulingIdea.id,
     };
 
-    if ((db as any).createEntry) {
-      (db as any).createEntry(newEntry);
-    } else if ((db as any).saveEntries) {
-      (db as any).saveEntries([newEntry, ...entries]);
-    } else if ((db as any).saveEntry) {
-      (db as any).saveEntry(newEntry);
+    if (db.createEntry) {
+      const updatedEntries = db.createEntry(
+        {
+          id: newEntry.id,
+          date: newEntry.date,
+          title: newEntry.title,
+          projectId: newEntry.projectId,
+          status: newEntry.status,
+          notes: newEntry.notes,
+          originIdeaId: schedulingIdea.id,
+        },
+        currentUser
+      );
+      setEntries(updatedEntries);
+    } else {
+      setEntries((prev) => [newEntry, ...prev]);
     }
-    setEntries((prev) => [newEntry, ...prev]);
 
     // 2. Update status ide menjadi dijadwalkan
     const updatedIdea: IdeaItem = {
@@ -2048,11 +2094,16 @@ export default function App() {
 
   const myTodayAttendance = useMemo(() => {
     if (!currentUser) return null;
-    return (
-      attendance.find(
-        (a) => a.ownerId === currentUser.id && a.date === todayStr
-      ) || null
+    const matches = attendance.filter(
+      (a) =>
+        a.date === todayStr &&
+        (a.ownerId === currentUser.id ||
+          a.ownerId === 'owner-local-admin' ||
+          a.ownerId === 'owner-demo-1' ||
+          (a.ownerName && a.ownerName.toLowerCase() === currentUser.fullName.toLowerCase()))
     );
+    if (matches.length === 0) return null;
+    return matches.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))[0];
   }, [attendance, currentUser, todayStr]);
 
   const monthAttendance = useMemo(() => {
@@ -3021,13 +3072,14 @@ export default function App() {
       if (params.photoUrl) payload.checkInPhoto = params.photoUrl;
       if (params.location) payload.checkInLocation = params.location;
     } else {
+      payload.checkInTime = myTodayAttendance?.checkInTime || workPolicy.standardCheckInTime || '08:00';
       payload.checkOutTime = params.time;
       if (params.photoUrl) payload.checkOutPhoto = params.photoUrl;
       if (params.location) payload.checkOutLocation = params.location;
     }
 
     const updated = await db.recordAttendance(payload, currentUser);
-    setAttendance(updated);
+    setAttendance([...updated]);
     closeCameraModal();
     setAttConfirmModal(null);
     showToast(
@@ -3191,7 +3243,7 @@ export default function App() {
     const nowTime = getNowTimeStr();
     let photoDataUrl = capturedSnapshotPreview;
 
-    if (!photoDataUrl && videoElemRef.current) {
+    if (!photoDataUrl) {
       photoDataUrl = captureAndWatermarkSnapshot(videoElemRef.current, {
         userName: currentUser.fullName,
         date: todayStr,
@@ -3201,8 +3253,18 @@ export default function App() {
       });
     }
 
+    // Tutup modal kamera terlebih dahulu agar tidak bertumpuk dengan pop-up konfirmasi
+    closeCameraModal();
+
     // Alihkan ke trigger konfirmasi interaktif
     triggerAttendanceWithConfirmation(cameraMode, photoDataUrl, currentGPSLocation, nowTime);
+  };
+
+  const handleResetTodayAttendance = async () => {
+    if (!myTodayAttendance) return;
+    const updated = await db.deleteAttendance(myTodayAttendance.id);
+    setAttendance([...updated]);
+    showToast('Presensi hari ini telah direset. Silakan Clock In / Clock Out kembali.');
   };
 
   // ==========================================================================
@@ -4262,6 +4324,18 @@ export default function App() {
             </button>
             <button
               type="button"
+              onClick={() => setActiveMainTab('ideas')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                activeMainTab === 'ideas'
+                  ? 'bg-amber-500 text-white shadow-sm'
+                  : 'text-amber-800 bg-amber-50/80 hover:bg-amber-100'
+              }`}
+            >
+              <Lightbulb className={`w-3.5 h-3.5 ${activeMainTab === 'ideas' ? 'text-white' : 'text-amber-500'}`} />
+              <span>Bank Ide<span className="hidden xl:inline"> ({ideas.length})</span></span>
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveMainTab('voice_ai')}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
                 activeMainTab === 'voice_ai'
@@ -4384,12 +4458,22 @@ export default function App() {
           </button>
           <button
             type="button"
+            onClick={() => setActiveMainTab('ideas')}
+            className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold text-center whitespace-nowrap flex items-center justify-center gap-1 ${
+              activeMainTab === 'ideas' ? 'bg-amber-500 text-white' : 'text-amber-800 bg-amber-50 hover:bg-amber-100'
+            }`}
+          >
+            <Lightbulb className={`w-3 h-3 ${activeMainTab === 'ideas' ? 'text-white' : 'text-amber-500'}`} />
+            <span>Bank Ide</span>
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveMainTab('voice_ai')}
             className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold text-center whitespace-nowrap flex items-center justify-center gap-1 ${
               activeMainTab === 'voice_ai' ? 'bg-indigo-600 text-white' : 'text-indigo-700 bg-indigo-50/80 hover:bg-indigo-100'
             }`}
           >
-            <Mic className="w-3 h-3 text-indigo-600" />
+            <Mic className={`w-3 h-3 ${activeMainTab === 'voice_ai' ? 'text-white' : 'text-indigo-600'}`} />
             <span>Record Voice</span>
           </button>
         </div>
@@ -4412,76 +4496,130 @@ export default function App() {
         >
           {/* WIDGET ABSENSI HARI INI: CLOCK IN & CLOCK OUT BESERTA FUNGSINYA (NAVIGASI KIRI) */}
           <div className="p-3 border-b border-slate-100">
-            <div className="p-3.5 rounded-2xl bg-gradient-to-b from-blue-50/70 to-indigo-50/50 border border-indigo-100 shadow-xs space-y-3">
+            <div className="p-3.5 rounded-2xl bg-gradient-to-b from-blue-50/80 to-indigo-50/60 border border-indigo-200/80 shadow-xs space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-black uppercase tracking-wider text-indigo-900 flex items-center gap-1.5">
+                <span className="text-[11px] font-black uppercase tracking-wider text-indigo-950 flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-indigo-600" />
                   Absensi Hari Ini
                 </span>
                 <span className={`px-2 py-0.5 rounded-full text-[9px] font-black tracking-wide ${
                   myTodayAttendance?.checkOutTime
-                    ? 'bg-slate-200 text-slate-700'
+                    ? 'bg-emerald-600 text-white shadow-2xs'
                     : myTodayAttendance?.checkInTime
                     ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                    : 'bg-slate-100 text-slate-500'
+                    : 'bg-white text-slate-600 border border-slate-200'
                 }`}>
                   {myTodayAttendance?.checkOutTime
-                    ? 'Sudah Pulang'
+                    ? 'Selesai Kerja'
                     : myTodayAttendance?.checkInTime
-                    ? 'Hadir'
+                    ? 'Sedang Hadir'
                     : 'Belum Hadir'}
                 </span>
               </div>
 
-              <div className="bg-white/90 rounded-xl p-2.5 border border-indigo-100/70 space-y-1.5 text-xs">
+              <div className="bg-white/95 rounded-xl p-2.5 border border-indigo-100/90 space-y-1.5 text-xs shadow-2xs">
                 <div className="flex justify-between items-center text-slate-600 text-[11px]">
                   <span>Jam Masuk:</span>
-                  <span className="font-bold text-slate-900 font-mono">
+                  <span className="font-bold text-emerald-700 font-mono">
                     {myTodayAttendance?.checkInTime || '-'}
                   </span>
                 </div>
                 <div className="flex justify-between items-center text-slate-600 text-[11px]">
                   <span>Jam Pulang:</span>
-                  <span className="font-bold text-slate-900 font-mono">
+                  <span className="font-bold text-rose-600 font-mono">
                     {myTodayAttendance?.checkOutTime || '-'}
                   </span>
                 </div>
                 <div className="flex justify-between items-center text-slate-600 text-[11px] pt-1 border-t border-slate-100">
                   <span>Durasi Bekerja:</span>
                   <span className="font-bold text-indigo-700 font-mono">
-                    {myTodayAttendance?.regularWorkHours ? `${myTodayAttendance.regularWorkHours} Jam` : '-'}
+                    {myTodayAttendance?.workDurationHours || myTodayAttendance?.regularWorkHours
+                      ? `${myTodayAttendance.workDurationHours || myTodayAttendance.regularWorkHours} Jam${
+                          myTodayAttendance.overtimeHours ? ` (+${myTodayAttendance.overtimeHours}j Lembur)` : ''
+                        }`
+                      : '-'}
                   </span>
                 </div>
               </div>
 
+              {/* Tombol Utama Clock In & Clock Out (Selalu Aktif & Bisa Diklik Kapan Saja) */}
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  disabled={!currentUser || !!myTodayAttendance?.checkInTime}
-                  onClick={() => openCameraForAttendance('in')}
-                  className="py-2 px-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-bold text-[11px] flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer disabled:cursor-not-allowed"
+                  onClick={() => {
+                    setIsMobileSidebarOpen(false);
+                    openCameraForAttendance('in');
+                  }}
+                  className="py-2.5 px-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white font-bold text-[11px] flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                  title="Klik untuk Clock In dengan Kamera & GPS"
                 >
-                  <Play className="w-3 h-3 fill-current" />
-                  <span>Clock In</span>
+                  <Play className="w-3 h-3 fill-current shrink-0" />
+                  <span>{myTodayAttendance?.checkInTime ? 'Update In' : 'Clock In'}</span>
                 </button>
                 <button
                   type="button"
-                  disabled={!currentUser || !myTodayAttendance?.checkInTime || !!myTodayAttendance?.checkOutTime}
-                  onClick={() => openCameraForAttendance('out')}
-                  className="py-2 px-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white font-bold text-[11px] flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer disabled:cursor-not-allowed"
+                  onClick={() => {
+                    setIsMobileSidebarOpen(false);
+                    openCameraForAttendance('out');
+                  }}
+                  className="py-2.5 px-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-[0.98] text-white font-bold text-[11px] flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                  title="Klik untuk Clock Out dengan Kamera & GPS"
                 >
-                  <Square className="w-3 h-3 fill-current" />
-                  <span>Clock Out</span>
+                  <Square className="w-3 h-3 fill-current shrink-0" />
+                  <span>{myTodayAttendance?.checkOutTime ? 'Update Out' : 'Clock Out'}</span>
                 </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => openNewAttendanceModal()}
-                className="w-full text-center text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline pt-0.5 block"
-              >
-                + Ajukan Izin / Cuti / Koreksi
-              </button>
+              {/* Tombol Pintasan 1-Klik Tanpa Kamera */}
+              <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileSidebarOpen(false);
+                    handleQuickClockIn();
+                  }}
+                  className="py-1.5 px-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-[10px] flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                  title="Clock In Instan 1-Klik Tanpa Kamera"
+                >
+                  <Zap className="w-3 h-3 text-emerald-600 shrink-0" />
+                  <span>In Cepat</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileSidebarOpen(false);
+                    handleQuickClockOut();
+                  }}
+                  className="py-1.5 px-2 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 font-bold text-[10px] flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                  title="Clock Out Instan 1-Klik Tanpa Kamera"
+                >
+                  <Zap className="w-3 h-3 text-rose-600 shrink-0" />
+                  <span>Out Cepat</span>
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between pt-1 border-t border-indigo-100/80">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileSidebarOpen(false);
+                    openNewAttendanceModal();
+                  }}
+                  className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer"
+                >
+                  + Ajukan Izin / Koreksi
+                </button>
+                {myTodayAttendance && (
+                  <button
+                    type="button"
+                    onClick={handleResetTodayAttendance}
+                    className="text-[10px] font-bold text-rose-600 hover:text-rose-800 hover:underline cursor-pointer"
+                    title="Reset data presensi hari ini"
+                  >
+                    Reset Hari Ini
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -4971,7 +5109,7 @@ export default function App() {
                   </div>
 
                   <div className="grid grid-cols-5 sm:grid-cols-7 divide-x divide-y divide-slate-200">
-                    {calendarCells.map((cell) => {
+                    {calendarCells.map((cell, cellIdx) => {
                       const dayEntries = entriesByDate[cell.dateStr] || [];
                       const dayReminders = remindersByDate[cell.dateStr] || [];
                       const totalItems = dayEntries.length + dayReminders.length;
@@ -4983,15 +5121,16 @@ export default function App() {
                       const isToday = cell.dateStr === todayStr;
                       const isSelected = cell.dateStr === selectedDate;
                       const holiday = getHolidayInfo(cell.dateStr);
-                      const dayOfWeek = cell.dateStr ? new Date(cell.dateStr).getDay() : -1;
+                      const dayOfWeek = cell.dateStr ? new Date(cell.dateStr + 'T00:00:00').getDay() : -1;
                       const isWeekend = dayOfWeek === 0 || (workPolicy.workDaysPerWeek === 5 && dayOfWeek === 6);
+                      const isMobileWeekendCol = (cellIdx % 7) >= 5;
                       const isTanggalMerah = holiday?.isHoliday || dayOfWeek === 0;
 
                       return (
                         <div
                           key={cell.dateStr}
                           onClick={() => openDayDrawer(cell.dateStr)}
-                          className={`${isWeekend ? 'hidden sm:block' : 'block'} min-h-[104px] sm:min-h-[128px] p-1.5 sm:p-2 transition-colors cursor-pointer flex flex-col justify-between group ${
+                          className={`${isMobileWeekendCol ? 'hidden sm:flex' : 'flex'} min-h-[104px] sm:min-h-[128px] p-1.5 sm:p-2 transition-colors cursor-pointer flex-col justify-between group ${
                             !cell.isCurrentMonth ? 'bg-slate-50/60 text-slate-400' : 'bg-white'
                           } ${
                             isSelected
@@ -5519,8 +5658,24 @@ export default function App() {
                   <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <button
                       type="button"
-                      onClick={openNewAttendanceModal}
-                      className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md transition-all"
+                      onClick={() => openCameraForAttendance('in')}
+                      className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition-all cursor-pointer"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>{myTodayAttendance?.checkInTime ? `Clock In (${myTodayAttendance.checkInTime})` : 'Clock In Masuk'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openCameraForAttendance('out')}
+                      className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-md transition-all cursor-pointer"
+                    >
+                      <Square className="w-3.5 h-3.5 fill-current" />
+                      <span>{myTodayAttendance?.checkOutTime ? `Clock Out (${myTodayAttendance.checkOutTime})` : 'Clock Out Pulang'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openNewAttendanceModal()}
+                      className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md transition-all cursor-pointer"
                     >
                       <Plus className="w-4 h-4" />
                       <span>Ajukan Izin / Cuti / Koreksi Jam</span>
@@ -6063,9 +6218,9 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-100">
-                  {/* Input Tanggal Mulai s/d Tanggal Selesai */}
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                {/* Baris Filter Rentang Tanggal & Owner */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs">
+                  <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                     <span className="font-semibold text-slate-700">Dari Tanggal:</span>
                     <input
                       type="date"
@@ -6074,7 +6229,7 @@ export default function App() {
                         setReportStartDate(e.target.value);
                         setReportDatePreset('custom');
                       }}
-                      className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 flex-1 sm:flex-initial"
                     />
                     <span className="font-semibold text-slate-700">Sampai:</span>
                     <input
@@ -6084,15 +6239,16 @@ export default function App() {
                         setReportEndDate(e.target.value);
                         setReportDatePreset('custom');
                       }}
-                      className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 flex-1 sm:flex-initial"
                     />
+                  </div>
 
-                    {/* Filter Owner */}
-                    <span className="font-semibold text-slate-700 ml-2">Owner:</span>
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <span className="font-semibold text-slate-700 shrink-0">Owner:</span>
                     <select
                       value={reportOwnerFilter}
                       onChange={(e) => setReportOwnerFilter(e.target.value)}
-                      className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-700 focus:outline-none"
+                      className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-700 focus:outline-none flex-1 sm:flex-initial"
                     >
                       <option value="MINE">Pribadi: {currentUser.fullName}</option>
                       {uniqueOwners
@@ -6104,51 +6260,52 @@ export default function App() {
                         ))}
                     </select>
                   </div>
+                </div>
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={copyReportSummary}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>Salin Teks Ringkasan</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsPhotoGalleryModalOpen(true)}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white hover:bg-slate-50 text-indigo-700 border border-indigo-200 shadow-2xs transition-colors"
-                    >
-                      <Camera className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>Bukti Foto &amp; Unduh</span>
-                    </button>
-                    <a
-                      href="/rekap-pekerjaan-jadwalpro.xlsx"
-                      download="rekap-pekerjaan-jadwalpro.xlsx"
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors shrink-0"
-                      title="Unduh Lembar Kerja Rekap Pekerjaan Excel (.xlsx)"
-                    >
-                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-200" />
-                      <span>Unduh Excel (.xlsx)</span>
-                    </a>
-                    <a
-                      href="/laporan-rekap-pekerjaan.pptx"
-                      download="laporan-rekap-pekerjaan.pptx"
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-xs transition-colors shrink-0"
-                      title="Unduh Bahan Presentasi PowerPoint Full Designed (.pptx)"
-                    >
-                      <Presentation className="w-3.5 h-3.5 text-amber-100" />
-                      <span>Unduh Presentasi AI (.pptx)</span>
-                    </a>
-                    <button
-                      type="button"
-                      onClick={handlePrintReport}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-colors shrink-0"
-                    >
-                      <Printer className="w-3.5 h-3.5" />
-                      <span>Cetak / Unduh PDF</span>
-                    </button>
-                  </div>
+                {/* Baris Tombol Aksi Laporan (Grid Responsif Rapi di Mobile, Tablet & Desktop) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 pt-3 border-t border-slate-100 w-full">
+                  <button
+                    type="button"
+                    onClick={copyReportSummary}
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors whitespace-nowrap cursor-pointer"
+                  >
+                    <Copy className="w-3.5 h-3.5 shrink-0" />
+                    <span>Salin Ringkasan</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsPhotoGalleryModalOpen(true)}
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 shadow-2xs transition-colors whitespace-nowrap cursor-pointer"
+                  >
+                    <Camera className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                    <span>Bukti Foto &amp; Unduh</span>
+                  </button>
+                  <a
+                    href="/rekap-pekerjaan-jadwalpro.xlsx"
+                    download="rekap-pekerjaan-jadwalpro.xlsx"
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors whitespace-nowrap cursor-pointer"
+                    title="Unduh Lembar Kerja Rekap Pekerjaan Excel (.xlsx)"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-200 shrink-0" />
+                    <span>Unduh Excel (.xlsx)</span>
+                  </a>
+                  <a
+                    href="/laporan-rekap-pekerjaan.pptx"
+                    download="laporan-rekap-pekerjaan.pptx"
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-xs transition-colors whitespace-nowrap cursor-pointer"
+                    title="Unduh Bahan Presentasi PowerPoint Full Designed (.pptx)"
+                  >
+                    <Presentation className="w-3.5 h-3.5 text-amber-100 shrink-0" />
+                    <span>Unduh Presentasi (.pptx)</span>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={handlePrintReport}
+                    className="w-full sm:col-span-2 lg:col-span-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-colors whitespace-nowrap cursor-pointer"
+                  >
+                    <Printer className="w-3.5 h-3.5 shrink-0" />
+                    <span>Cetak / Unduh PDF</span>
+                  </button>
                 </div>
               </div>
 
@@ -9227,6 +9384,42 @@ export default function App() {
                                 {entry.title}
                               </h5>
 
+                              {/* Tautan Balik ke Arahan Asal di Bank Ide (Jika Jadwal Berasal dari Bank Ide) */}
+                              {(() => {
+                                const originIdea = ideas.find(
+                                  (idItem) =>
+                                    (entry.originIdeaId && idItem.id === entry.originIdeaId) ||
+                                    idItem.scheduledEntryId === entry.id
+                                );
+                                if (!originIdea && !entry.originIdeaId) return null;
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedDate(null);
+                                      setActiveMainTab('ideas');
+                                      if (originIdea) {
+                                        setSelectedIdeaId(originIdea.id);
+                                      } else if (entry.originIdeaId) {
+                                        setSelectedIdeaId(entry.originIdeaId);
+                                      }
+                                      setIsMobileNotesViewingDetail(true);
+                                    }}
+                                    className="mt-1 w-full text-left p-2 rounded-xl bg-amber-50 hover:bg-amber-100/90 border border-amber-200/90 flex items-center justify-between gap-2 text-[11px] text-amber-900 transition-colors cursor-pointer group"
+                                  >
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <Lightbulb className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                      <span className="font-bold truncate">
+                                        Arahan Bank Ide: {originIdea ? originIdea.title : `#${entry.originIdeaId}`}
+                                      </span>
+                                    </div>
+                                    <span className="text-[10px] font-black text-amber-700 group-hover:translate-x-0.5 transition-transform shrink-0">
+                                      Buka Catatan &rarr;
+                                    </span>
+                                  </button>
+                                );
+                              })()}
+
                               {/* Informasi Durasi & Rentang Hari Pengerjaan */}
                               {(() => {
                                 const range = getEntryDateRange(entry, todayStr);
@@ -10440,24 +10633,39 @@ export default function App() {
               </div>
             </div>
 
-            <div className="px-5 py-3.5 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-2">
+            <div className="px-5 py-3.5 border-t border-slate-100 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
               <button
                 type="button"
                 onClick={closeCameraModal}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-200 transition-colors"
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-200 transition-colors cursor-pointer"
               >
                 Batal
               </button>
-              <button
-                type="button"
-                onClick={handleTakeSnapshotAndSubmit}
-                className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-white shadow-sm transition-all ${
-                  cameraMode === 'in' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'
-                }`}
-              >
-                <Camera className="w-4 h-4" />
-                <span>{cameraMode === 'in' ? 'Ambil Foto & Clock In' : 'Ambil Foto & Clock Out'}</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const mode = cameraMode;
+                    closeCameraModal();
+                    if (mode === 'in') handleQuickClockIn();
+                    else handleQuickClockOut();
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition-all cursor-pointer"
+                >
+                  <Zap className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Simpan Cepat (Tanpa Kamera)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTakeSnapshotAndSubmit}
+                  className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-white shadow-sm transition-all cursor-pointer ${
+                    cameraMode === 'in' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'
+                  }`}
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>{cameraMode === 'in' ? 'Ambil Foto & Clock In' : 'Ambil Foto & Clock Out'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

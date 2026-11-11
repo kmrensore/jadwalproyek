@@ -885,6 +885,7 @@ export const db = {
 
   createEntry(
     payload: {
+      id?: string;
       date: string;
       title: string;
       projectId: string | null;
@@ -893,17 +894,18 @@ export const db = {
       notes: string;
       completedDate?: string | null;
       durationDays?: number;
-  originIdeaId?: string | null;
+      originIdeaId?: string | null;
     },
     owner?: UserProfile | null
   ): ScheduleEntry[] {
     const activeOwner = owner || this.getSavedSession();
     const now = new Date().toISOString();
     const newEntry: ScheduleEntry = {
-      id: 'ent-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6),
+      id: payload.id || ('ent-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6)),
       date: payload.date,
       completedDate: payload.completedDate || (payload.status === 'selesai' ? payload.date : null),
       durationDays: payload.durationDays || (payload.status === 'selesai' ? 1 : undefined),
+      originIdeaId: payload.originIdeaId || null,
       title: payload.title.trim(),
       projectId: payload.projectId,
       programId: payload.programId || null,
@@ -1067,15 +1069,25 @@ export const db = {
 
     const records = this.getAttendance();
     const existingIndex = records.findIndex(
-      (r) => r.ownerId === ownerId && r.date === payload.date
+      (r) =>
+        r.date === payload.date &&
+        (r.ownerId === ownerId ||
+          r.ownerId === 'owner-local-admin' ||
+          r.ownerId === 'owner-demo-1' ||
+          (r.ownerName && r.ownerName.toLowerCase() === ownerName.toLowerCase()))
     );
+
+    const policy = this.getWorkPolicy();
+    const stdInFallback = policy.standardCheckInTime || '08:00';
 
     let duration = 0;
     const inTime =
       payload.checkInTime !== undefined
         ? payload.checkInTime
-        : existingIndex >= 0
+        : existingIndex >= 0 && records[existingIndex].checkInTime
         ? records[existingIndex].checkInTime
+        : payload.checkOutTime
+        ? stdInFallback
         : null;
     const outTime =
       payload.checkOutTime !== undefined
@@ -1083,8 +1095,6 @@ export const db = {
         : existingIndex >= 0
         ? records[existingIndex].checkOutTime
         : null;
-
-    const policy = this.getWorkPolicy();
     // Toleransi keterlambatan (bisa 0 menit untuk mode ketat / manual)
     const lateTolerance = policy.lateToleranceMinutes !== undefined ? policy.lateToleranceMinutes : 15;
     let isLate = payload.isLate !== undefined ? payload.isLate : false;
@@ -1188,6 +1198,8 @@ export const db = {
       const prev = records[existingIndex];
       updatedItem = {
         ...prev,
+        ownerId,
+        ownerName,
         type: payload.type,
         checkInTime: inTime,
         checkOutTime: outTime,
