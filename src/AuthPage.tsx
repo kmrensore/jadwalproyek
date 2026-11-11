@@ -436,20 +436,27 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             <span>Arsitektur Kinerja &bull; Bukti Nyata Terukur 2026</span>
           </div>
 
-          {/* Headline Modern Berisi Filosofi Kerja Sesuai Arahan Pengguna */}
-          <h1 className="text-2xl sm:text-4xl md:text-5xl lg:text-7xl font-bold tracking-tight text-white leading-[1.25] sm:leading-[1.2] font-sans max-w-5xl mx-auto">
-            Seorang profesional tidak sekadar{' '}
-            <span className="italic font-normal text-blue-200 relative inline-block">
-              &ldquo;bekerja keras&rdquo;
-              <span className="absolute -bottom-0.5 left-0 right-0 h-0.5 bg-[#38bdf8]/60 rounded-full" />
-            </span>
-            , melainkan mampu membuktikan{' '}
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#93c5fd] via-[#ffffff] to-[#38bdf8] font-black">
-              efisiensi, akuntabilitas,
+          {/* Headline Modern Proporsional 3 Baris Sesuai Arahan Pengguna */}
+          <h1 className="text-lg sm:text-2xl md:text-3xl lg:text-[32px] xl:text-[36px] font-semibold tracking-tight text-white/95 leading-[1.45] sm:leading-[1.4] font-sans max-w-4xl mx-auto">
+            <span className="md:block">
+              Seorang profesional tidak sekadar{' '}
+              <span className="italic font-normal text-blue-200 relative inline-block">
+                &ldquo;bekerja keras&rdquo;
+                <span className="absolute -bottom-0.5 left-0 right-0 h-[1.5px] bg-[#38bdf8]/60 rounded-full" />
+              </span>
+              ,
             </span>{' '}
-            dan nilai tambah kerjanya melalui{' '}
-            <span className="font-black text-white underline decoration-[#38bdf8] decoration-wavy decoration-2 underline-offset-8">
-              data konkret.
+            <span className="md:block">
+              melainkan mampu membuktikan{' '}
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#93c5fd] via-[#ffffff] to-[#38bdf8] font-extrabold">
+                efisiensi, akuntabilitas,
+              </span>
+            </span>{' '}
+            <span className="md:block">
+              dan nilai tambah kerjanya melalui{' '}
+              <span className="font-extrabold text-white underline decoration-[#38bdf8] decoration-wavy decoration-2 underline-offset-4">
+                data konkret.
+              </span>
             </span>
           </h1>
 
