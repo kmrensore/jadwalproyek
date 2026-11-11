@@ -1795,6 +1795,28 @@ export const db = {
     map[user.id] = sub;
     if (user.email) map[user.email] = sub;
     this.saveAllSubscriptions(map);
+    if (supabase) {
+      supabase
+        .from('subscriptions')
+        .upsert(
+          {
+            user_id: sub.userId,
+            user_email: sub.userEmail,
+            user_name: sub.userName,
+            plan: sub.plan,
+            status: sub.status,
+            price_per_month: sub.pricePerMonth,
+            started_at: sub.startedAt,
+            expires_at: sub.expiresAt,
+            last_payment_date: sub.lastPaymentDate || null,
+            payment_method: sub.paymentMethod || 'Free Trial 7 Hari',
+            invoice_history: sub.invoiceHistory || [],
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'user_id' }
+        )
+        .then(() => {});
+    }
     return sub;
   },
 
@@ -1844,6 +1866,28 @@ export const db = {
     map[user.id] = updated;
     if (user.email) map[user.email] = updated;
     this.saveAllSubscriptions(map);
+    if (supabase) {
+      supabase
+        .from('subscriptions')
+        .upsert(
+          {
+            user_id: updated.userId,
+            user_email: updated.userEmail,
+            user_name: updated.userName,
+            plan: updated.plan,
+            status: updated.status,
+            price_per_month: updated.pricePerMonth,
+            started_at: updated.startedAt,
+            expires_at: updated.expiresAt,
+            last_payment_date: updated.lastPaymentDate || null,
+            payment_method: updated.paymentMethod || paymentMethod,
+            invoice_history: updated.invoiceHistory || [],
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'user_id' }
+        )
+        .then(() => {});
+    }
     return updated;
   },
 
@@ -1947,6 +1991,27 @@ export const db = {
       updatedConnections = [newConn, ...allConnections];
     }
     this.saveTeamConnections(updatedConnections);
+    if (supabase) {
+      supabase
+        .from('team_connections')
+        .upsert(
+          {
+            id: newConn.id,
+            owner_id_a: newConn.ownerIdA,
+            owner_name_a: newConn.ownerNameA,
+            owner_email_a: newConn.ownerEmailA || '',
+            owner_id_b: newConn.ownerIdB,
+            owner_name_b: newConn.ownerNameB,
+            owner_email_b: newConn.ownerEmailB || '',
+            role_b: newConn.roleB || 'Partner Kolaborasi (Akun B)',
+            status: newConn.status,
+            auto_sync: newConn.autoSync,
+            connected_at: newConn.connectedAt,
+          },
+          { onConflict: 'owner_id_a,owner_id_b' }
+        )
+        .then(() => {});
+    }
 
     // Jika Akun B belum memiliki sampel proyek/jadwal lokal di perangkat ini,
     // otomatis sinkronkan data kerja Akun B agar Kalender Gabungan & Laporan Team Connect langsung menyatu!
