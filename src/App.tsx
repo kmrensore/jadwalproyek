@@ -81,7 +81,15 @@ import {
   Send,
 } from 'lucide-react';
 import AuthPage from './AuthPage';
+import {
+  SubscriptionModal,
+  SubscriptionPaywallGate,
+  SubscriptionStatusBadge,
+  isSubscriptionLocked,
+  MONTHLY_SUBSCRIPTION_PRICE,
+} from './SubscriptionModal';
 import { PROJECT_COLORS, DEFAULT_WORK_POLICY } from './types';
+import type { SubscriptionInfo, TeamConnection } from './types';
 // Definisi mandiri EntryStatus di App.tsx agar bebas error jika types.ts lokal belum di-update
 export type EntryStatus = 'belum_mulai' | 'berjalan' | 'tertunda' | 'selesai';
 
@@ -888,9 +896,9 @@ export default function App() {
     return { year: y || 2026, month: (m || 11) - 1 };
   }, [todayStr]);
 
-  // Tab Navigasi Utama: 'calendar' | 'attendance' | 'reminders' | 'report' | 'ai_performance' | 'voice_ai' | 'ideas'
+  // Tab Navigasi Utama: 'calendar' | 'attendance' | 'reminders' | 'report' | 'ai_performance' | 'voice_ai' | 'ideas' | 'team_connect'
   const [activeMainTab, setActiveMainTab] = useState<
-    'calendar' | 'attendance' | 'reminders' | 'report' | 'ai_performance' | 'voice_ai' | 'ideas'
+    'calendar' | 'attendance' | 'reminders' | 'report' | 'ai_performance' | 'voice_ai' | 'ideas' | 'team_connect'
   >('calendar');
 
   // State User & Auth (Auto-login membaca sesi tersimpan langsung saat inisialisasi)
@@ -1114,9 +1122,21 @@ export default function App() {
   const [projectFilter, setProjectFilter] = useState<string>('ALL');
   const [ownerFilter, setOwnerFilter] = useState<string>('MINE');
 
-  // State Drawer Detail Hari (Jadwal)
+  // State Drawer Detail Hari (Jadwal) & Pop-Up Preview Ringkasan Kalender
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [calendarPreviewDate, setCalendarPreviewDate] = useState<string | null>(null);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+
+  // State Langganan Bulanan (Rp 27.000/bln & Free Trial 7 Hari)
+  const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
+  const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState<boolean>(false);
+
+  // State Fitur AUTO CONNECT & Halaman TEAM CONNECT (Akun A + Akun B)
+  const [teamConnections, setTeamConnections] = useState<TeamConnection[]>([]);
+  const [partnerOwnerIdInput, setPartnerOwnerIdInput] = useState<string>('');
+  const [partnerNameInput, setPartnerNameInput] = useState<string>('');
+  const [partnerRoleInput, setPartnerRoleInput] = useState<string>('Partner Kolaborasi (Akun B)');
+  const [teamCalendarFilter, setTeamCalendarFilter] = useState<'ALL' | 'ACCOUNT_A' | 'ACCOUNT_B'>('ALL');
 
   // State Form Cepat Penambahan Pekerjaan & Catatan Revisi
   const [activeAddonEntryId, setActiveAddonEntryId] = useState<string | null>(null);
@@ -2615,6 +2635,83 @@ export default function App() {
   const openDayDrawer = (dateStr: string) => {
     setSelectedDate(dateStr);
     resetEntryForm(projectFilter !== 'ALL' && projectFilter !== 'NONE' ? projectFilter : '');
+  };
+
+  // Fungsi membuka Pop-Up Preview Ringkasan Kalender (menampilkan seluruh item tanpa ada yang ke-hide)
+  const openCalendarSummaryPopup = (dateStr: string) => {
+    setCalendarPreviewDate(dateStr);
+  };
+
+  // Sinkronisasi data Langganan & Team Connect saat user aktif
+  useEffect(() => {
+    if (!currentUser) {
+      setSubscription(null);
+      setTeamConnections([]);
+      return;
+    }
+    if (db.getSubscription) {
+      const sub = db.getSubscription(currentUser);
+      setSubscription(sub);
+    }
+    if (db.getTeamConnections) {
+      const conns = db.getTeamConnections(currentUser.id);
+      setTeamConnections(conns);
+    }
+  }, [currentUser]);
+
+  const handleConfirmSubscriptionPayment = (paymentMethod: string) => {
+    if (!currentUser || !db.activateMonthlySubscription) return;
+    const updated = db.activateMonthlySubscription(currentUser, paymentMethod);
+    setSubscription(updated);
+    setIsSubscriptionModalOpen(false);
+    showToast(`Pembayaran Rp ${MONTHLY_SUBSCRIPTION_PRICE.toLocaleString('id-ID')} via ${paymentMethod} berhasil! Paket Pro Bulanan aktif.`);
+  };
+
+  const handleSimulateExpireSubscription = () => {
+    if (!currentUser || !db.simulateExpireSubscription) return;
+    const expired = db.simulateExpireSubscription(currentUser);
+    setSubscription(expired);
+    setIsSubscriptionModalOpen(false);
+    showToast('Simulasi masa aktif 7 hari habis diaktifkan. Workspace kini terkunci.');
+  };
+
+  const handleConnectPartnerByOwnerId = (
+    e?: React.FormEvent,
+    customOwnerId?: string,
+    customPartnerName?: string
+  ) => {
+    if (e) e.preventDefault();
+    if (!currentUser || !db.connectPartnerByOwnerId) return;
+    const targetId = (customOwnerId ?? partnerOwnerIdInput).trim();
+    const targetName = (customPartnerName ?? partnerNameInput).trim();
+    if (!targetId) {
+      showToast('Masukkan Owner ID Akun B terlebih dahulu');
+      return;
+    }
+    if (targetId === currentUser.id) {
+      showToast('Tidak dapat menghubungkan Owner ID milik Anda sendiri');
+      return;
+    }
+    const res = db.connectPartnerByOwnerId(
+      currentUser,
+      targetId,
+      targetName || undefined,
+      partnerRoleInput
+    );
+    setTeamConnections(res.connections);
+    setProjects(db.getProjects());
+    setEntries(db.getEntries());
+    setAttendance(db.getAttendance());
+    setPartnerOwnerIdInput('');
+    setPartnerNameInput('');
+    showToast(`Auto-Connect berhasil! Akun "${res.partnerName}" (${res.partnerId}) kini terhubung di TEAM CONNECT.`);
+  };
+
+  const handleRemoveTeamConnection = (connId: string) => {
+    if (!currentUser || !db.removeTeamConnection) return;
+    const next = db.removeTeamConnection(connId, currentUser.id);
+    setTeamConnections(next);
+    showToast('Koneksi tim berhasil dilepas');
   };
 
   const resetEntryForm = (defaultProjId = '') => {
@@ -4336,6 +4433,18 @@ export default function App() {
             </button>
             <button
               type="button"
+              onClick={() => setActiveMainTab('team_connect')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                activeMainTab === 'team_connect'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-emerald-800 bg-emerald-50/90 hover:bg-emerald-100'
+              }`}
+            >
+              <Users className={`w-3.5 h-3.5 ${activeMainTab === 'team_connect' ? 'text-white' : 'text-emerald-600'}`} />
+              <span>Team Connect<span className="hidden xl:inline"> ({teamConnections.length + 1})</span></span>
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveMainTab('voice_ai')}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
                 activeMainTab === 'voice_ai'
@@ -4348,8 +4457,12 @@ export default function App() {
             </button>
           </div>
 
-          {/* Profil User, Setingan Akun & Tombol Keluar */}
+          {/* Profil User, Badge Langganan, Setingan Akun & Tombol Keluar */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <SubscriptionStatusBadge
+              subscription={subscription}
+              onOpenModal={() => setIsSubscriptionModalOpen(true)}
+            />
             <button
               type="button"
               onClick={openAccountModal}
@@ -4465,6 +4578,16 @@ export default function App() {
           >
             <Lightbulb className={`w-3 h-3 ${activeMainTab === 'ideas' ? 'text-white' : 'text-amber-500'}`} />
             <span>Bank Ide</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveMainTab('team_connect')}
+            className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold text-center whitespace-nowrap flex items-center justify-center gap-1 ${
+              activeMainTab === 'team_connect' ? 'bg-emerald-600 text-white' : 'text-emerald-800 bg-emerald-50 hover:bg-emerald-100'
+            }`}
+          >
+            <Users className={`w-3 h-3 ${activeMainTab === 'team_connect' ? 'text-white' : 'text-emerald-600'}`} />
+            <span>Team Connect</span>
           </button>
           <button
             type="button"
@@ -4623,8 +4746,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* Menu Akses Cepat Bank Ide */}
-          <div className="p-3 border-b border-slate-100">
+          {/* Menu Akses Cepat Bank Ide, Team Connect & Langganan */}
+          <div className="p-3 border-b border-slate-100 space-y-2">
             <button
               type="button"
               onClick={() => {
@@ -4638,11 +4761,49 @@ export default function App() {
               }`}
             >
               <div className="flex items-center gap-2">
-                <Lightbulb className="w-4 h-4 text-amber-500" />
+                <Lightbulb className={`w-4 h-4 ${activeMainTab === 'ideas' ? 'text-white' : 'text-amber-500'}`} />
                 <span>Bank Ide &amp; Catatan</span>
               </div>
               <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-white text-amber-800 shadow-2xs">
                 {ideas.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveMainTab('team_connect');
+                setIsMobileSidebarOpen(false);
+              }}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                activeMainTab === 'team_connect'
+                  ? 'bg-emerald-600 text-white shadow-md'
+                  : 'bg-emerald-50/80 hover:bg-emerald-100/90 text-emerald-900 border border-emerald-200 shadow-2xs'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Users className={`w-4 h-4 ${activeMainTab === 'team_connect' ? 'text-white' : 'text-emerald-600'}`} />
+                <span>Team Connect (Auto)</span>
+              </div>
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-white text-emerald-800 shadow-2xs">
+                {teamConnections.length + 1} Akun
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setIsSubscriptionModalOpen(true);
+                setIsMobileSidebarOpen(false);
+              }}
+              className="w-full flex items-center justify-between px-3.5 py-2 rounded-xl text-[11px] font-bold bg-indigo-50/70 hover:bg-indigo-100/80 text-indigo-900 border border-indigo-200/80 transition-all"
+            >
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Langganan (Rp 27rb/bln)</span>
+              </div>
+              <span className="text-[10px] font-black text-indigo-700">
+                {subscription?.plan === 'pro_monthly' ? 'PRO' : 'TRIAL'}
               </span>
             </button>
           </div>
@@ -5129,7 +5290,7 @@ export default function App() {
                       return (
                         <div
                           key={cell.dateStr}
-                          onClick={() => openDayDrawer(cell.dateStr)}
+                          onClick={() => openCalendarSummaryPopup(cell.dateStr)}
                           className={`${isMobileWeekendCol ? 'hidden sm:flex' : 'flex'} min-h-[104px] sm:min-h-[128px] p-1.5 sm:p-2 transition-colors cursor-pointer flex-col justify-between group ${
                             !cell.isCurrentMonth ? 'bg-slate-50/60 text-slate-400' : 'bg-white'
                           } ${
@@ -5370,10 +5531,10 @@ export default function App() {
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  openDayDrawer(cell.dateStr);
+                                  openCalendarSummaryPopup(cell.dateStr);
                                 }}
                                 className="inline-flex items-center gap-1 text-[10px] font-black text-indigo-700 bg-indigo-50 hover:bg-indigo-100 hover:text-indigo-950 px-2 py-0.5 rounded-md border border-indigo-200/90 shadow-2xs transition-all active:scale-95 cursor-pointer"
-                                title={`Klik untuk melihat popup ringkasan lengkap ${dayEntries.length} tugas & ${dayReminders.length} pengingat pada ${formatDateShortIndo(cell.dateStr)}`}
+                                title={`Klik untuk membuka Pop-Up Ringkasan Lengkap (${dayEntries.length} tugas & ${dayReminders.length} pengingat) pada ${formatDateShortIndo(cell.dateStr)}`}
                               >
                                 <span>+{remainingCount} lagi</span>
                                 <ChevronRight className="w-2.5 h-2.5 text-indigo-500" />
@@ -8838,21 +8999,21 @@ export default function App() {
               TAB 7: BANK IDE & CATATAN BERGAYA APPLE NOTES IPHONE (APPLE NOTES DARK LUXURY)
              ========================================================================= */}
           {activeMainTab === 'ideas' && (
-            <div className="space-y-4 text-left">
-              {/* Header Tab Bank Ide */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+            <div className="space-y-5 text-left">
+              {/* Header Tab Bank Ide (Menyatu Bersih dengan Background) */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200/90">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-[#ffd60a]" />
-                    <h2 className="text-lg font-black text-slate-900 tracking-tight">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                    <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">
                       Bank Ide &amp; Catatan Arahan Kerja
                     </h2>
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800 border border-amber-300">
-                      Apple Notes iOS Style
+                      {ideas.length} Catatan
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Catat ide, notulen, dan arahan instruksi secara terstruktur. Satu klik untuk menjadwalkan ke kalender dengan tautan balik otomatis.
+                    Catat ide, notulen, dan arahan instruksi dalam daftar yang menyatu bersih. Satu klik untuk menjadwalkan ke kalender dengan tautan balik otomatis.
                   </p>
                 </div>
 
@@ -8878,7 +9039,7 @@ export default function App() {
                       setIsMobileNotesViewingDetail(true);
                       showToast('Catatan baru dibuat!');
                     }}
-                    className="px-4 py-2 rounded-xl bg-[#ffd60a] hover:bg-[#ffe043] text-black font-black text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
                   >
                     <Plus className="w-4 h-4" />
                     <span>Catatan Baru</span>
@@ -8886,253 +9047,866 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Antarmuka Apple Notes iPhone (Dark Luxury Note Pad) */}
-              <div className="rounded-3xl bg-[#1c1c1e] border border-white/[0.12] shadow-2xl shadow-black/80 overflow-hidden text-white">
-                {/* iPhone Window Header Bar */}
-                <div className="px-4 sm:px-6 py-3 bg-[#2c2c2e] border-b border-white/[0.08] flex items-center justify-between gap-4 text-xs">
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-3 h-3 rounded-full bg-[#ff5f56]" />
-                      <span className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
-                      <span className="w-3 h-3 rounded-full bg-[#27c93f]" />
-                    </div>
-                    <div className="h-4 w-px bg-white/20 mx-1" />
-                    <span className="text-[#ffd60a] font-serif font-black text-sm">iCloud</span>
-                    <span className="text-white/40">/</span>
-                    <span className="font-bold text-white">Semua Catatan</span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] bg-white/10 text-[#ffd60a] font-mono">
-                      {ideas.length} Catatan
-                    </span>
+              {/* Layout Daftar Catatan & Editor Menyatu dengan Background Tanpa Kotak Hitam */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+                {/* Kolom Kiri: Daftar Catatan Menyatu pada Background */}
+                <div className={`lg:col-span-5 space-y-2.5 ${isMobileNotesViewingDetail ? 'hidden lg:block' : 'block'}`}>
+                  <div className="relative mb-3">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={ideaSearchQuery}
+                      onChange={(e) => setIdeaSearchQuery(e.target.value)}
+                      placeholder="Cari ide atau arahan kerja..."
+                      className="w-full pl-9 pr-3 py-2.5 rounded-2xl bg-white/80 border border-slate-200/90 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-amber-500 shadow-2xs"
+                    />
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-white/50 hidden sm:inline">Format Catatan iPhone</span>
+                  {/* Daftar Catatan langsung di atas background */}
+                  <div className="space-y-2 max-h-[540px] overflow-y-auto pr-1">
+                    {ideas.length === 0 ? (
+                      <div className="p-8 text-center text-xs text-slate-500 rounded-2xl border border-dashed border-slate-300">
+                        Belum ada catatan ide tersimpan. Klik <strong>+ Catatan Baru</strong> di atas untuk mulai mencatat.
+                      </div>
+                    ) : (
+                      ideas
+                        .filter((i) => {
+                          if (!ideaSearchQuery.trim()) return true;
+                          const q = ideaSearchQuery.toLowerCase();
+                          return (
+                            i.title.toLowerCase().includes(q) ||
+                            (i.content && i.content.toLowerCase().includes(q))
+                          );
+                        })
+                        .map((ideaItem) => {
+                          const isSelected = (selectedIdeaId || ideas[0]?.id) === ideaItem.id;
+                          return (
+                            <div
+                              key={ideaItem.id}
+                              onClick={() => {
+                                setSelectedIdeaId(ideaItem.id);
+                                setIsMobileNotesViewingDetail(true);
+                              }}
+                              className={`p-3.5 rounded-2xl cursor-pointer transition-all space-y-1.5 ${
+                                isSelected
+                                  ? 'bg-amber-50/90 border border-amber-300 border-l-4 border-l-amber-500 shadow-xs'
+                                  : 'bg-white/60 hover:bg-white border border-slate-200/80'
+                              }`}
+                            >
+                              <div className="flex justify-between items-start gap-2">
+                                <h4 className="font-bold text-sm text-slate-900 line-clamp-1">
+                                  {ideaItem.title || 'Tanpa Judul'}
+                                </h4>
+                                <span className={`text-[10px] font-bold font-mono shrink-0 ${isSelected ? 'text-amber-700' : 'text-slate-400'}`}>
+                                  {ideaItem.createdAt ? ideaItem.createdAt.slice(11, 16) : '-'}
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">
+                                {ideaItem.content || 'Catatan kosong...'}
+                              </p>
+                              <div className="pt-1 flex items-center justify-between text-[10px]">
+                                <span className="text-slate-500 font-mono">
+                                  📁 {ideaItem.category || 'Ide Rencana'}
+                                </span>
+                                {ideaItem.status === 'dijadwalkan' ? (
+                                  <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold border border-emerald-200">
+                                    ✓ Terjadwal {ideaItem.scheduledDate ? formatDateShortIndo(ideaItem.scheduledDate) : ''}
+                                  </span>
+                                ) : (
+                                  <span className="text-amber-700 font-semibold">
+                                    Draft Rencana
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })
+                    )}
                   </div>
                 </div>
 
-                {/* 2-Column Split View: List Catatan (Kiri) & Lembar Catatan (Kanan) */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 min-h-[560px] divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
-                  {/* Kolom Kiri: Daftar Catatan iPhone (Hidden on mobile if viewing detail) */}
-                  <div className={`lg:col-span-5 bg-[#161618] p-3 sm:p-4 space-y-2.5 ${isMobileNotesViewingDetail ? 'hidden lg:block' : 'block'}`}>
-                    <div className="relative mb-3">
-                      <input
-                        type="text"
-                        value={ideaSearchQuery}
-                        onChange={(e) => setIdeaSearchQuery(e.target.value)}
-                        placeholder="Cari ide atau arahan kerja..."
-                        className="w-full pl-9 pr-3 py-2 rounded-xl bg-[#2c2c2e] border border-white/10 text-xs text-white placeholder-white/40 focus:outline-none focus:border-[#ffd60a]"
-                      />
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 text-xs">🔍</span>
-                    </div>
-
-                    {/* Daftar Catatan */}
-                    <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
-                      {ideas.length === 0 ? (
-                        <div className="p-8 text-center text-xs text-white/40">
-                          Belum ada catatan ide tersimpan. Klik <strong>+ Catatan Baru</strong> di atas untuk mulai mencatat.
-                        </div>
-                      ) : (
-                        ideas
-                          .filter((i) => {
-                            if (!ideaSearchQuery.trim()) return true;
-                            const q = ideaSearchQuery.toLowerCase();
-                            return (
-                              i.title.toLowerCase().includes(q) ||
-                              (i.content && i.content.toLowerCase().includes(q))
-                            );
-                          })
-                          .map((ideaItem) => {
-                            const isSelected = (selectedIdeaId || ideas[0]?.id) === ideaItem.id;
-                            return (
-                              <div
-                                key={ideaItem.id}
-                                onClick={() => {
-                                  setSelectedIdeaId(ideaItem.id);
-                                  setIsMobileNotesViewingDetail(true);
-                                }}
-                                className={`p-3.5 rounded-2xl cursor-pointer transition-all space-y-1.5 ${
-                                  isSelected
-                                    ? 'bg-[#2c2c2e] border-l-4 border-[#ffd60a] shadow-md'
-                                    : 'bg-[#1c1c1e] hover:bg-[#2c2c2e]/60 border border-white/[0.04]'
-                                }`}
-                              >
-                                <div className="flex justify-between items-start gap-2">
-                                  <h4 className="font-bold text-sm text-white line-clamp-1">
-                                    {ideaItem.title || 'Tanpa Judul'}
-                                  </h4>
-                                  <span className={`text-[10px] font-bold font-mono shrink-0 ${isSelected ? 'text-[#ffd60a]' : 'text-white/40'}`}>
-                                    {ideaItem.createdAt ? ideaItem.createdAt.slice(11, 16) : '-'}
-                                  </span>
-                                </div>
-                                <p className="text-xs text-white/60 line-clamp-2 leading-relaxed">
-                                  {ideaItem.content || 'Catatan kosong...'}
-                                </p>
-                                <div className="pt-1 flex items-center justify-between text-[10px]">
-                                  <span className="text-white/40 font-mono">
-                                    📁 {ideaItem.category || 'Ide Rencana'}
-                                  </span>
-                                  {ideaItem.status === 'dijadwalkan' ? (
-                                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold">
-                                      ✓ Terjadwal {ideaItem.scheduledDate ? formatDateShortIndo(ideaItem.scheduledDate) : ''}
-                                    </span>
-                                  ) : (
-                                    <span className="text-[#ffd60a] font-semibold">
-                                      Draft
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Kolom Kanan: Lembar Catatan iPhone (Note Pad Canvas) */}
-                  {(() => {
-                    const currentIdea = ideas.find((i) => i.id === (selectedIdeaId || ideas[0]?.id)) || null;
-                    if (!currentIdea) {
-                      return (
-                        <div className="lg:col-span-7 bg-[#1c1c1e] p-8 flex flex-col items-center justify-center text-center text-white/40 space-y-3">
-                          <Lightbulb className="w-12 h-12 text-[#ffd60a]/40" />
-                          <p className="text-sm">Pilih catatan dari daftar di sebelah kiri atau buat catatan baru.</p>
-                        </div>
-                      );
-                    }
-
+                {/* Kolom Kanan: Lembar Catatan Menyatu Bersih */}
+                {(() => {
+                  const currentIdea = ideas.find((i) => i.id === (selectedIdeaId || ideas[0]?.id)) || null;
+                  if (!currentIdea) {
                     return (
-                      <div className={`lg:col-span-7 bg-[#1c1c1e] p-5 sm:p-7 flex flex-col justify-between space-y-5 ${!isMobileNotesViewingDetail ? 'hidden lg:flex' : 'flex'}`}>
-                        <div className="space-y-4">
-                          {/* Top Bar Lembar Catatan */}
-                          <div className="flex items-center justify-between border-b border-white/[0.08] pb-3 text-xs">
-                            <button
-                              type="button"
-                              onClick={() => setIsMobileNotesViewingDetail(false)}
-                              className="lg:hidden text-[#ffd60a] font-bold flex items-center gap-1 cursor-pointer"
-                            >
-                              <span>&lsaquo; Catatan</span>
-                            </button>
-                            <span className="hidden lg:inline text-xs text-white/40 font-medium">
-                              Apple Notes Pad
-                            </span>
-
-                            <div className="flex items-center gap-3">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (confirm('Hapus catatan ini?')) {
-                                    handleDeleteIdea(currentIdea.id);
-                                    setSelectedIdeaId(null);
-                                    setIsMobileNotesViewingDetail(false);
-                                  }
-                                }}
-                                className="text-rose-400 hover:text-rose-300 cursor-pointer p-1 rounded hover:bg-white/10"
-                                title="Hapus catatan"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                              <span className="text-[#ffd60a] font-bold">Tersimpan</span>
-                            </div>
-                          </div>
-
-                          {/* Timestamp Apple Notes */}
-                          <div className="text-center">
-                            <span className="text-xs text-[#86868b] font-medium tracking-wide">
-                              {currentIdea.createdAt ? formatDateFullIndo(currentIdea.createdAt.slice(0, 10)) : '10 November 2026'} pukul {currentIdea.createdAt ? currentIdea.createdAt.slice(11, 16) : '14.30'}
-                            </span>
-                          </div>
-
-                          {/* Input Judul Catatan Langsung */}
-                          <div className="space-y-2">
-                            <input
-                              type="text"
-                              value={currentIdea.title}
-                              onChange={(e) => {
-                                const updated = { ...currentIdea, title: e.target.value };
-                                if ((db as any).saveIdea) (db as any).saveIdea(updated);
-                                setIdeas((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
-                              }}
-                              placeholder="Judul Catatan..."
-                              className="w-full text-xl sm:text-2xl font-black text-white bg-transparent border-none outline-none focus:ring-0 p-0 placeholder-white/30"
-                            />
-
-                            <div className="flex flex-wrap items-center gap-2 pt-1">
-                              <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-[#ffd60a]/20 text-[#ffd60a] border border-[#ffd60a]/30 font-mono">
-                                ID: #{currentIdea.id.toUpperCase()}
-                              </span>
-                              {currentIdea.status === 'dijadwalkan' ? (
-                                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                                  <span>✓ Terjadwal di Kalender: {currentIdea.scheduledDate ? formatDateShortIndo(currentIdea.scheduledDate) : ''}</span>
-                                </div>
-                              ) : (
-                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white/10 text-white/70">
-                                  Status: Draft Rencana
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Textarea Isi Catatan Langsung */}
-                          <div className="pt-2">
-                            <textarea
-                              rows={9}
-                              value={currentIdea.content}
-                              onChange={(e) => {
-                                const updated = { ...currentIdea, content: e.target.value };
-                                if ((db as any).saveIdea) (db as any).saveIdea(updated);
-                                setIdeas((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
-                              }}
-                              placeholder="Tulis ide, notulen rapat, atau arahan tugas di sini..."
-                              className="w-full bg-[#2c2c2e]/40 p-4 rounded-2xl border border-white/[0.06] text-sm text-white/90 leading-relaxed outline-none focus:border-[#ffd60a]/40 resize-none placeholder-white/30"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Footer Lembar Catatan: Tombol Aksi 1-Klik Pindah ke Kalender */}
-                        <div className="pt-4 border-t border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-3">
-                          <div className="text-xs text-white/60">
-                            {currentIdea.status === 'dijadwalkan' ? (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setActiveMainTab('calendar');
-                                  if (currentIdea.scheduledDate) openDayDrawer(currentIdea.scheduledDate);
-                                }}
-                                className="text-[#38bdf8] font-bold hover:underline flex items-center gap-1"
-                              >
-                                <span>&crarr; Buka Tanggal di Kalender</span>
-                                <ChevronRight className="w-3.5 h-3.5" />
-                              </button>
-                            ) : (
-                              <span>Belum terjadwal di kalender</span>
-                            )}
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSchedulingIdea(currentIdea);
-                              setIdeaScheduleDateInput(todayStr);
-                              setIdeaScheduleProjectInput(projects[0]?.id || '');
-                            }}
-                            className="w-full sm:w-auto px-6 py-2.5 rounded-full bg-[#ffd60a] hover:bg-[#ffe043] text-black font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#ffd60a]/20 transition-all cursor-pointer"
-                          >
-                            <Calendar className="w-4 h-4" />
-                            <span>Jadwalkan ke Kalender (1-Klik)</span>
-                          </button>
-                        </div>
+                      <div className="lg:col-span-7 p-10 rounded-3xl bg-white/60 border border-slate-200/80 flex flex-col items-center justify-center text-center text-slate-400 space-y-3">
+                        <Lightbulb className="w-10 h-10 text-amber-400" />
+                        <p className="text-sm text-slate-500">Pilih catatan dari daftar di sebelah kiri atau buat catatan baru.</p>
                       </div>
                     );
-                  })()}
-                </div>
+                  }
+
+                  return (
+                    <div className={`lg:col-span-7 p-5 sm:p-7 rounded-3xl bg-white/80 border border-slate-200/90 shadow-xs flex flex-col justify-between space-y-5 ${!isMobileNotesViewingDetail ? 'hidden lg:flex' : 'flex'}`}>
+                      <div className="space-y-4">
+                        {/* Top Bar Lembar Catatan */}
+                        <div className="flex items-center justify-between border-b border-slate-200/80 pb-3 text-xs">
+                          <button
+                            type="button"
+                            onClick={() => setIsMobileNotesViewingDetail(false)}
+                            className="lg:hidden text-amber-700 font-bold flex items-center gap-1 cursor-pointer"
+                          >
+                            <span>&lsaquo; Kembali ke Daftar Catatan</span>
+                          </button>
+                          <span className="hidden lg:inline text-xs text-slate-500 font-semibold">
+                            Rincian Catatan &amp; Arahan Kerja
+                          </span>
+
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (confirm('Hapus catatan ini?')) {
+                                  handleDeleteIdea(currentIdea.id);
+                                  setSelectedIdeaId(null);
+                                  setIsMobileNotesViewingDetail(false);
+                                }
+                              }}
+                              className="text-rose-500 hover:text-rose-700 cursor-pointer p-1 rounded-lg hover:bg-rose-50"
+                              title="Hapus catatan"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                            <span className="text-emerald-700 font-bold text-[11px] bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                              Tersimpan Otomatis
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Waktu Pencatatan */}
+                        <div className="text-center">
+                          <span className="text-xs text-slate-400 font-medium tracking-wide">
+                            {currentIdea.createdAt ? formatDateFullIndo(currentIdea.createdAt.slice(0, 10)) : '10 November 2026'} pukul {currentIdea.createdAt ? currentIdea.createdAt.slice(11, 16) : '14.30'}
+                          </span>
+                        </div>
+
+                        {/* Input Judul Catatan Langsung */}
+                        <div className="space-y-2">
+                          <input
+                            type="text"
+                            value={currentIdea.title}
+                            onChange={(e) => {
+                              const updated = { ...currentIdea, title: e.target.value, updatedAt: new Date().toISOString() };
+                              if ((db as any).saveIdea) (db as any).saveIdea(updated);
+                              setIdeas((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+                            }}
+                            placeholder="Judul Catatan..."
+                            className="w-full text-xl sm:text-2xl font-black text-slate-900 bg-transparent border-none outline-none focus:ring-0 p-0 placeholder-slate-300"
+                          />
+
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-amber-100 text-amber-800 border border-amber-200 font-mono">
+                              ID: #{currentIdea.id.toUpperCase()}
+                            </span>
+                            {currentIdea.status === 'dijadwalkan' ? (
+                              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                <span>✓ Terjadwal di Kalender: {currentIdea.scheduledDate ? formatDateShortIndo(currentIdea.scheduledDate) : ''}</span>
+                              </div>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600">
+                                Status: Draft Rencana
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Textarea Isi Catatan Langsung Menyatu */}
+                        <div className="pt-2">
+                          <textarea
+                            rows={9}
+                            value={currentIdea.content}
+                            onChange={(e) => {
+                              const updated = { ...currentIdea, content: e.target.value, updatedAt: new Date().toISOString() };
+                              if ((db as any).saveIdea) (db as any).saveIdea(updated);
+                              setIdeas((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+                            }}
+                            placeholder="Tulis ide, notulen rapat, atau arahan tugas di sini..."
+                            className="w-full bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 text-sm text-slate-800 leading-relaxed outline-none focus:border-amber-400 focus:bg-white resize-none placeholder-slate-400 transition-colors"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Footer Lembar Catatan: Tombol Aksi 1-Klik Pindah ke Kalender */}
+                      <div className="pt-4 border-t border-slate-200/80 flex flex-col sm:flex-row items-center justify-between gap-3">
+                        <div className="text-xs text-slate-500">
+                          {currentIdea.status === 'dijadwalkan' ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveMainTab('calendar');
+                                if (currentIdea.scheduledDate) openCalendarSummaryPopup(currentIdea.scheduledDate);
+                              }}
+                              className="text-indigo-600 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                            >
+                              <span>&crarr; Lihat Ringkasan Tanggal di Kalender</span>
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <span>Belum terjadwal di kalender</span>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSchedulingIdea(currentIdea);
+                            setIdeaScheduleDateInput(todayStr);
+                            setIdeaScheduleProjectInput(projects[0]?.id || '');
+                          }}
+                          className="w-full sm:w-auto px-6 py-2.5 rounded-full bg-amber-500 hover:bg-amber-600 text-white font-black text-xs flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer"
+                        >
+                          <Calendar className="w-4 h-4" />
+                          <span>Jadwalkan ke Kalender (1-Klik)</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           )}
 
+          {/* =========================================================================
+              TAB 8: TEAM CONNECT (AUTO-CONNECT AKUN A + AKUN B: KALENDER & 1 LAPORAN TERPADU)
+             ========================================================================= */}
+          {activeMainTab === 'team_connect' && (() => {
+            const connectedOwnerIds = new Set<string>([
+              currentUser.id,
+              ...teamConnections.map((c) => c.ownerIdB),
+            ]);
+
+            // Seluruh proyek, jadwal, dan presensi gabungan Akun A + Akun B
+            const teamProjects = projects.filter(
+              (p) => !p.ownerId || connectedOwnerIds.has(p.ownerId)
+            );
+            const teamEntries = entries.filter((e) => {
+              if (!e.ownerId || !connectedOwnerIds.has(e.ownerId)) return false;
+              if (teamCalendarFilter === 'ACCOUNT_A') return e.ownerId === currentUser.id;
+              if (teamCalendarFilter === 'ACCOUNT_B') return e.ownerId !== currentUser.id;
+              return true;
+            });
+
+            // Kelompokkan jadwal gabungan per tanggal untuk Kalender Team Connect
+            const teamEntriesByDate: Record<string, ScheduleEntry[]> = {};
+            teamEntries.forEach((e) => {
+              const range = getEntryDateRange(e, todayStr, workPolicy, attendance);
+              calendarCells.forEach((c) => {
+                if (c.dateStr >= range.startDate && c.dateStr <= range.endDate) {
+                  if (!teamEntriesByDate[c.dateStr]) teamEntriesByDate[c.dateStr] = [];
+                  teamEntriesByDate[c.dateStr].push(e);
+                }
+              });
+            });
+
+            // Daftar profil Akun yang tergabung (Akun A + setiap Akun B)
+            const teamAccounts = [
+              {
+                ownerId: currentUser.id,
+                fullName: currentUser.fullName,
+                email: currentUser.email,
+                roleLabel: 'Akun A (Owner Utama)',
+                badgeColor: 'bg-indigo-600 text-white',
+                softBg: 'bg-indigo-50 text-indigo-800 border-indigo-200',
+              },
+              ...teamConnections.map((conn, idx) => ({
+                ownerId: conn.ownerIdB,
+                fullName: conn.ownerNameB,
+                email: conn.ownerEmailB || `${conn.ownerIdB}@jadwalpro.id`,
+                roleLabel: conn.roleB || `Akun B #${idx + 1} (Partner Terhubung)`,
+                badgeColor: 'bg-emerald-600 text-white',
+                softBg: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+              })),
+            ];
+
+            // Hitung metrik per akun untuk Tabel Konsolidasi 1 Laporan Team Connect
+            const accountMetrics = teamAccounts.map((acc) => {
+              const accProjects = projects.filter((p) => p.ownerId === acc.ownerId);
+              const accEntries = entries.filter(
+                (e) =>
+                  e.ownerId === acc.ownerId &&
+                  e.date >= reportStartDate &&
+                  e.date <= reportEndDate
+              );
+              const accDone = accEntries.filter((e) => e.status === 'selesai').length;
+              const accRunning = accEntries.filter((e) => e.status === 'berjalan').length;
+              const accPending = accEntries.filter((e) => e.status === 'tertunda').length;
+              const accAtt = attendance.filter(
+                (a) =>
+                  a.ownerId === acc.ownerId &&
+                  a.date >= reportStartDate &&
+                  a.date <= reportEndDate &&
+                  a.type === 'hadir'
+              );
+              const accRegHours = accAtt.reduce(
+                (s, a) => s + (a.regularWorkHours ?? a.workDurationHours ?? 8),
+                0
+              );
+              const accOtHours = accAtt.reduce(
+                (s, a) => s + Math.floor(a.overtimeHours || 0),
+                0
+              );
+              const completionPct =
+                accEntries.length > 0 ? Math.round((accDone / accEntries.length) * 100) : 100;
+
+              return {
+                ...acc,
+                projectCount: accProjects.length,
+                totalTasks: accEntries.length,
+                doneTasks: accDone,
+                runningTasks: accRunning,
+                pendingTasks: accPending,
+                presentDays: accAtt.length,
+                regularHours: Math.round(accRegHours),
+                overtimeHours: Math.round(accOtHours),
+                completionPct,
+              };
+            });
+
+            const totalMergedProjects = teamProjects.length;
+            const totalMergedTasks = accountMetrics.reduce((s, m) => s + m.totalTasks, 0);
+            const totalMergedDone = accountMetrics.reduce((s, m) => s + m.doneTasks, 0);
+            const totalMergedPresentDays = accountMetrics.reduce((s, m) => s + m.presentDays, 0);
+            const totalMergedRegHours = accountMetrics.reduce((s, m) => s + m.regularHours, 0);
+            const totalMergedOtHours = accountMetrics.reduce((s, m) => s + m.overtimeHours, 0);
+            const totalMergedCompletionPct =
+              totalMergedTasks > 0 ? Math.round((totalMergedDone / totalMergedTasks) * 100) : 100;
+
+            return (
+              <div className="space-y-6 text-left">
+                {/* 1. HEADER & PANEL INVITE / AUTO-CONNECT OWNER ID */}
+                <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-emerald-950 text-white rounded-3xl p-5 sm:p-7 shadow-xl border border-indigo-400/20 space-y-5 print:bg-white print:text-slate-900 print:border-slate-300">
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/15 pb-5">
+                    <div className="space-y-1.5">
+                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-[11px] font-black uppercase tracking-wider">
+                        <Users className="w-3.5 h-3.5" />
+                        <span>AUTO CONNECT &bull; TEAM CONNECT WORKSPACE</span>
+                      </div>
+                      <h2 className="text-xl sm:text-3xl font-black tracking-tight">
+                        Penyatuan Proyek, Kalender &amp; Laporan (Akun A + Akun B)
+                      </h2>
+                      <p className="text-xs sm:text-sm text-indigo-100/80 max-w-3xl">
+                        Hubungkan <strong>Owner ID Akun A</strong> dengan <strong>Owner ID Akun B</strong> untuk menyatukan seluruh jadwal proyek, kalender kerja, dan rekapitulasi jam kerja ke dalam 1 halaman laporan terpadu secara otomatis.
+                      </p>
+                    </div>
+
+                    {/* Kartu Owner ID Milik Akun A */}
+                    <div className="p-3.5 sm:p-4 rounded-2xl bg-white/10 border border-white/20 backdrop-blur-md flex flex-col sm:flex-row items-start sm:items-center gap-3 shrink-0">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-200 block">
+                          Owner ID Akun Anda (Akun A)
+                        </span>
+                        <div className="font-mono font-black text-sm sm:text-base text-amber-300 mt-0.5">
+                          {currentUser.id}
+                        </div>
+                        <span className="text-[10px] text-white/70">
+                          Bagikan ID ini ke rekan tim atau masukkan ID rekan di bawah
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => copyCodeToClipboard(currentUser.id, 'Owner ID Anda')}
+                        className="px-3.5 py-2 rounded-xl bg-white text-slate-900 hover:bg-indigo-50 font-black text-xs flex items-center gap-1.5 shadow-sm cursor-pointer shrink-0"
+                      >
+                        <Copy className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>Salin ID</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Form Invite & Auto-Connect Owner ID Akun B */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-end print:hidden">
+                    <form
+                      onSubmit={(e) => handleConnectPartnerByOwnerId(e)}
+                      className="lg:col-span-8 grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end"
+                    >
+                      <div className="sm:col-span-5 space-y-1">
+                        <label className="text-[11px] font-bold text-indigo-200 block">
+                          Masukkan Owner ID Partner (Akun B)
+                        </label>
+                        <input
+                          type="text"
+                          value={partnerOwnerIdInput}
+                          onChange={(e) => setPartnerOwnerIdInput(e.target.value)}
+                          placeholder="Contoh: owner-budi-02"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-white/10 border border-white/25 text-xs sm:text-sm text-white placeholder-white/40 font-mono focus:outline-none focus:border-emerald-400"
+                        />
+                      </div>
+                      <div className="sm:col-span-4 space-y-1">
+                        <label className="text-[11px] font-bold text-indigo-200 block">
+                          Nama Partner / Divisi (Opsional)
+                        </label>
+                        <input
+                          type="text"
+                          value={partnerNameInput}
+                          onChange={(e) => setPartnerNameInput(e.target.value)}
+                          placeholder="Contoh: Rina Wijaya (Akun B)"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-white/10 border border-white/25 text-xs sm:text-sm text-white placeholder-white/40 focus:outline-none focus:border-emerald-400"
+                        />
+                      </div>
+                      <div className="sm:col-span-3">
+                        <button
+                          type="submit"
+                          className="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/25 transition-all cursor-pointer"
+                        >
+                          <Zap className="w-4 h-4" />
+                          <span>Auto-Connect</span>
+                        </button>
+                      </div>
+                    </form>
+
+                    {/* Tombol Pintasan Simulasi Connect Partner Akun B Instan */}
+                    <div className="lg:col-span-4 flex flex-wrap items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleConnectPartnerByOwnerId(
+                            undefined,
+                            'owner-partner-b',
+                            'Dimas Pratama (Akun B)'
+                          )
+                        }
+                        className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-indigo-500/30 hover:bg-indigo-500/50 border border-indigo-300/40 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                        <span>+ Hubungkan Simulasi Akun B Instan</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handlePrintReport}
+                        className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 border border-white/25 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>Cetak Laporan Tim</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Daftar Akun yang Sedang Terhubung di Team Connect */}
+                  <div className="pt-2 flex flex-wrap items-center gap-2.5">
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-indigo-600/40 border border-indigo-400/40 text-xs">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span className="font-black text-white">Akun A: {currentUser.fullName}</span>
+                      <span className="font-mono text-[10px] text-indigo-200">({currentUser.id})</span>
+                    </div>
+
+                    {teamConnections.length === 0 ? (
+                      <span className="text-xs text-amber-200/90 italic">
+                        Belum ada Akun B yang terhubung. Masukkan Owner ID Akun B atau klik &ldquo;+ Hubungkan Simulasi Akun B Instan&rdquo; di atas.
+                      </span>
+                    ) : (
+                      teamConnections.map((conn) => (
+                        <div
+                          key={conn.id}
+                          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-600/30 border border-emerald-400/40 text-xs"
+                        >
+                          <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                          <span className="font-black text-white">Akun B: {conn.ownerNameB}</span>
+                          <span className="font-mono text-[10px] text-emerald-200">({conn.ownerIdB})</span>
+                          <span className="px-1.5 py-0.2 rounded bg-emerald-400/20 text-emerald-200 text-[9px] font-bold">
+                            SYNC AKTIF
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveTeamConnection(conn.id)}
+                            className="text-rose-300 hover:text-white ml-1 p-0.5 rounded print:hidden"
+                            title="Putuskan koneksi Akun B ini"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. EMPAT KARTU KPI GABUNGAN TEAM CONNECT (AKUN A + AKUN B) */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                  <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1">
+                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-500">
+                      Proyek Gabungan (A+B)
+                    </span>
+                    <div className="text-xl sm:text-3xl font-black text-indigo-600">
+                      {totalMergedProjects} Proyek
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Tersinkronisasi dari {teamAccounts.length} akun terhubung
+                    </p>
+                  </div>
+
+                  <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1">
+                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-500">
+                      Total Tugas &amp; Selesai
+                    </span>
+                    <div className="text-xl sm:text-3xl font-black text-emerald-600">
+                      {totalMergedDone} / {totalMergedTasks}
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Tingkat penyelesaian tim {totalMergedCompletionPct}%
+                    </p>
+                  </div>
+
+                  <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1">
+                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-500">
+                      Jam Kerja Bersih Tim
+                    </span>
+                    <div className="text-xl sm:text-3xl font-black text-slate-900">
+                      {totalMergedRegHours} Jam
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Akumulasi {totalMergedPresentDays} hari kerja efektif
+                    </p>
+                  </div>
+
+                  <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1">
+                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-500">
+                      Lembur Bulat Genap Tim
+                    </span>
+                    <div className="text-xl sm:text-3xl font-black text-amber-600">
+                      {totalMergedOtHours} Jam
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Terverifikasi presensi Akun A &amp; Akun B
+                    </p>
+                  </div>
+                </div>
+
+                {/* 3. KALENDER PROYEK GABUNGAN (AKUN A + AKUN B) */}
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-xs overflow-hidden">
+                  <div className="p-4 sm:p-5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/70">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <CalendarIcon className="w-4 h-4 text-emerald-600" />
+                        <h3 className="font-black text-sm sm:text-base text-slate-900">
+                          Kalender Proyek Gabungan Team Connect ({INDONESIAN_MONTHS[currentMonth]} {currentYear})
+                        </h3>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Klik pada tanggal mana pun untuk membuka <strong>Pop-Up Preview Ringkasan Lengkap</strong> seluruh proyek Akun A &amp; Akun B.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 print:hidden">
+                      <div className="inline-flex rounded-xl bg-slate-200/70 p-1 text-xs font-bold">
+                        <button
+                          type="button"
+                          onClick={() => setTeamCalendarFilter('ALL')}
+                          className={`px-2.5 py-1 rounded-lg transition-all ${
+                            teamCalendarFilter === 'ALL'
+                              ? 'bg-white text-slate-900 shadow-2xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Semua ({teamAccounts.length} Akun)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTeamCalendarFilter('ACCOUNT_A')}
+                          className={`px-2.5 py-1 rounded-lg transition-all ${
+                            teamCalendarFilter === 'ACCOUNT_A'
+                              ? 'bg-indigo-600 text-white shadow-2xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Akun A
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTeamCalendarFilter('ACCOUNT_B')}
+                          className={`px-2.5 py-1 rounded-lg transition-all ${
+                            teamCalendarFilter === 'ACCOUNT_B'
+                              ? 'bg-emerald-600 text-white shadow-2xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Akun B
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={handlePrevMonth}
+                          className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleNextMonth}
+                          className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Header Hari Kalender Gabungan (Mode Mobile: 5 Hari Produktif) */}
+                  <div className="grid grid-cols-5 sm:grid-cols-7 border-b border-slate-200 bg-slate-50 text-center text-[11px] font-bold uppercase text-slate-500 py-2.5">
+                    <div>Sen</div>
+                    <div>Sel</div>
+                    <div>Rab</div>
+                    <div>Kam</div>
+                    <div>Jum</div>
+                    <div className="hidden sm:block text-rose-500">Sab</div>
+                    <div className="hidden sm:block text-rose-500">Min</div>
+                  </div>
+
+                  <div className="grid grid-cols-5 sm:grid-cols-7 divide-x divide-y divide-slate-200">
+                    {calendarCells.map((cell, idx) => {
+                      const isMobileWeekendCol = (idx % 7) >= 5;
+                      const dayTeamEntries = teamEntriesByDate[cell.dateStr] || [];
+                      const visibleTeamEntries = dayTeamEntries.slice(0, 3);
+                      const hiddenCount = Math.max(0, dayTeamEntries.length - visibleTeamEntries.length);
+                      const isToday = cell.dateStr === todayStr;
+
+                      return (
+                        <div
+                          key={`team-${cell.dateStr}`}
+                          onClick={() => openCalendarSummaryPopup(cell.dateStr)}
+                          className={`${
+                            isMobileWeekendCol ? 'hidden sm:flex' : 'flex'
+                          } min-h-[96px] sm:min-h-[120px] p-1.5 sm:p-2 flex-col justify-between cursor-pointer transition-colors ${
+                            !cell.isCurrentMonth ? 'bg-slate-50/60 text-slate-400' : 'bg-white hover:bg-indigo-50/30'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span
+                              className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center ${
+                                isToday ? 'bg-indigo-600 text-white' : 'text-slate-700'
+                              }`}
+                            >
+                              {cell.dayNumber}
+                            </span>
+                            {dayTeamEntries.length > 0 && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600">
+                                {dayTeamEntries.length} tugas
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="space-y-1 flex-1">
+                            {visibleTeamEntries.map((entry) => {
+                              const isAccountA = entry.ownerId === currentUser.id;
+                              const proj = entry.projectId ? projectMap[entry.projectId] : null;
+                              return (
+                                <div
+                                  key={`tc-entry-${entry.id}-${cell.dateStr}`}
+                                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold truncate border ${
+                                    isAccountA
+                                      ? 'bg-indigo-50/90 text-indigo-950 border-indigo-200'
+                                      : 'bg-emerald-50/90 text-emerald-950 border-emerald-200'
+                                  }`}
+                                >
+                                  <span
+                                    className={`px-1 rounded text-[8px] font-black shrink-0 ${
+                                      isAccountA ? 'bg-indigo-600 text-white' : 'bg-emerald-600 text-white'
+                                    }`}
+                                  >
+                                    {isAccountA ? 'A' : 'B'}
+                                  </span>
+                                  <span className="truncate flex-1">{entry.title}</span>
+                                  {proj && (
+                                    <span
+                                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                                      style={{ backgroundColor: proj.color }}
+                                    />
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {hiddenCount > 0 && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openCalendarSummaryPopup(cell.dateStr);
+                                }}
+                                className="inline-flex items-center gap-1 text-[10px] font-black text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded border border-indigo-200"
+                              >
+                                <span>+{hiddenCount} lagi</span>
+                                <ChevronRight className="w-2.5 h-2.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 4. LAPORAN KINERJA GABUNGAN 1 HALAMAN (AKUN A + AKUN B) */}
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-xs p-5 sm:p-7 space-y-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+                    <div>
+                      <span className="text-[11px] font-black uppercase tracking-wider text-emerald-700">
+                        1-PAGE UNIFIED TEAM REPORT &bull; AKUN A &amp; AKUN B
+                      </span>
+                      <h3 className="text-lg sm:text-xl font-black text-slate-900 mt-0.5">
+                        Tabel Konsolidasi Laporan Proyek &amp; Presensi Tim ({formatDateShortIndo(reportStartDate)} &mdash; {formatDateShortIndo(reportEndDate)})
+                      </h3>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 print:hidden">
+                      <input
+                        type="date"
+                        value={reportStartDate}
+                        onChange={(e) => {
+                          setReportStartDate(e.target.value);
+                          setReportDatePreset('custom');
+                        }}
+                        className="px-2.5 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700"
+                      />
+                      <span className="text-xs text-slate-400">s/d</span>
+                      <input
+                        type="date"
+                        value={reportEndDate}
+                        onChange={(e) => {
+                          setReportEndDate(e.target.value);
+                          setReportDatePreset('custom');
+                        }}
+                        className="px-2.5 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Tabel Perbandingan Akun A vs Akun B + Total Gabungan */}
+                  <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-900 text-white uppercase text-[10px] font-black">
+                        <tr>
+                          <th className="py-3 px-4">Akun &amp; Owner ID</th>
+                          <th className="py-3 px-3 text-center">Peran</th>
+                          <th className="py-3 px-3 text-center">Proyek</th>
+                          <th className="py-3 px-3 text-center">Total Tugas</th>
+                          <th className="py-3 px-3 text-center">Selesai</th>
+                          <th className="py-3 px-3 text-center">Hari Hadir</th>
+                          <th className="py-3 px-3 text-center">Jam Bersih</th>
+                          <th className="py-3 px-3 text-center">Lembur Genap</th>
+                          <th className="py-3 px-4 text-right">Capaian SLA</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {accountMetrics.map((m) => (
+                          <tr key={m.ownerId} className="hover:bg-slate-50">
+                            <td className="py-3.5 px-4">
+                              <div className="font-black text-slate-900">{m.fullName}</div>
+                              <div className="text-[10px] font-mono text-slate-500">ID: {m.ownerId}</div>
+                            </td>
+                            <td className="py-3.5 px-3 text-center">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${m.softBg}`}>
+                                {m.roleLabel}
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-3 text-center font-bold text-slate-800">{m.projectCount}</td>
+                            <td className="py-3.5 px-3 text-center font-bold text-slate-800">{m.totalTasks}</td>
+                            <td className="py-3.5 px-3 text-center font-bold text-emerald-700">{m.doneTasks}</td>
+                            <td className="py-3.5 px-3 text-center font-bold text-slate-800">{m.presentDays} Hari</td>
+                            <td className="py-3.5 px-3 text-center font-bold text-indigo-700">{m.regularHours} Jam</td>
+                            <td className="py-3.5 px-3 text-center font-bold text-amber-600">{m.overtimeHours} Jam</td>
+                            <td className="py-3.5 px-4 text-right">
+                              <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">
+                                {m.completionPct}%
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                        <tr className="bg-indigo-50/80 font-black text-slate-900">
+                          <td className="py-3.5 px-4" colSpan={2}>
+                            TOTAL KONSOLIDASI TEAM CONNECT ({teamAccounts.length} AKUN)
+                          </td>
+                          <td className="py-3.5 px-3 text-center text-indigo-700">{totalMergedProjects}</td>
+                          <td className="py-3.5 px-3 text-center text-indigo-700">{totalMergedTasks}</td>
+                          <td className="py-3.5 px-3 text-center text-emerald-700">{totalMergedDone}</td>
+                          <td className="py-3.5 px-3 text-center">{totalMergedPresentDays} Hari</td>
+                          <td className="py-3.5 px-3 text-center text-indigo-700">{totalMergedRegHours} Jam</td>
+                          <td className="py-3.5 px-3 text-center text-amber-700">{totalMergedOtHours} Jam</td>
+                          <td className="py-3.5 px-4 text-right text-emerald-700">{totalMergedCompletionPct}%</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Daftar Rincian Pekerjaan Gabungan Akun A & Akun B */}
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">
+                      Daftar Rincian Jadwal &amp; Proyek Gabungan (Akun A + Akun B)
+                    </h4>
+                    <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-100 text-slate-700 uppercase text-[10px] font-black border-b border-slate-200">
+                          <tr>
+                            <th className="py-2.5 px-3">Akun</th>
+                            <th className="py-2.5 px-3">Tanggal</th>
+                            <th className="py-2.5 px-3">Nama Pekerjaan</th>
+                            <th className="py-2.5 px-3">Proyek</th>
+                            <th className="py-2.5 px-3 text-right">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200">
+                          {teamEntries.slice(0, 20).map((e) => {
+                            const isAccA = e.ownerId === currentUser.id;
+                            const proj = e.projectId ? projectMap[e.projectId] : null;
+                            return (
+                              <tr key={e.id} className="hover:bg-slate-50">
+                                <td className="py-2.5 px-3">
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                                      isAccA
+                                        ? 'bg-indigo-100 text-indigo-800'
+                                        : 'bg-emerald-100 text-emerald-800'
+                                    }`}
+                                  >
+                                    {isAccA ? 'Akun A' : 'Akun B'} &bull; {e.ownerName}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 font-mono text-[11px] text-slate-600">
+                                  {formatDateShortIndo(e.date)}
+                                </td>
+                                <td className="py-2.5 px-3 font-bold text-slate-900">{e.title}</td>
+                                <td className="py-2.5 px-3">
+                                  {proj ? (
+                                    <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700">
+                                      <span
+                                        className="w-2 h-2 rounded-full"
+                                        style={{ backgroundColor: proj.color }}
+                                      />
+                                      {proj.name}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400">Umum</span>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3 text-right">
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                      e.status === 'selesai'
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : e.status === 'tertunda'
+                                        ? 'bg-amber-100 text-amber-800'
+                                        : 'bg-blue-100 text-blue-800'
+                                    }`}
+                                  >
+                                    {STATUS_META[e.status]?.label || e.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
 </main>
       </div>
 
-      {/* =====================================================================
+            {/* =====================================================================
           DRAWER DETAIL HARI (KLIK TANGGAL DI KALENDER)
          ===================================================================== */}
       {selectedDate && (
@@ -12746,6 +13520,330 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* =====================================================================
+          MODAL POP-UP PREVIEW RINGKASAN KALENDER SAAT TANGGAL DIKLIK
+          (Menampilkan seluruh ringkasan proyek seperti sel kalender versi besar
+           sehingga +2 lagi dan +1 lagi terlihat semua tanpa ada yang tersembunyi,
+           dan berbeda dari Drawer Detail Jadwal Harian)
+         ===================================================================== */}
+      {calendarPreviewDate && (() => {
+        const connectedIds = new Set<string>([
+          currentUser.id,
+          ...teamConnections.map((c) => c.ownerIdB),
+        ]);
+        const popupEntries = entries.filter((e) => {
+          const range = getEntryDateRange(e, todayStr, workPolicy, attendance);
+          if (calendarPreviewDate < range.startDate || calendarPreviewDate > range.endDate) return false;
+          if (activeMainTab === 'team_connect') {
+            return Boolean(e.ownerId && connectedIds.has(e.ownerId));
+          }
+          if (ownerFilter === 'ALL') return true;
+          const targetOwner = ownerFilter === 'MINE' ? currentUser.id : ownerFilter;
+          return !e.ownerId || e.ownerId === targetOwner;
+        });
+        const popupReminders = reminders.filter(
+          (r) =>
+            r.date === calendarPreviewDate &&
+            (!r.ownerId || r.ownerId === currentUser.id || r.ownerId === 'owner-demo-1')
+        );
+        const popupHoliday = getHolidayInfo(calendarPreviewDate);
+        const popupLeaves = attendance.filter(
+          (a) =>
+            a.date === calendarPreviewDate &&
+            (a.type === 'izin' || a.type === 'cuti' || a.type === 'sakit') &&
+            (activeMainTab === 'team_connect'
+              ? Boolean(a.ownerId && connectedIds.has(a.ownerId))
+              : ownerFilter === 'ALL' || a.ownerId === (ownerFilter === 'MINE' ? currentUser.id : ownerFilter))
+        );
+        const isPopupToday = calendarPreviewDate === todayStr;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5">
+            <div
+              className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs"
+              onClick={() => setCalendarPreviewDate(null)}
+            />
+            <div className="relative z-10 w-full max-w-lg max-h-[88vh] bg-white rounded-3xl shadow-2xl border-2 border-indigo-500/30 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+              {/* Header Pop-Up Ringkasan Kalender */}
+              <div className="px-5 py-4 bg-gradient-to-r from-indigo-600 to-blue-600 text-white flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-white text-indigo-700 font-black text-lg flex items-center justify-center shadow-md shrink-0">
+                    {Number(calendarPreviewDate.split('-')[2])}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/20 text-white">
+                        Preview Ringkasan Kalender
+                      </span>
+                      {isPopupToday && (
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-400 text-slate-950">
+                          Hari Ini
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="font-black text-base sm:text-lg text-white mt-0.5">
+                      {formatDateFullIndo(calendarPreviewDate)}
+                    </h3>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCalendarPreviewDate(null)}
+                  className="p-1.5 rounded-full bg-white/15 hover:bg-white/25 text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Isi Ringkasan Sel Kalender Versi Penuh (Tanpa Ada yang Tersembunyi / +2 Lagi) */}
+              <div className="p-5 overflow-y-auto space-y-3 flex-1 bg-slate-50/50">
+                <div className="flex items-center justify-between text-xs text-slate-500 pb-1 border-b border-slate-200/80">
+                  <span className="font-bold text-slate-700">
+                    Seluruh proyek &amp; jadwal pada tanggal ini ({popupEntries.length} proyek, {popupReminders.length} pengingat)
+                  </span>
+                  <span className="text-[11px] font-semibold text-indigo-600">
+                    Tampilan Utuh (Tanpa Hide)
+                  </span>
+                </div>
+
+                {/* Info Hari Libur / Hari Besar jika ada */}
+                {popupHoliday && (
+                  <div
+                    className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border ${
+                      popupHoliday.isHoliday
+                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                        : 'bg-amber-50 text-amber-800 border-amber-200'
+                    }`}
+                  >
+                    <span className={`w-2 h-2 rounded-full ${popupHoliday.isHoliday ? 'bg-rose-500' : 'bg-amber-500'}`} />
+                    <span>
+                      {popupHoliday.isHoliday ? 'Libur Nasional: ' : 'Hari Besar: '}
+                      {popupHoliday.name}
+                    </span>
+                  </div>
+                )}
+
+                {/* Indikator Izin / Cuti / Sakit */}
+                {popupLeaves.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {popupLeaves.map((l) => (
+                      <span
+                        key={l.id}
+                        className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300"
+                      >
+                        {l.type.toUpperCase()} ({l.ownerName}): {l.leaveReason || l.notes || 'Terdaftar'}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Semua Pengingat / Alarm pada Tanggal Ini */}
+                {popupReminders.map((rem) => (
+                  <div
+                    key={rem.id}
+                    onClick={() => {
+                      setCalendarPreviewDate(null);
+                      openEditReminderModal(rem);
+                    }}
+                    className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100/80 text-amber-950 border border-amber-300 text-xs font-bold cursor-pointer transition-colors shadow-2xs"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Bell className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span className="px-1.5 py-0.5 rounded bg-amber-200/80 text-amber-900 text-[10px] font-black shrink-0">
+                        {rem.startTime} - {rem.endTime}
+                      </span>
+                      <span className="truncate">{rem.title}</span>
+                    </div>
+                    <span className="text-[10px] font-bold text-amber-700 shrink-0">Pengingat</span>
+                  </div>
+                ))}
+
+                {/* Semua Chip Revisi / Tambahan Pekerjaan yang Dijadwalkan pada Tanggal Ini */}
+                {popupEntries.map((entry) => {
+                  const matchingAddons = (entry.additionalTasks || []).filter(
+                    (add) => (add.scheduledDate || add.dateAdded) === calendarPreviewDate && !add.isCompleted
+                  );
+                  if (matchingAddons.length === 0) return null;
+                  const p = entry.projectId ? projectMap[entry.projectId] : null;
+                  return matchingAddons.map((addon) => (
+                    <div
+                      key={addon.id}
+                      className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-rose-50 border border-rose-300 text-rose-950 text-xs font-bold shadow-2xs"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Sparkles className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                        <span className="px-1.5 py-0.5 rounded bg-rose-600 text-white text-[9px] font-black uppercase shrink-0">
+                          {addon.type}
+                        </span>
+                        <span className="truncate">{addon.title}</span>
+                      </div>
+                      <span className="text-[10px] font-semibold text-rose-700 shrink-0">
+                        {p?.name || 'Proyek'}
+                      </span>
+                    </div>
+                  ));
+                })}
+
+                {/* Semua Chip Proyek pada Tanggal Ini (Model Sama Seperti Sel Kalender Namun Lebih Besar & Utuh) */}
+                {popupEntries.length === 0 && popupReminders.length === 0 ? (
+                  <div className="py-10 text-center space-y-2">
+                    <CalendarIcon className="w-8 h-8 text-slate-300 mx-auto" />
+                    <p className="text-xs text-slate-500">
+                      Belum ada proyek atau pengingat pada tanggal ini.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {popupEntries.map((entry) => {
+                      const proj = entry.projectId ? projectMap[entry.projectId] : null;
+                      const chipColor = proj ? proj.color : '#64748b';
+                      const prog = proj?.programs?.find((p) => p.id === entry.programId);
+                      const range = getEntryDateRange(entry, todayStr, workPolicy, attendance);
+                      const isContinuing = calendarPreviewDate > range.startDate;
+                      const dayIndex = getWorkDaySpan(
+                        range.startDate,
+                        calendarPreviewDate,
+                        workPolicy,
+                        attendance,
+                        entry.ownerId
+                      );
+                      const isFinishedHere =
+                        calendarPreviewDate === range.endDate && entry.status === 'selesai';
+
+                      return (
+                        <div
+                          key={entry.id}
+                          onClick={() => {
+                            const targetDate = calendarPreviewDate;
+                            setCalendarPreviewDate(null);
+                            openDayDrawer(targetDate);
+                          }}
+                          className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-semibold border transition-all hover:shadow-md cursor-pointer ${
+                            isContinuing ? 'border-dashed' : ''
+                          } ${
+                            entry.status === 'tertunda'
+                              ? 'ring-1 ring-amber-400 bg-amber-50/95 font-bold'
+                              : ''
+                          }`}
+                          style={{
+                            backgroundColor:
+                              entry.status === 'tertunda' ? '#fffbeb' : `${chipColor}18`,
+                            borderColor:
+                              entry.status === 'tertunda' ? '#f59e0b' : `${chipColor}55`,
+                            color: entry.status === 'tertunda' ? '#78350f' : '#0f172a',
+                          }}
+                        >
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <span
+                              className="w-2.5 h-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: chipColor }}
+                            />
+                            {isContinuing && (
+                              <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 shrink-0">
+                                ↳ H-{dayIndex}
+                              </span>
+                            )}
+                            {entry.status === 'tertunda' && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-500 text-white text-[10px] font-black shrink-0">
+                                ! Tertunda
+                              </span>
+                            )}
+                            <span
+                              className={`truncate ${
+                                entry.status === 'selesai' ? 'line-through text-slate-400' : ''
+                              }`}
+                            >
+                              {entry.title}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {proj && (
+                              <span
+                                className="px-2 py-0.5 rounded-md text-[10px] font-bold text-white shadow-2xs"
+                                style={{ backgroundColor: chipColor }}
+                              >
+                                {proj.name}
+                              </span>
+                            )}
+                            {prog && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-white text-indigo-700 border border-indigo-200">
+                                {prog.name}
+                              </span>
+                            )}
+                            {entry.additionalTasks && entry.additionalTasks.length > 0 && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-purple-100 text-purple-800 border border-purple-200">
+                                +{entry.additionalTasks.length} Rev
+                              </span>
+                            )}
+                            {isFinishedHere ? (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-800">
+                                ✓ {range.totalDays}h
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
+                                {range.totalDays}h
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer Pop-Up Preview Ringkasan Kalender */}
+              <div className="px-5 py-3.5 bg-white border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCalendarPreviewDate(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  Tutup Preview
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = calendarPreviewDate;
+                    setCalendarPreviewDate(null);
+                    openDayDrawer(target);
+                  }}
+                  className="px-4 py-2 rounded-xl text-xs font-black bg-indigo-600 hover:bg-indigo-700 text-white shadow-md flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Buka Detail Jadwal Harian &amp; Edit</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* MODAL LANGGANAN & PEMBAYARAN BULANAN (Rp 27.000/BULAN & FREE TRIAL 7 HARI) */}
+      <SubscriptionModal
+        isOpen={isSubscriptionModalOpen}
+        onClose={() => setIsSubscriptionModalOpen(false)}
+        currentUser={currentUser}
+        user={currentUser}
+        subscription={subscription}
+        onSubscriptionUpdated={(updated) => setSubscription(updated)}
+        onConfirmPayment={handleConfirmSubscriptionPayment}
+        onSimulateExpire={handleSimulateExpireSubscription}
+      />
+
+      {/* PAYWALL PENGUNCIAN OTOMATIS SAAT MASA TRIAL 7 HARI / LANGGANAN HABIS */}
+      {isSubscriptionLocked(subscription) && (
+        <SubscriptionPaywallGate
+          currentUser={currentUser}
+          user={currentUser}
+          subscription={subscription}
+          onSubscriptionUpdated={(updated) => setSubscription(updated)}
+          onConfirmPayment={handleConfirmSubscriptionPayment}
+          onLogout={handleLogout}
+        />
       )}
 </div>
   );

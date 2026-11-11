@@ -32,8 +32,9 @@ import {
   Bot,
   Zap,
 } from 'lucide-react';
-import type { UserProfile } from './types';
+import type { UserProfile, SubscriptionPlanType } from './types';
 import { db } from './db';
+import { SubscriptionPlanSelector, MONTHLY_SUBSCRIPTION_PRICE, FREE_TRIAL_DAYS } from './SubscriptionModal';
 
 interface AuthPageProps {
   onAuthSuccess: (user: UserProfile) => void;
@@ -49,6 +50,8 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlanType>('free_trial_7d');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('QRIS Instan');
 
   // =========================================================================
   // STATE INTERAKTIF KURSOR: EFEK AWAN-AWAN & BLUR DINAMIS ALA DEEPMIND
@@ -109,6 +112,9 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
           }
 
           if (res.user) {
+            if (db.initSubscriptionOnSignUp) {
+              db.initSubscriptionOnSignUp(res.user, selectedPlan, selectedPaymentMethod);
+            }
             onAuthSuccess(res.user);
             return;
           }
@@ -121,6 +127,9 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
           email: cleanEmail,
           createdAt: new Date().toISOString(),
         };
+        if (db.initSubscriptionOnSignUp) {
+          db.initSubscriptionOnSignUp(localUser, selectedPlan, selectedPaymentMethod);
+        }
         onAuthSuccess(localUser);
       } else {
         if (db.signIn) {
@@ -467,20 +476,20 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             </p>
           </div>
 
-          {/* Dua Tombol Aksi Kapsul Elegan */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 pt-1 sm:pt-3">
+          {/* Dua Tombol Aksi Kapsul Elegan (Menyesuaikan Panjang Tulisan di Mode Mobile) */}
+          <div className="flex flex-row flex-wrap items-center justify-center gap-2.5 sm:gap-4 pt-1 sm:pt-3">
             <button
               type="button"
               onClick={() => openAuth(true)}
-              className="w-full sm:w-auto px-7 sm:px-8 py-3 sm:py-3.5 rounded-full bg-white text-black font-bold text-xs sm:text-sm hover:bg-slate-200 transition-all shadow-2xl shadow-black/40 transform hover:-translate-y-0.5 flex items-center justify-center gap-2.5"
+              className="w-auto inline-flex items-center justify-center gap-2 px-5 sm:px-8 py-2.5 sm:py-3.5 rounded-full bg-white text-black font-bold text-xs sm:text-sm hover:bg-slate-200 transition-all shadow-2xl shadow-black/40 transform hover:-translate-y-0.5"
             >
               <span>Buka Workspace</span>
-              <ArrowRight className="w-4 h-4" />
+              <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
             <button
               type="button"
               onClick={() => openAuth(false)}
-              className="w-full sm:w-auto px-6 sm:px-7 py-3 sm:py-3.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-white font-semibold text-xs sm:text-sm border border-white/20 backdrop-blur-xl transition-colors flex items-center justify-center"
+              className="w-auto inline-flex items-center justify-center px-5 sm:px-7 py-2.5 sm:py-3.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-white font-semibold text-xs sm:text-sm border border-white/20 backdrop-blur-xl transition-colors"
             >
               <span>Pelajari Fitur</span>
             </button>
@@ -488,70 +497,75 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
         </div>
 
         {/* =====================================================================
-            STRIP KARTU FITUR DI BAGIAN BAWAH HERO (RESPONSIF HORISONTAL SWIPE DI MOBILE)
+            STRIP KARTU FITUR DI BAGIAN BAWAH HERO
+            (MODE MOBILE: TERSUSUN KE BAWAH & MINIMALIS | TABLET & DESKTOP: TETAP SAMA)
            ===================================================================== */}
         <div className="relative z-10 w-full px-4 sm:px-8 lg:px-16 pt-4 sm:pt-8 pb-4">
-          {/* Mobile Swipe Hint */}
-          <div className="flex md:hidden items-center justify-center gap-1.5 text-[10px] text-blue-200/70 font-semibold mb-2">
-            <span>&larr; Geser kartu fitur &rarr;</span>
-          </div>
-          <div className="w-full flex overflow-x-auto no-scrollbar md:grid md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4 text-left pb-2 snap-x snap-mandatory">
+          <div className="w-full grid grid-cols-1 md:grid-cols-4 lg:grid-cols-5 gap-2 sm:gap-4 text-left pb-2">
             {/* Kartu 1: Kalender */}
-            <a href="#kalender-section" className="min-w-[210px] sm:min-w-0 flex-shrink-0 md:flex-shrink p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-white/[0.09] via-slate-900/70 to-[#0a1b38]/80 hover:from-white/[0.14] hover:to-[#0f244c]/90 border border-slate-300/25 border-t-white/40 backdrop-blur-2xl shadow-xl shadow-black/60 transition-all group block snap-center"
+            <a
+              href="#kalender-section"
+              className="p-2.5 sm:p-4 md:p-5 rounded-xl sm:rounded-2xl bg-gradient-to-b from-white/[0.09] via-slate-900/70 to-[#0a1b38]/80 hover:from-white/[0.14] hover:to-[#0f244c]/90 border border-slate-300/25 border-t-white/40 backdrop-blur-2xl shadow-xl shadow-black/60 transition-all group block"
             >
-              <div className="flex items-center justify-between text-xs text-white/60 mb-2">
+              <div className="flex items-center justify-between text-[10px] sm:text-xs text-white/60 mb-0.5 sm:mb-2">
                 <span className="font-semibold text-[#38bdf8]">Fitur 01</span>
-                <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform text-white/40" />
+                <ChevronRight className="w-3 h-3 sm:w-3.5 sm:h-3.5 group-hover:translate-x-1 transition-transform text-white/40" />
               </div>
-              <h3 className="text-sm font-bold text-white group-hover:text-[#38bdf8] transition-colors line-clamp-1">
+              <h3 className="text-xs sm:text-sm font-bold text-white group-hover:text-[#38bdf8] transition-colors line-clamp-1">
                 Kalender Proyek
               </h3>
-              <p className="text-[11px] text-white/60 mt-1 line-clamp-2">
+              <p className="text-[10px] sm:text-[11px] text-white/60 mt-0.5 sm:mt-1 line-clamp-1 sm:line-clamp-2">
                 Jadwal multi-hari &amp; durasi kerja riil tanpa libur.
               </p>
             </a>
 
             {/* Kartu 2: 4 Grafik */}
-            <a href="#grafik-section" className="min-w-[210px] sm:min-w-0 flex-shrink-0 md:flex-shrink p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-white/[0.09] via-slate-900/70 to-[#0a1b38]/80 hover:from-white/[0.14] hover:to-[#0f244c]/90 border border-slate-300/25 border-t-white/40 backdrop-blur-2xl shadow-xl shadow-black/60 transition-all group block snap-center"
+            <a
+              href="#grafik-section"
+              className="p-2.5 sm:p-4 md:p-5 rounded-xl sm:rounded-2xl bg-gradient-to-b from-white/[0.09] via-slate-900/70 to-[#0a1b38]/80 hover:from-white/[0.14] hover:to-[#0f244c]/90 border border-slate-300/25 border-t-white/40 backdrop-blur-2xl shadow-xl shadow-black/60 transition-all group block"
             >
-              <div className="flex items-center justify-between text-xs text-white/60 mb-2">
+              <div className="flex items-center justify-between text-[10px] sm:text-xs text-white/60 mb-0.5 sm:mb-2">
                 <span className="font-semibold text-[#bf5af2]">Fitur 02</span>
-                <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform text-white/40" />
+                <ChevronRight className="w-3 h-3 sm:w-3.5 sm:h-3.5 group-hover:translate-x-1 transition-transform text-white/40" />
               </div>
-              <h3 className="text-sm font-bold text-white group-hover:text-[#bf5af2] transition-colors line-clamp-1">
+              <h3 className="text-xs sm:text-sm font-bold text-white group-hover:text-[#bf5af2] transition-colors line-clamp-1">
                 4 Grafik Analitik
               </h3>
-              <p className="text-[11px] text-white/60 mt-1 line-clamp-2">
+              <p className="text-[10px] sm:text-[11px] text-white/60 mt-0.5 sm:mt-1 line-clamp-1 sm:line-clamp-2">
                 Grid 2x2 visualisasi tren beban &amp; disiplin presensi.
               </p>
             </a>
 
             {/* Kartu 3: Presensi */}
-            <a href="#presensi-section" className="min-w-[210px] sm:min-w-0 flex-shrink-0 md:flex-shrink p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-white/[0.09] via-slate-900/70 to-[#0a1b38]/80 hover:from-white/[0.14] hover:to-[#0f244c]/90 border border-slate-300/25 border-t-white/40 backdrop-blur-2xl shadow-xl shadow-black/60 transition-all group block snap-center"
+            <a
+              href="#presensi-section"
+              className="p-2.5 sm:p-4 md:p-5 rounded-xl sm:rounded-2xl bg-gradient-to-b from-white/[0.09] via-slate-900/70 to-[#0a1b38]/80 hover:from-white/[0.14] hover:to-[#0f244c]/90 border border-slate-300/25 border-t-white/40 backdrop-blur-2xl shadow-xl shadow-black/60 transition-all group block"
             >
-              <div className="flex items-center justify-between text-xs text-white/60 mb-2">
+              <div className="flex items-center justify-between text-[10px] sm:text-xs text-white/60 mb-0.5 sm:mb-2">
                 <span className="font-semibold text-[#30d158]">Fitur 03</span>
-                <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform text-white/40" />
+                <ChevronRight className="w-3 h-3 sm:w-3.5 sm:h-3.5 group-hover:translate-x-1 transition-transform text-white/40" />
               </div>
-              <h3 className="text-sm font-bold text-white group-hover:text-[#30d158] transition-colors line-clamp-1">
+              <h3 className="text-xs sm:text-sm font-bold text-white group-hover:text-[#30d158] transition-colors line-clamp-1">
                 Presensi &amp; Lembur
               </h3>
-              <p className="text-[11px] text-white/60 mt-1 line-clamp-2">
+              <p className="text-[10px] sm:text-[11px] text-white/60 mt-0.5 sm:mt-1 line-clamp-1 sm:line-clamp-2">
                 Jam bersih potong istirahat, lembur genap, selfie &amp; GPS.
               </p>
             </a>
 
             {/* Kartu 4: Bank Ide */}
-            <a href="#bank-ide-section" className="min-w-[210px] sm:min-w-0 flex-shrink-0 md:flex-shrink p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-white/[0.09] via-slate-900/70 to-[#0a1b38]/80 hover:from-white/[0.14] hover:to-[#0f244c]/90 border border-slate-300/25 border-t-white/40 backdrop-blur-2xl shadow-xl shadow-black/60 transition-all group block snap-center"
+            <a
+              href="#bank-ide-section"
+              className="p-2.5 sm:p-4 md:p-5 rounded-xl sm:rounded-2xl bg-gradient-to-b from-white/[0.09] via-slate-900/70 to-[#0a1b38]/80 hover:from-white/[0.14] hover:to-[#0f244c]/90 border border-slate-300/25 border-t-white/40 backdrop-blur-2xl shadow-xl shadow-black/60 transition-all group block"
             >
-              <div className="flex items-center justify-between text-xs text-white/60 mb-2">
+              <div className="flex items-center justify-between text-[10px] sm:text-xs text-white/60 mb-0.5 sm:mb-2">
                 <span className="font-semibold text-[#ff9f0a]">Fitur 04</span>
-                <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform text-white/40" />
+                <ChevronRight className="w-3 h-3 sm:w-3.5 sm:h-3.5 group-hover:translate-x-1 transition-transform text-white/40" />
               </div>
-              <h3 className="text-sm font-bold text-white group-hover:text-[#ff9f0a] transition-colors line-clamp-1">
+              <h3 className="text-xs sm:text-sm font-bold text-white group-hover:text-[#ff9f0a] transition-colors line-clamp-1">
                 Bank Ide Terstruktur
               </h3>
-              <p className="text-[11px] text-white/60 mt-1 line-clamp-2">
+              <p className="text-[10px] sm:text-[11px] text-white/60 mt-0.5 sm:mt-1 line-clamp-1 sm:line-clamp-2">
                 1-Klik jadwalkan ke kalender &amp; taut balik arahan asal.
               </p>
             </a>
@@ -559,16 +573,16 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             {/* Kartu 5: Asisten AI & Ekspor */}
             <a
               href="#ai-section"
-              className="col-span-2 md:col-span-4 lg:col-span-1 p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-white/[0.09] via-slate-900/70 to-[#0a1b38]/80 hover:from-white/[0.14] hover:to-[#0f244c]/90 border border-slate-300/25 border-t-white/40 backdrop-blur-2xl shadow-xl shadow-black/60 transition-all group block"
+              className="col-span-1 md:col-span-4 lg:col-span-1 p-2.5 sm:p-4 md:p-5 rounded-xl sm:rounded-2xl bg-gradient-to-b from-white/[0.09] via-slate-900/70 to-[#0a1b38]/80 hover:from-white/[0.14] hover:to-[#0f244c]/90 border border-slate-300/25 border-t-white/40 backdrop-blur-2xl shadow-xl shadow-black/60 transition-all group block"
             >
-              <div className="flex items-center justify-between text-xs text-white/60 mb-2">
+              <div className="flex items-center justify-between text-[10px] sm:text-xs text-white/60 mb-0.5 sm:mb-2">
                 <span className="font-semibold text-[#63e6e2]">Fitur 05 &amp; 06</span>
-                <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform text-white/40" />
+                <ChevronRight className="w-3 h-3 sm:w-3.5 sm:h-3.5 group-hover:translate-x-1 transition-transform text-white/40" />
               </div>
-              <h3 className="text-sm font-bold text-white group-hover:text-[#63e6e2] transition-colors line-clamp-1">
+              <h3 className="text-xs sm:text-sm font-bold text-white group-hover:text-[#63e6e2] transition-colors line-clamp-1">
                 AI &amp; Ekspor Eksekutif
               </h3>
-              <p className="text-[11px] text-white/60 mt-1 line-clamp-2">
+              <p className="text-[10px] sm:text-[11px] text-white/60 mt-0.5 sm:mt-1 line-clamp-1 sm:line-clamp-2">
                 Evaluasi kinerja instan &amp; ekspor PDF, XLSX, PPTX.
               </p>
             </a>
@@ -1136,16 +1150,16 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
           </div>
 
           {/* GRID 2X2 EMPAT GRAFIK GARIS ANALITIK SVG 12 BULAN LENGKAP */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 xl:gap-8">
+          <div className="grid grid-cols-2 lg:grid-cols-2 gap-2.5 sm:gap-6 xl:gap-8">
             {/* GRAFIK 1: TREN TAHUNAN 12 BULAN (JANUARI - DESEMBER 2026) */}
-            <div className="p-4 sm:p-6 md:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
-              <div className="flex items-start justify-between gap-3 border-b border-blue-400/20 pb-4">
+            <div className="p-2.5 sm:p-6 md:p-7 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl space-y-2 sm:space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-1 sm:gap-3 border-b border-blue-400/20 pb-2 sm:pb-4">
                 <div>
                   <span className="text-xs font-black text-[#38bdf8] uppercase tracking-wider flex items-center gap-1.5">
                     <TrendingUp className="w-4 h-4" />
                     Grafik 1 &bull; Beban Proyek Tahunan (12 Bulan)
                   </span>
-                  <h3 className="text-xl font-bold text-white mt-1">
+                  <h3 className="text-xs sm:text-xl font-bold text-white mt-0.5 sm:mt-1 leading-snug line-clamp-2 sm:line-clamp-none">
                     Ringkasan Beban Proyek (Januari &mdash; Desember 2026)
                   </h3>
                 </div>
@@ -1155,7 +1169,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
               </div>
 
               {/* Visual SVG Line Chart 12 Bulan Sepanjang Tahun */}
-              <div className="h-60 w-full pt-2">
+              <div className="h-28 sm:h-60 w-full pt-1 sm:pt-2">
                 <svg className="w-full h-full overflow-visible" viewBox="0 0 540 180">
                   <defs>
                     <linearGradient id="areaGradient1" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -1260,14 +1274,14 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             </div>
 
             {/* GRAFIK 2: AKUMULASI DURASI KERJA PROYEK 1 TAHUN (DAYS RANKING) */}
-            <div className="p-4 sm:p-6 md:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
-              <div className="flex items-start justify-between gap-3 border-b border-blue-400/20 pb-4">
+            <div className="p-2.5 sm:p-6 md:p-7 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl space-y-2 sm:space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-1 sm:gap-3 border-b border-blue-400/20 pb-2 sm:pb-4">
                 <div>
                   <span className="text-xs font-black text-[#30d158] uppercase tracking-wider flex items-center gap-1.5">
                     <Activity className="w-4 h-4" />
                     Grafik 2 &bull; Akumulasi Durasi Kerja Proyek 1 Tahun
                   </span>
-                  <h3 className="text-xl font-bold text-white mt-1">
+                  <h3 className="text-xs sm:text-xl font-bold text-white mt-0.5 sm:mt-1 leading-snug line-clamp-2 sm:line-clamp-none">
                     Peringkat Durasi Kerja Proyek (Hari Kerja Efektif)
                   </h3>
                 </div>
@@ -1277,7 +1291,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
               </div>
 
               {/* Visual SVG Line & Area Chart Durasi Proyek Tahunan */}
-              <div className="h-60 w-full pt-2">
+              <div className="h-28 sm:h-60 w-full pt-1 sm:pt-2">
                 <svg className="w-full h-full overflow-visible" viewBox="0 0 540 180">
                   <defs>
                     <linearGradient id="areaGradientGreen" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -1360,14 +1374,14 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             </div>
 
             {/* GRAFIK 3: FLUKTUASI DISIPLIN PRESENSI 12 BULAN (JAN - DES 2026) */}
-            <div className="p-4 sm:p-6 md:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
-              <div className="flex items-start justify-between gap-3 border-b border-blue-400/20 pb-4">
+            <div className="p-2.5 sm:p-6 md:p-7 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl space-y-2 sm:space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-1 sm:gap-3 border-b border-blue-400/20 pb-2 sm:pb-4">
                 <div>
                   <span className="text-xs font-black text-[#63e6e2] uppercase tracking-wider flex items-center gap-1.5">
                     <Clock className="w-4 h-4" />
                     Grafik 3 &bull; Fluktuasi Disiplin Presensi 1 Tahun Penuh
                   </span>
-                  <h3 className="text-xl font-bold text-white mt-1">
+                  <h3 className="text-xs sm:text-xl font-bold text-white mt-0.5 sm:mt-1 leading-snug line-clamp-2 sm:line-clamp-none">
                     Tingkat Ketepatan Waktu, Keterlambatan &amp; Izin (12 Bulan)
                   </h3>
                 </div>
@@ -1376,7 +1390,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                 </span>
               </div>
 
-              <div className="h-60 w-full pt-2">
+              <div className="h-28 sm:h-60 w-full pt-1 sm:pt-2">
                 <svg className="w-full h-full overflow-visible" viewBox="0 0 540 180">
                   <line x1="45" y1="20" x2="520" y2="20" stroke="rgba(255,255,255,0.1)" strokeDasharray="4 4" />
                   <line x1="45" y1="65" x2="520" y2="65" stroke="rgba(255,255,255,0.1)" strokeDasharray="4 4" />
@@ -1438,14 +1452,14 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             </div>
 
             {/* GRAFIK 4: REALISASI JAM BERSIH VS LEMBUR 1 TAHUN (JAN - DES 2026) */}
-            <div className="p-4 sm:p-6 md:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
-              <div className="flex items-start justify-between gap-3 border-b border-blue-400/20 pb-4">
+            <div className="p-2.5 sm:p-6 md:p-7 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl space-y-2 sm:space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-1 sm:gap-3 border-b border-blue-400/20 pb-2 sm:pb-4">
                 <div>
                   <span className="text-xs font-black text-[#ff9f0a] uppercase tracking-wider flex items-center gap-1.5">
                     <Timer className="w-4 h-4" />
                     Grafik 4 &bull; Realisasi Jam Bersih &amp; Lembur 1 Tahun
                   </span>
-                  <h3 className="text-xl font-bold text-white mt-1">
+                  <h3 className="text-xs sm:text-xl font-bold text-white mt-0.5 sm:mt-1 leading-snug line-clamp-2 sm:line-clamp-none">
                     Jam Kerja Bersih vs Jam Lembur Terbulatkan Genap
                   </h3>
                 </div>
@@ -1454,7 +1468,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                 </span>
               </div>
 
-              <div className="h-60 w-full pt-2">
+              <div className="h-28 sm:h-60 w-full pt-1 sm:pt-2">
                 <svg className="w-full h-full overflow-visible" viewBox="0 0 540 180">
                   <line x1="45" y1="20" x2="520" y2="20" stroke="rgba(255,255,255,0.1)" strokeDasharray="4 4" />
                   <line x1="45" y1="65" x2="520" y2="65" stroke="rgba(255,255,255,0.1)" strokeDasharray="4 4" />
@@ -1690,22 +1704,22 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                 </span>
               </div>
 
-              <div className="space-y-3.5 text-sm">
-                <div className="flex justify-between items-center py-1.5 border-b border-blue-400/15">
-                  <span className="text-blue-200">Jam Masuk (Clock In):</span>
-                  <span className="font-black text-white">08:00 WIB</span>
+              <div className="grid grid-cols-2 sm:grid-cols-1 gap-2 sm:gap-3 text-xs sm:text-sm">
+                <div className="p-2.5 sm:p-0 sm:py-1.5 rounded-xl sm:rounded-none bg-white/[0.04] sm:bg-transparent border border-blue-400/20 sm:border-0 sm:border-b sm:border-blue-400/15 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-0.5">
+                  <span className="text-[10px] sm:text-sm text-blue-200">Jam Masuk (Clock In)</span>
+                  <span className="font-black text-white text-xs sm:text-sm">08:00 WIB</span>
                 </div>
-                <div className="flex justify-between items-center py-1.5 border-b border-blue-400/15">
-                  <span className="text-blue-200">Jam Pulang (Clock Out):</span>
-                  <span className="font-black text-white">17:00 WIB</span>
+                <div className="p-2.5 sm:p-0 sm:py-1.5 rounded-xl sm:rounded-none bg-white/[0.04] sm:bg-transparent border border-blue-400/20 sm:border-0 sm:border-b sm:border-blue-400/15 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-0.5">
+                  <span className="text-[10px] sm:text-sm text-blue-200">Jam Pulang (Clock Out)</span>
+                  <span className="font-black text-white text-xs sm:text-sm">17:00 WIB</span>
                 </div>
-                <div className="flex justify-between items-center py-1.5 border-b border-blue-400/15">
-                  <span className="text-blue-200">Potongan Istirahat:</span>
-                  <span className="font-bold text-[#ff9f0a]">-60 Menit (Otomatis)</span>
+                <div className="p-2.5 sm:p-0 sm:py-1.5 rounded-xl sm:rounded-none bg-white/[0.04] sm:bg-transparent border border-blue-400/20 sm:border-0 sm:border-b sm:border-blue-400/15 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-0.5">
+                  <span className="text-[10px] sm:text-sm text-blue-200">Potongan Istirahat</span>
+                  <span className="font-bold text-[#ff9f0a] text-xs sm:text-sm">-60m Otomatis</span>
                 </div>
-                <div className="flex justify-between items-center py-2 bg-blue-500/15 px-3 rounded-xl border border-blue-400/30">
-                  <span className="text-blue-100 font-bold">Total Jam Kerja Bersih:</span>
-                  <span className="font-black text-[#30d158] text-lg">8 Jam Efektif</span>
+                <div className="p-2.5 sm:py-2 sm:px-3 rounded-xl bg-blue-500/15 border border-blue-400/30 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-0.5">
+                  <span className="text-[10px] sm:text-sm text-blue-100 font-bold">Jam Kerja Bersih</span>
+                  <span className="font-black text-[#30d158] text-xs sm:text-lg">8 Jam Efektif</span>
                 </div>
               </div>
 
@@ -1734,38 +1748,42 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                 Verifikasi Bukti Kehadiran Nyata &amp; Jam Lembur Genap
               </span>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                <div className="p-5 rounded-2xl bg-gradient-to-b from-white/[0.06] via-[#0a1835]/70 to-[#061126]/80 border border-slate-300/20 border-t-white/30 shadow-lg border border-blue-400/25 space-y-3">
-                  <div className="flex items-center gap-2 text-sm font-bold text-[#63e6e2]">
-                    <Camera className="w-5 h-5" />
-                    <span>Verifikasi Foto Selfie AI</span>
+              <div className="grid grid-cols-2 sm:grid-cols-2 gap-2.5 sm:gap-5">
+                <div className="p-3 sm:p-5 rounded-2xl bg-gradient-to-b from-white/[0.06] via-[#0a1835]/70 to-[#061126]/80 border border-slate-300/20 border-t-white/30 shadow-lg border-blue-400/25 space-y-2 sm:space-y-3 flex flex-col justify-between">
+                  <div className="space-y-1.5 sm:space-y-2">
+                    <div className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-bold text-[#63e6e2]">
+                      <Camera className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+                      <span className="line-clamp-1">Verifikasi Selfie AI</span>
+                    </div>
+                    <p className="text-[10px] sm:text-xs text-blue-100/80 leading-relaxed font-normal line-clamp-3 sm:line-clamp-none">
+                      Pengambilan foto instan saat clock in untuk membuktikan kehadiran fisik aktual tanpa titip presensi. Sistem AI mencocokkan wajah pegawai secara otomatis.
+                    </p>
                   </div>
-                  <p className="text-xs text-blue-100/80 leading-relaxed font-normal">
-                    Pengambilan foto instan saat clock in untuk membuktikan kehadiran fisik aktual tanpa titip presensi. Sistem AI mencocokkan wajah pegawai secara otomatis.
-                  </p>
-                  <div className="p-2.5 rounded-xl bg-[#30d158]/15 border border-[#30d158]/30 text-xs text-[#30d158] font-bold flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4" />
-                      Face Match AI 99.4%
+                  <div className="p-2 sm:p-2.5 rounded-xl bg-[#30d158]/15 border border-[#30d158]/30 text-[10px] sm:text-xs text-[#30d158] font-bold flex items-center justify-between gap-1">
+                    <span className="flex items-center gap-1 truncate">
+                      <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                      <span className="truncate">Face Match 99.4%</span>
                     </span>
-                    <span className="text-[10px] uppercase font-black px-1.5 py-0.5 bg-[#30d158] text-black rounded">Sah</span>
+                    <span className="text-[9px] sm:text-[10px] uppercase font-black px-1.5 py-0.5 bg-[#30d158] text-black rounded shrink-0">Sah</span>
                   </div>
                 </div>
 
-                <div className="p-5 rounded-2xl bg-gradient-to-b from-white/[0.06] via-[#0a1835]/70 to-[#061126]/80 border border-slate-300/20 border-t-white/30 shadow-lg border border-blue-400/25 space-y-3">
-                  <div className="flex items-center gap-2 text-sm font-bold text-[#ff9f0a]">
-                    <MapPin className="w-5 h-5" />
-                    <span>Radius Geofencing GPS</span>
+                <div className="p-3 sm:p-5 rounded-2xl bg-gradient-to-b from-white/[0.06] via-[#0a1835]/70 to-[#061126]/80 border border-slate-300/20 border-t-white/30 shadow-lg border-blue-400/25 space-y-2 sm:space-y-3 flex flex-col justify-between">
+                  <div className="space-y-1.5 sm:space-y-2">
+                    <div className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-bold text-[#ff9f0a]">
+                      <MapPin className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+                      <span className="line-clamp-1">Geofencing GPS</span>
+                    </div>
+                    <p className="text-[10px] sm:text-xs text-blue-100/80 leading-relaxed font-normal line-clamp-3 sm:line-clamp-none">
+                      Mencatat koordinat lintang-bujur dan memastikan presensi dilakukan di area kantor atau lokasi proyek aktif dalam radius toleransi 15 meter.
+                    </p>
                   </div>
-                  <p className="text-xs text-blue-100/80 leading-relaxed font-normal">
-                    Mencatat koordinat lintang-bujur dan memastikan presensi dilakukan di area kantor atau lokasi proyek aktif dalam radius toleransi 15 meter.
-                  </p>
-                  <div className="p-2.5 rounded-xl bg-[#30d158]/15 border border-[#30d158]/30 text-xs text-[#30d158] font-bold flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4" />
-                      Radius 8.2m Dari Titik Kantor
+                  <div className="p-2 sm:p-2.5 rounded-xl bg-[#30d158]/15 border border-[#30d158]/30 text-[10px] sm:text-xs text-[#30d158] font-bold flex items-center justify-between gap-1">
+                    <span className="flex items-center gap-1 truncate">
+                      <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                      <span className="truncate">Radius 8.2m</span>
                     </span>
-                    <span className="text-[10px] uppercase font-black px-1.5 py-0.5 bg-[#30d158] text-black rounded">Lokasi Valid</span>
+                    <span className="text-[9px] sm:text-[10px] uppercase font-black px-1.5 py-0.5 bg-[#30d158] text-black rounded shrink-0">Valid</span>
                   </div>
                 </div>
               </div>
@@ -1790,92 +1808,62 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
           FITUR 04: BANK IDE & CATATAN RENCANA BERARAH BALIK KALENDER
          ===================================================================== */}
       <section id="bank-ide-section" className="relative z-10 py-20 px-4 sm:px-8 lg:px-16 w-full max-w-[1800px] mx-auto">
-        <div className="space-y-10 text-left">
-          {/* Header Fitur 04 dengan Identitas Apple Notes iPhone */}
+        <div className="space-y-8 text-left">
+          {/* Header Fitur 04 */}
           <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 border-b border-blue-400/25 pb-6">
             <div className="space-y-2.5 max-w-4xl">
               <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-[#ffd60a]/20 text-[#ffd60a] border border-[#ffd60a]/40 text-xs font-bold uppercase tracking-wider shadow-sm">
                 <Lightbulb className="w-3.5 h-3.5" />
-                <span>Fitur Unggulan 04 &bull; Antarmuka Catatan Apple iPhone</span>
+                <span>Fitur Unggulan 04 &bull; Bank Ide &amp; Catatan Rencana</span>
               </div>
               <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
-                Bank Ide &amp; Catatan Bergaya Apple iPhone Notes
+                Bank Ide &amp; Catatan Rencana Terpadu
               </h2>
               <p className="text-sm sm:text-base text-blue-100/80 leading-relaxed font-normal">
-                Menyimpan ide rencana kerja dalam format catatan iPhone yang intuitif, memindahkannya ke jadwal kalender dengan 1-klik, dan otomatis menautkan balik ke catatan arahan asal saat dilihat di kalender.
+                Menyimpan ide rencana kerja dan arahan proyek dalam daftar catatan yang menyatu bersih, memindahkannya ke jadwal kalender dengan 1-klik, serta otomatis menautkan balik ke catatan arahan asal.
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#ffd60a]/20 text-[#ffd60a] border border-[#ffd60a]/40 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-[#ffd60a]" />
-                <span>iPhone Notes Style &bull; 1-Click Scheduling</span>
-              </span>
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => openAuth(true)}
+                className="px-4 py-2 rounded-full bg-[#ffd60a] hover:bg-[#ffe043] text-black font-black text-xs flex items-center gap-1.5 shadow-md transition-all"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Catatan Baru</span>
+              </button>
             </div>
           </div>
 
           {/* =====================================================================
-              MOCKUP ANTARMUKA CATATAN IPHONE (APPLE NOTES DARK LUXURY)
+              DAFTAR CATATAN & DETAIL MENYATU DENGAN BACKGROUND (TANPA KOTAK HITAM)
              ===================================================================== */}
-          <div className="rounded-3xl bg-[#1c1c1e] border border-white/[0.12] shadow-2xl shadow-black/90 overflow-hidden backdrop-blur-2xl">
-            {/* Top Toolbar iPhone Window Header */}
-            <div className="px-4 sm:px-6 py-3.5 bg-[#2c2c2e]/90 border-b border-white/[0.08] flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-3 h-3 rounded-full bg-[#ff5f56]" />
-                  <span className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
-                  <span className="w-3 h-3 rounded-full bg-[#27c93f]" />
-                </div>
-                <div className="h-4 w-px bg-white/20 mx-1" />
-                <div className="flex items-center gap-2 text-xs font-bold text-white">
-                  <span className="text-[#ffd60a] font-serif font-black text-base">iCloud</span>
-                  <span className="text-white/40">/</span>
-                  <span>Semua Catatan (Bank Ide)</span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-white/10 text-[#ffd60a] font-mono">
-                    3 Catatan
+          <div className="w-full">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-8 items-start">
+              {/* Kolom Kiri: Daftar Catatan Menyatu dengan Background */}
+              <div className="lg:col-span-5 space-y-2.5">
+                <div className="flex items-center justify-between px-1 pb-1">
+                  <span className="text-xs font-bold uppercase tracking-wider text-blue-200/80">
+                    Daftar Catatan Ide (3)
                   </span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 text-xs">
-                <button
-                  type="button"
-                  onClick={() => openAuth(true)}
-                  className="px-3 py-1 rounded-lg bg-[#ffd60a] hover:bg-[#ffe043] text-black font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Catatan Baru</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Split View 2 Kolom Khas Apple Notes (Sidebar List + Note Sheet Detail) */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 min-h-[520px] divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08]">
-              {/* Kolom Kiri: Daftar Catatan iPhone (4 Kolom di Desktop) */}
-              <div className="lg:col-span-5 bg-[#161618] p-3 sm:p-4 space-y-2">
-                <div className="relative mb-3">
-                  <input
-                    type="text"
-                    readOnly
-                    value=""
-                    placeholder="Cari ide atau arahan kerja..."
-                    className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-[#2c2c2e] border border-white/10 text-xs text-white placeholder-white/40 focus:outline-none"
-                  />
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 text-xs">🔍</span>
+                  <span className="text-[11px] text-[#ffd60a] font-semibold">
+                    Sinkronisasi Kalender Aktif
+                  </span>
                 </div>
 
                 {/* Item Catatan 1 (Aktif / Terpilih) */}
-                <div className="p-3.5 rounded-2xl bg-[#2c2c2e] border-l-4 border-[#ffd60a] space-y-1.5 cursor-pointer shadow-md">
+                <div className="p-3.5 sm:p-4 rounded-2xl bg-white/[0.06] border border-blue-400/30 border-l-4 border-l-[#ffd60a] space-y-1.5 cursor-pointer backdrop-blur-xl transition-all">
                   <div className="flex justify-between items-start gap-2">
                     <h4 className="font-bold text-sm text-white line-clamp-1">
                       Standardisasi Protokol Keamanan &amp; SSO
                     </h4>
                     <span className="text-[10px] font-bold text-[#ffd60a] font-mono shrink-0">14.30</span>
                   </div>
-                  <p className="text-xs text-white/60 line-clamp-2 leading-relaxed">
+                  <p className="text-xs text-blue-100/70 line-clamp-2 leading-relaxed">
                     Menerapkan autentikasi terpusat OAuth2 dan enkripsi data end-to-end guna meningkatkan efisiensi dan keamanan akses tim.
                   </p>
-                  <div className="pt-1 flex items-center gap-1.5 text-[10px] text-white/40 font-mono">
+                  <div className="pt-1 flex items-center gap-1.5 text-[10px] text-blue-200/60 font-mono">
                     <span>📁 Ide Proyek</span>
                     <span>&bull;</span>
                     <span className="text-[#38bdf8]">#IDE-2026-089</span>
@@ -1883,17 +1871,17 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                 </div>
 
                 {/* Item Catatan 2 */}
-                <div className="p-3.5 rounded-2xl bg-[#1c1c1e] hover:bg-[#2c2c2e]/60 border border-white/[0.04] space-y-1.5 cursor-pointer transition-colors">
+                <div className="p-3.5 sm:p-4 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.08] space-y-1.5 cursor-pointer transition-colors">
                   <div className="flex justify-between items-start gap-2">
                     <h4 className="font-bold text-sm text-white/90 line-clamp-1">
                       SOP Presensi Mandiri &amp; Geofencing GPS
                     </h4>
                     <span className="text-[10px] text-white/40 font-mono shrink-0">Kemarin</span>
                   </div>
-                  <p className="text-xs text-white/50 line-clamp-2 leading-relaxed">
+                  <p className="text-xs text-blue-100/60 line-clamp-2 leading-relaxed">
                     Sesi pengenalan fitur geofencing GPS dan foto selfie agar tidak ada selisih perhitungan lembur di akhir bulan.
                   </p>
-                  <div className="pt-1 flex items-center gap-1.5 text-[10px] text-white/40 font-mono">
+                  <div className="pt-1 flex items-center gap-1.5 text-[10px] text-blue-200/50 font-mono">
                     <span>📁 Kebijakan</span>
                     <span>&bull;</span>
                     <span className="text-[#30d158]">Terjadwal 12 Nov</span>
@@ -1901,17 +1889,17 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                 </div>
 
                 {/* Item Catatan 3 */}
-                <div className="p-3.5 rounded-2xl bg-[#1c1c1e] hover:bg-[#2c2c2e]/60 border border-white/[0.04] space-y-1.5 cursor-pointer transition-colors">
+                <div className="p-3.5 sm:p-4 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.08] space-y-1.5 cursor-pointer transition-colors">
                   <div className="flex justify-between items-start gap-2">
                     <h4 className="font-bold text-sm text-white/90 line-clamp-1">
                       Evaluasi Anggaran &amp; Kapasitas Server Q4
                     </h4>
                     <span className="text-[10px] text-white/40 font-mono shrink-0">5 Nov</span>
                   </div>
-                  <p className="text-xs text-white/50 line-clamp-2 leading-relaxed">
+                  <p className="text-xs text-blue-100/60 line-clamp-2 leading-relaxed">
                     Optimalisasi query database Supabase dan pengurangan latensi respon API untuk antisipasi lonjakan trafik akhir tahun.
                   </p>
-                  <div className="pt-1 flex items-center gap-1.5 text-[10px] text-white/40 font-mono">
+                  <div className="pt-1 flex items-center gap-1.5 text-[10px] text-blue-200/50 font-mono">
                     <span>📁 Keuangan &amp; IT</span>
                     <span>&bull;</span>
                     <span className="text-[#ffd60a]">Draft Rencana</span>
@@ -1919,8 +1907,8 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                 </div>
               </div>
 
-              {/* Kolom Kanan: Lembar Catatan Aktif (iPhone Notes Paper Pad - 7 Kolom) */}
-              <div className="lg:col-span-7 bg-[#1c1c1e] p-5 sm:p-7 flex flex-col justify-between space-y-6">
+              {/* Kolom Kanan: Rincian Catatan Menyatu dengan Background */}
+              <div className="lg:col-span-7 p-4 sm:p-6 rounded-3xl bg-white/[0.03] border border-blue-400/20 backdrop-blur-xl flex flex-col justify-between space-y-5">
                 <div className="space-y-5">
                   {/* Action Bar Lembar Catatan */}
                   <div className="flex items-center justify-between border-b border-white/[0.08] pb-3 text-xs">
@@ -1987,7 +1975,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                   </div>
 
                   {/* Teks Catatan / Notulen Rencana */}
-                  <div className="p-4 rounded-2xl bg-[#2c2c2e]/70 border border-white/[0.06] space-y-1.5 text-xs">
+                  <div className="p-4 rounded-2xl bg-white/[0.04] border border-blue-400/20 space-y-1.5 text-xs">
                     <span className="text-[#ffd60a] font-bold block text-[11px]">Instruksi Rencana Kerja:</span>
                     <p className="text-white/80 leading-relaxed font-normal">
                       &ldquo;Pastikan seluruh kredensial API tersimpan dalam environment terenkripsi. Sebelum diluncurkan ke seluruh pegawai, jadwalkan sesi pengujian pada kalender kerja tim.&rdquo;
@@ -2042,7 +2030,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Simulasi Dialog AI Kinerja 1 Tahun */}
-            <div className="p-4 sm:p-6 md:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
+            <div className="p-2.5 sm:p-6 md:p-7 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl space-y-2 sm:space-y-5">
               <div className="flex items-center justify-between border-b border-blue-400/20 pb-4">
                 <span className="text-base font-black text-white flex items-center gap-2">
                   <Bot className="w-5 h-5 text-[#bf5af2]" />
@@ -2073,13 +2061,13 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
             </div>
 
             {/* Ekspor Laporan Multi-Format */}
-            <div className="p-4 sm:p-6 md:p-7 rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl backdrop-blur-2xl space-y-5">
+            <div className="p-2.5 sm:p-6 md:p-7 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-white/[0.08] via-[#09152e]/80 to-[#07132c]/90 border border-slate-300/25 border-t-white/40 shadow-2xl shadow-black/80 backdrop-blur-2xl space-y-2 sm:space-y-5">
               <span className="text-base font-black text-white flex items-center gap-2 border-b border-blue-400/20 pb-4">
                 <FileSpreadsheet className="w-5 h-5 text-[#30d158]" />
                 Ekspor Multi-Format Siap Pakai untuk Audit &amp; Direksi
               </span>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 w-full">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3 pt-1 w-full">
                 <div className="p-5 rounded-2xl bg-gradient-to-b from-white/[0.06] via-[#0a1835]/70 to-[#061126]/80 border border-slate-300/20 border-t-white/30 shadow-lg border border-blue-400/25 text-center space-y-2.5 hover:border-blue-400/50 transition-colors">
                   <div className="w-12 h-12 mx-auto rounded-2xl bg-[#ff375f]/20 text-[#ff375f] flex items-center justify-center font-black text-base border border-[#ff375f]/30">
                     PDF
@@ -2148,8 +2136,8 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
           5. MODAL AUTENTIKASI: MASUK / DAFTAR BARU (MINIMALIST GLASS DESIGN)
          ========================================================================= */}
       {isAuthModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-[#040e28]/90 backdrop-blur-xl animate-in fade-in duration-200">
-          <div className="w-full max-w-md bg-[#0b2256] rounded-3xl border border-white/[0.12] shadow-2xl p-6 sm:p-8 space-y-6 relative text-left">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-[#040e28]/90 backdrop-blur-xl animate-in fade-in duration-200">
+          <div className={`w-full ${isSignUp ? 'max-w-lg' : 'max-w-md'} max-h-[92vh] overflow-y-auto bg-[#0b2256] rounded-3xl border border-white/[0.12] shadow-2xl p-5 sm:p-7 space-y-5 relative text-left`}>
             <button
               type="button"
               onClick={() => setIsAuthModalOpen(false)}
@@ -2282,16 +2270,33 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
                 </div>
               </div>
 
+              {isSignUp && (
+                <div className="pt-1">
+                  <SubscriptionPlanSelector
+                    selectedPlan={selectedPlan}
+                    onSelectPlan={setSelectedPlan}
+                    selectedPaymentMethod={selectedPaymentMethod}
+                    onSelectPaymentMethod={setSelectedPaymentMethod}
+                  />
+                </div>
+              )}
+
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3.5 rounded-full bg-white hover:bg-slate-200 text-black font-semibold text-sm shadow-xl transition-all flex items-center justify-center gap-2 mt-2 disabled:opacity-50"
+                className="w-full py-3.5 rounded-full bg-white hover:bg-slate-200 text-black font-bold text-sm shadow-xl transition-all flex items-center justify-center gap-2 mt-2 disabled:opacity-50"
               >
                 {isLoading ? (
                   <span>Memproses...</span>
                 ) : (
                   <>
-                    <span>{isSignUp ? 'Daftar Sekarang' : 'Masuk Sekarang'}</span>
+                    <span>
+                      {isSignUp
+                        ? selectedPlan === 'pro_monthly'
+                          ? `Bayar Rp ${MONTHLY_SUBSCRIPTION_PRICE.toLocaleString('id-ID')} & Daftar`
+                          : `Mulai Free Trial ${FREE_TRIAL_DAYS} Hari`
+                        : 'Masuk Sekarang'}
+                    </span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}

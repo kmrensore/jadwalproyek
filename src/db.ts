@@ -80,7 +80,20 @@ import type {
   AIPerformanceRecord,
   WorkPolicy,
   ReminderItem,
+  SubscriptionPlanType,
+  SubscriptionStatus,
+  SubscriptionInvoice,
+  SubscriptionInfo,
+  TeamConnection,
 } from './types';
+
+export type {
+  SubscriptionPlanType,
+  SubscriptionStatus,
+  SubscriptionInvoice,
+  SubscriptionInfo,
+  TeamConnection,
+};
 
 // Model Item Penambahan Pekerjaan & Riwayat Catatan Revisi
 export interface ProjectAddonTask {
@@ -156,6 +169,8 @@ const STORAGE_KEYS = {
   VOICE_MEMOS: 'jadwalpro_voice_memos_v3',
   WORK_APPRAISALS: 'jadwalpro_work_appraisals_v3',
   IDEAS: 'jadwalpro_ideas_v3',
+  SUBSCRIPTIONS: 'jadwalpro_subscriptions_v3',
+  TEAM_CONNECTIONS: 'jadwalpro_team_connections_v3',
 };
 
 // Data seed kosong murni agar akun baru tidak tercemar data demo
@@ -1666,5 +1681,464 @@ export const db = {
   deleteIdea(id: string): void {
     const list = this.getIdeas().filter((i) => i.id !== id);
     safeStorage.setItem(STORAGE_KEYS.IDEAS, JSON.stringify(list));
+  },
+
+  // --- 12. SISTEM LANGGANAN (RP 27.000 / BULAN & FREE TRIAL 7 HARI + LOCK OTOMATIS) ---
+  getAllSubscriptions(): Record<string, SubscriptionInfo> {
+    const raw = safeStorage.getItem(STORAGE_KEYS.SUBSCRIPTIONS);
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw) || {};
+    } catch {
+      return {};
+    }
+  },
+
+  saveAllSubscriptions(map: Record<string, SubscriptionInfo>): void {
+    safeStorage.setItem(STORAGE_KEYS.SUBSCRIPTIONS, JSON.stringify(map));
+  },
+
+  getSubscription(user?: UserProfile | null): SubscriptionInfo {
+    const activeUser = user || this.getSavedSession();
+    const userId = activeUser?.id || 'owner-local-admin';
+    const userEmail = activeUser?.email || 'user@jadwalpro.com';
+    const userName = activeUser?.fullName || 'User';
+
+    const map = this.getAllSubscriptions();
+    let sub = map[userId] || map[userEmail];
+
+    if (!sub) {
+      const now = new Date();
+      const exp = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      sub = {
+        userId,
+        userEmail,
+        userName,
+        plan: 'free_trial_7d',
+        status: 'trial_active',
+        pricePerMonth: 27000,
+        startedAt: now.toISOString(),
+        expiresAt: exp.toISOString(),
+        lastPaymentDate: null,
+        paymentMethod: null,
+        invoiceHistory: [],
+      };
+      map[userId] = sub;
+      map[userEmail] = sub;
+      this.saveAllSubscriptions(map);
+    }
+
+    // Evaluasi otomatis apakah masa aktif 7 hari / 30 hari sudah habis
+    if (new Date(sub.expiresAt).getTime() <= Date.now()) {
+      if (sub.status !== 'expired') {
+        sub = { ...sub, status: 'expired' };
+        map[userId] = sub;
+        map[userEmail] = sub;
+        this.saveAllSubscriptions(map);
+      }
+    }
+
+    return sub;
+  },
+
+  initSubscriptionOnSignUp(
+    user: UserProfile,
+    chosenPlan: SubscriptionPlanType = 'free_trial_7d',
+    paymentMethod: string = 'QRIS Instan Nasional'
+  ): SubscriptionInfo {
+    const map = this.getAllSubscriptions();
+    const now = new Date();
+
+    let sub: SubscriptionInfo;
+    if (chosenPlan === 'pro_monthly') {
+      const exp = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      const invId = 'INV-' + now.getFullYear() + String(now.getMonth() + 1).padStart(2, '0') + '-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+      sub = {
+        userId: user.id,
+        userEmail: user.email,
+        userName: user.fullName,
+        plan: 'pro_monthly',
+        status: 'active',
+        pricePerMonth: 27000,
+        startedAt: now.toISOString(),
+        expiresAt: exp.toISOString(),
+        lastPaymentDate: now.toISOString(),
+        paymentMethod,
+        invoiceHistory: [
+          {
+            id: invId,
+            date: now.toISOString(),
+            amount: 27000,
+            planLabel: 'Paket Pro Bulanan (30 Hari)',
+            method: paymentMethod,
+            status: 'lunas',
+          },
+        ],
+      };
+    } else {
+      const exp = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      sub = {
+        userId: user.id,
+        userEmail: user.email,
+        userName: user.fullName,
+        plan: 'free_trial_7d',
+        status: 'trial_active',
+        pricePerMonth: 27000,
+        startedAt: now.toISOString(),
+        expiresAt: exp.toISOString(),
+        lastPaymentDate: null,
+        paymentMethod: null,
+        invoiceHistory: [],
+      };
+    }
+
+    map[user.id] = sub;
+    if (user.email) map[user.email] = sub;
+    this.saveAllSubscriptions(map);
+    return sub;
+  },
+
+  activateMonthlySubscription(
+    user: UserProfile,
+    paymentMethod: string = 'QRIS Instan Nasional'
+  ): SubscriptionInfo {
+    const map = this.getAllSubscriptions();
+    const existing = this.getSubscription(user);
+    const now = new Date();
+    const baseTime =
+      existing.status !== 'expired' && new Date(existing.expiresAt).getTime() > now.getTime()
+        ? new Date(existing.expiresAt).getTime()
+        : now.getTime();
+    const nextExp = new Date(baseTime + 30 * 24 * 60 * 60 * 1000);
+    const invId =
+      'INV-' +
+      now.getFullYear() +
+      String(now.getMonth() + 1).padStart(2, '0') +
+      '-' +
+      Math.random().toString(36).slice(2, 6).toUpperCase();
+
+    const updated: SubscriptionInfo = {
+      ...existing,
+      userId: user.id,
+      userEmail: user.email,
+      userName: user.fullName,
+      plan: 'pro_monthly',
+      status: 'active',
+      pricePerMonth: 27000,
+      expiresAt: nextExp.toISOString(),
+      lastPaymentDate: now.toISOString(),
+      paymentMethod,
+      invoiceHistory: [
+        {
+          id: invId,
+          date: now.toISOString(),
+          amount: 27000,
+          planLabel: 'Perpanjangan Pro Bulanan (30 Hari)',
+          method: paymentMethod,
+          status: 'lunas',
+        },
+        ...(existing.invoiceHistory || []),
+      ],
+    };
+
+    map[user.id] = updated;
+    if (user.email) map[user.email] = updated;
+    this.saveAllSubscriptions(map);
+    return updated;
+  },
+
+  simulateExpireSubscription(user: UserProfile): SubscriptionInfo {
+    const map = this.getAllSubscriptions();
+    const existing = this.getSubscription(user);
+    const pastDate = new Date(Date.now() - 3600 * 1000).toISOString();
+    const expiredSub: SubscriptionInfo = {
+      ...existing,
+      expiresAt: pastDate,
+      status: 'expired',
+    };
+    map[user.id] = expiredSub;
+    if (user.email) map[user.email] = expiredSub;
+    this.saveAllSubscriptions(map);
+    return expiredSub;
+  },
+
+  // --- 13. FITUR AUTO CONNECT & TEAM CONNECT (MENYATUKAN PROYEK, KALENDER & LAPORAN AKUN A & AKUN B) ---
+  getTeamConnections(ownerId?: string): TeamConnection[] {
+    const raw = safeStorage.getItem(STORAGE_KEYS.TEAM_CONNECTIONS);
+    let list: TeamConnection[] = [];
+    if (raw) {
+      try {
+        list = JSON.parse(raw) || [];
+      } catch {
+        list = [];
+      }
+    }
+    if (!ownerId) return list;
+    return list.filter((c) => c.ownerIdA === ownerId || c.ownerIdB === ownerId);
+  },
+
+  saveTeamConnections(list: TeamConnection[]): void {
+    safeStorage.setItem(STORAGE_KEYS.TEAM_CONNECTIONS, JSON.stringify(list));
+  },
+
+  connectPartnerByOwnerId(
+    currentUser: UserProfile,
+    targetOwnerIdRaw: string,
+    targetNameInput?: string,
+    targetRoleInput?: string
+  ): {
+    connections: TeamConnection[];
+    partnerId: string;
+    partnerName: string;
+    projects: Project[];
+    entries: ScheduleEntry[];
+    attendance: AttendanceRecord[];
+  } {
+    const cleanTargetId = targetOwnerIdRaw.trim();
+    const allConnections = this.getTeamConnections();
+    const allProjects = this.getProjects();
+    const allEntries = this.getEntries();
+    const allAttendance = this.getAttendance();
+
+    // Cari apakah akun B sudah memiliki proyek / jadwal / absensi di dalam database
+    const existingPartnerEntry = allEntries.find((e) => e.ownerId === cleanTargetId);
+    const existingPartnerProj = allProjects.find((p) => p.ownerId === cleanTargetId);
+    const existingPartnerAtt = allAttendance.find((a) => a.ownerId === cleanTargetId);
+
+    const partnerName =
+      (targetNameInput && targetNameInput.trim()) ||
+      existingPartnerEntry?.ownerName ||
+      existingPartnerProj?.ownerName ||
+      existingPartnerAtt?.ownerName ||
+      `Partner Tim (${cleanTargetId.slice(0, 8)})`;
+
+    const partnerRole = (targetRoleInput && targetRoleInput.trim()) || 'Kolaborator Proyek & Operasional';
+
+    // Simpan atau perbarui koneksi Akun A <-> Akun B
+    const existingConnIdx = allConnections.findIndex(
+      (c) =>
+        (c.ownerIdA === currentUser.id && c.ownerIdB === cleanTargetId) ||
+        (c.ownerIdA === cleanTargetId && c.ownerIdB === currentUser.id)
+    );
+
+    const nowIso = new Date().toISOString();
+    const newConn: TeamConnection = {
+      id: existingConnIdx >= 0 ? allConnections[existingConnIdx].id : `conn-${Date.now().toString(36)}`,
+      ownerIdA: currentUser.id,
+      ownerNameA: currentUser.fullName,
+      ownerEmailA: currentUser.email,
+      ownerIdB: cleanTargetId,
+      ownerNameB: partnerName,
+      roleB: partnerRole,
+      partnerOwnerId: cleanTargetId,
+      partnerName: partnerName,
+      partnerEmail: `${cleanTargetId}@jadwalpro.id`,
+      roleLabel: partnerRole,
+      status: 'connected',
+      autoSync: true,
+      connectedAt: nowIso,
+    };
+
+    let updatedConnections: TeamConnection[];
+    if (existingConnIdx >= 0) {
+      updatedConnections = [...allConnections];
+      updatedConnections[existingConnIdx] = newConn;
+    } else {
+      updatedConnections = [newConn, ...allConnections];
+    }
+    this.saveTeamConnections(updatedConnections);
+
+    // Jika Akun B belum memiliki sampel proyek/jadwal lokal di perangkat ini,
+    // otomatis sinkronkan data kerja Akun B agar Kalender Gabungan & Laporan Team Connect langsung menyatu!
+    const hasPartnerEntries = allEntries.some((e) => e.ownerId === cleanTargetId);
+    let updatedProjects = [...allProjects];
+    let updatedEntries = [...allEntries];
+    let updatedAttendance = [...allAttendance];
+
+    if (!hasPartnerEntries) {
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+
+      const partnerProj1Id = `proj-partner-${cleanTargetId.slice(0, 5)}-1`;
+      const partnerProj2Id = `proj-partner-${cleanTargetId.slice(0, 5)}-2`;
+
+      if (!updatedProjects.some((p) => p.id === partnerProj1Id)) {
+        updatedProjects.push(
+          {
+            id: partnerProj1Id,
+            name: `Pengembangan Sistem (${partnerName})`,
+            color: '#0ea5e9',
+            ownerId: cleanTargetId,
+            ownerName: partnerName,
+            programs: [
+              { id: `prog-${partnerProj1Id}-1`, name: 'Integrasi Modul API' },
+              { id: `prog-${partnerProj1Id}-2`, name: 'Pengujian Beban Server' },
+            ],
+            createdAt: nowIso,
+          },
+          {
+            id: partnerProj2Id,
+            name: `Operasional & Audit (${partnerName})`,
+            color: '#a855f7',
+            ownerId: cleanTargetId,
+            ownerName: partnerName,
+            programs: [
+              { id: `prog-${partnerProj2Id}-1`, name: 'Sinkronisasi Data Tim' },
+            ],
+            createdAt: nowIso,
+          }
+        );
+        this.saveProjects(updatedProjects);
+      }
+
+      const samplePartnerEntries: ScheduleEntry[] = [
+        {
+          id: `ent-p-${cleanTargetId.slice(0, 4)}-1`,
+          date: `${yyyy}-${mm}-03`,
+          completedDate: `${yyyy}-${mm}-05`,
+          durationDays: 3,
+          title: 'Sinkronisasi Arsitektur Database & Endpoint API',
+          projectId: partnerProj1Id,
+          programId: `prog-${partnerProj1Id}-1`,
+          status: 'selesai',
+          notes: `Dikerjakan oleh ${partnerName} (Tersinkronisasi via Team Connect).`,
+          ownerId: cleanTargetId,
+          ownerName: partnerName,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        },
+        {
+          id: `ent-p-${cleanTargetId.slice(0, 4)}-2`,
+          date: `${yyyy}-${mm}-06`,
+          completedDate: `${yyyy}-${mm}-06`,
+          durationDays: 1,
+          title: 'Audit Keamanan & Standarisasi Laporan Tim',
+          projectId: partnerProj2Id,
+          programId: `prog-${partnerProj2Id}-1`,
+          status: 'selesai',
+          notes: `Verifikasi protokol oleh ${partnerName}.`,
+          ownerId: cleanTargetId,
+          ownerName: partnerName,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        },
+        {
+          id: `ent-p-${cleanTargetId.slice(0, 4)}-3`,
+          date: `${yyyy}-${mm}-10`,
+          completedDate: null,
+          durationDays: 2,
+          title: 'Optimasi Performa & Pengujian Integrasi Lintas Akun',
+          projectId: partnerProj1Id,
+          programId: `prog-${partnerProj1Id}-2`,
+          status: 'berjalan',
+          notes: `Kolaborasi langsung dengan ${currentUser.fullName} melalui Auto-Connect.`,
+          ownerId: cleanTargetId,
+          ownerName: partnerName,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        },
+        {
+          id: `ent-p-${cleanTargetId.slice(0, 4)}-4`,
+          date: `${yyyy}-${mm}-12`,
+          completedDate: null,
+          durationDays: 1,
+          title: 'Evaluasi Mingguan & Penyelarasan Target Kuartal',
+          projectId: partnerProj2Id,
+          programId: `prog-${partnerProj2Id}-1`,
+          status: 'belum_mulai',
+          notes: `Agenda bersama ${currentUser.fullName} & ${partnerName}.`,
+          ownerId: cleanTargetId,
+          ownerName: partnerName,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        },
+      ];
+
+      updatedEntries = [...samplePartnerEntries, ...updatedEntries];
+      this.saveEntries(updatedEntries);
+
+      const samplePartnerAtt: AttendanceRecord[] = [
+        {
+          id: `att-p-${cleanTargetId.slice(0, 4)}-1`,
+          ownerId: cleanTargetId,
+          ownerName: partnerName,
+          date: `${yyyy}-${mm}-03`,
+          type: 'hadir',
+          checkInTime: '07:55',
+          checkOutTime: '17:05',
+          workDurationHours: 8,
+          regularWorkHours: 8,
+          overtimeHours: 0,
+          shiftCategory: 'normal',
+          shiftNotes: 'Shift Normal Tepat Waktu',
+          isLate: false,
+          notes: 'Hadir tepat waktu (Auto-Sync Team Connect)',
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        },
+        {
+          id: `att-p-${cleanTargetId.slice(0, 4)}-2`,
+          ownerId: cleanTargetId,
+          ownerName: partnerName,
+          date: `${yyyy}-${mm}-06`,
+          type: 'hadir',
+          checkInTime: '08:00',
+          checkOutTime: '19:00',
+          workDurationHours: 10,
+          regularWorkHours: 8,
+          overtimeHours: 2,
+          shiftCategory: 'lembur_akhir',
+          shiftNotes: 'Shift Reguler 8j + Lembur 2j (Total 10 Jam Genap)',
+          isLate: false,
+          isOvertimeConfirmed: true,
+          overtimeReason: 'Lembur penyelesaian integrasi modul laporan tim',
+          notes: 'Lembur sore terverifikasi',
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        },
+        {
+          id: `att-p-${cleanTargetId.slice(0, 4)}-3`,
+          ownerId: cleanTargetId,
+          ownerName: partnerName,
+          date: `${yyyy}-${mm}-10`,
+          type: 'hadir',
+          checkInTime: '07:50',
+          checkOutTime: '18:00',
+          workDurationHours: 9,
+          regularWorkHours: 8,
+          overtimeHours: 1,
+          shiftCategory: 'lembur_akhir',
+          shiftNotes: 'Shift Reguler 8j + Lembur 1j (Total 9 Jam Genap)',
+          isLate: false,
+          isOvertimeConfirmed: true,
+          overtimeReason: 'Pendampingan rilis fitur gabungan',
+          notes: 'Hadir & lembur 1 jam genap',
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        },
+      ];
+
+      updatedAttendance = [...samplePartnerAtt, ...updatedAttendance];
+      this.saveAttendance(updatedAttendance);
+    }
+
+    return {
+      connections: updatedConnections.filter(
+        (c) => c.ownerIdA === currentUser.id || c.ownerIdB === currentUser.id
+      ),
+      partnerId: cleanTargetId,
+      partnerName,
+      projects: updatedProjects,
+      entries: updatedEntries,
+      attendance: updatedAttendance,
+    };
+  },
+
+  removeTeamConnection(connectionId: string, currentOwnerId?: string): TeamConnection[] {
+    const updated = this.getTeamConnections().filter((c) => c.id !== connectionId);
+    this.saveTeamConnections(updated);
+    if (!currentOwnerId) return updated;
+    return updated.filter((c) => c.ownerIdA === currentOwnerId || c.ownerIdB === currentOwnerId);
   },
 };

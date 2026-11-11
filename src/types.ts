@@ -2,6 +2,50 @@ export type EntryStatus = 'belum_mulai' | 'berjalan' | 'tertunda' | 'selesai';
 export type AttendanceType = 'hadir' | 'izin' | 'cuti' | 'sakit';
 export type WorkShiftCategory = 'normal' | 'lembur_awal' | 'lembur_akhir' | 'lembur_penuh';
 
+export type SubscriptionPlanType = 'free_trial_7d' | 'pro_monthly';
+export type SubscriptionStatus = 'trial_active' | 'active' | 'expired';
+
+export interface SubscriptionInvoice {
+  id: string;
+  date: string;
+  amount: number;
+  planLabel: string;
+  method: string;
+  status: 'lunas';
+}
+
+export interface SubscriptionInfo {
+  userId: string;
+  userEmail: string;
+  userName: string;
+  plan: SubscriptionPlanType;
+  status: SubscriptionStatus;
+  pricePerMonth: number; // 27000
+  startedAt: string;
+  expiresAt: string;
+  lastPaymentDate?: string | null;
+  paymentMethod?: string | null;
+  invoiceHistory: SubscriptionInvoice[];
+}
+
+export interface TeamConnection {
+  id: string;
+  ownerIdA: string;
+  ownerNameA: string;
+  ownerEmailA?: string;
+  ownerIdB: string;
+  ownerNameB: string;
+  ownerEmailB?: string;
+  roleB?: string;
+  partnerOwnerId?: string;
+  partnerName?: string;
+  partnerEmail?: string;
+  roleLabel?: string;
+  status: 'connected' | 'pending';
+  autoSync: boolean;
+  connectedAt: string;
+}
+
 export interface UserProfile {
   id: string; // owner_id dari Supabase Auth
   fullName: string;
@@ -9,6 +53,7 @@ export interface UserProfile {
   email: string;
   createdAt?: string;
   avatarUrl?: string; // Foto profil atau avatar inisial
+  subscriptionPlan?: SubscriptionPlanType;
 }
 
 // Cabang Program di dalam sebuah Proyek (contoh: Proyek 'abc' -> Program 'abc 1', 'abc 2')
@@ -55,6 +100,7 @@ export interface ScheduleEntry {
   ownerName?: string;
   ownerPhone?: string;
   ownerEmail?: string;
+  originIdeaId?: string | null; // ID ide asal jika pekerjaan dibuat dari Bank Ide
   createdAt: string;
   updatedAt: string;
 }
@@ -178,23 +224,39 @@ export interface WorkAppraisalRecord {
   id: string;
   ownerId: string;
   ownerName: string;
-  jobRole: string; // ID Role: 'video_editor' | 'sales_marketing' | 'site_engineer' | 'software_dev' | 'content_creator' | 'graphic_designer' | 'admin_operations' | 'customer_service' | 'custom'
-  jobRoleLabel: string; // Nama Jabatan (misal: "Editor Video", "Sales & Marketing", dll)
-  division: string; // Divisi (misal: "Media Sosial", "Marketing", dll)
-  reportTitle: string; // Judul karya atau laporan deliverable
-  periodDate: string; // Tanggal / periode pelaksanaan
-  metrics: Record<string, string | number>; // Metrik spesifik profesi (views, closing Rp, retention %, dll)
-  linkUrl?: string; // Link karya / postingan / repo / drive review
-  screenshotUrl?: string; // Foto bukti analisis / tangkapan layar dashboard
+  jobRole: string;
+  jobRoleLabel: string;
+  division: string;
+  reportTitle: string;
+  periodDate: string;
+  metrics: Record<string, string | number>;
+  linkUrl?: string;
+  screenshotUrl?: string;
   screenshotName?: string;
-  notes?: string; // Catatan teknis atau kendala dari pekerja
-  // Hasil Penilaian AI PRO
-  score: number; // 0 - 100
-  grade: 'A+' | 'A' | 'B+' | 'B' | 'C'; // Predikat kinerja
-  executiveSummary: string; // Ulasan eksekutif penilaian AI
-  industryBenchmarkReview: string; // Komparasi dengan tolak ukur standar industri terkini
-  strengths: string[]; // Nilai tambah & keunggulan hasil kerja
-  improvements: string[]; // Area perbaikan & gap analisis
-  tacticalRecommendations: string[]; // Rekomendasi taktis peningkatan mutu kerja
+  notes?: string;
+  score: number;
+  grade: 'A+' | 'A' | 'B+' | 'B' | 'C';
+  executiveSummary: string;
+  industryBenchmarkReview: string;
+  strengths: string[];
+  improvements: string[];
+  tacticalRecommendations: string[];
   createdAt: string;
+}
+
+// Model Ide & Catatan Rencana (Brainstorming to Calendar)
+export interface IdeaItem {
+  id: string;
+  ownerId: string;
+  ownerName: string;
+  title: string;
+  content: string; // Teks deskripsi / arahan ide
+  category?: string;
+  color?: string;
+  scheduledDate?: string | null;
+  scheduledEntryId?: string | null;
+  projectId?: string | null;
+  status: 'draft' | 'dijadwalkan' | 'selesai';
+  createdAt: string;
+  updatedAt: string;
 }
