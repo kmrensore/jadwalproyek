@@ -333,7 +333,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
               </defs>
               <text
                 x="50%"
-                y="28%"
+                y="19%"
                 textAnchor="middle"
                 dominantBaseline="central"
                 fill="url(#blurrySmokeGradient)"
@@ -348,7 +348,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
               </text>
               <text
                 x="50%"
-                y="74%"
+                y="52%"
                 textAnchor="middle"
                 dominantBaseline="central"
                 fill="url(#blurrySmokeGradient)"
@@ -394,7 +394,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
               </defs>
               <text
                 x="50%"
-                y="28%"
+                y="19%"
                 textAnchor="middle"
                 dominantBaseline="central"
                 fill="#ffffff"
@@ -409,7 +409,7 @@ export default function AuthPage({ onAuthSuccess }: AuthPageProps) {
               </text>
               <text
                 x="50%"
-                y="74%"
+                y="52%"
                 textAnchor="middle"
                 dominantBaseline="central"
                 fill="#ffffff"
