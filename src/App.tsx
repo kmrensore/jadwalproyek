@@ -215,7 +215,7 @@ export interface ScheduleEntry extends Omit<BaseScheduleEntry, 'status'> {
   additionalTasks?: ProjectAddonTask[];
   pausePeriods?: PausePeriod[];
   revisionCycles?: RevisionCycle[];
-  dayStatusMap?: Record<string, 'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'selesai'>;
+  dayStatusMap?: Record<string, 'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'revisi_selesai' | 'selesai' | 'hidden'>;
 }
 
 // ============================================================================
@@ -684,6 +684,36 @@ export interface CalendarEntryDayView {
   revisionCycle?: RevisionCycle;
 }
 
+const DAY_STATUS_STYLE_MAP: Record<
+  'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'revisi_selesai' | 'selesai',
+  { label: string; badge: string }
+> = {
+  belum_mulai: {
+    label: 'Belum Mulai',
+    badge: 'bg-slate-100 text-slate-700 border-slate-300 font-bold',
+  },
+  berjalan: {
+    label: 'berjalan',
+    badge: 'bg-blue-100 text-blue-800 border-blue-300 font-bold',
+  },
+  tertunda: {
+    label: 'tertunda',
+    badge: 'bg-amber-100 text-amber-900 border-amber-300 font-bold',
+  },
+  revisi: {
+    label: 'revisi',
+    badge: 'bg-rose-100 text-rose-800 border-rose-300 font-bold',
+  },
+  revisi_selesai: {
+    label: 'revisi • selesai',
+    badge: 'bg-rose-100 text-rose-900 border-rose-300 font-bold',
+  },
+  selesai: {
+    label: 'selesai',
+    badge: 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold',
+  },
+};
+
 function getEntryDayViewOnDate(
   e: ScheduleEntry,
   dateStr: string,
@@ -693,10 +723,33 @@ function getEntryDayViewOnDate(
 ): CalendarEntryDayView | null {
   if (!e || !dateStr) return null;
 
+  const dayMap = e.dayStatusMap || {};
+  const explicitStatus = dayMap[dateStr];
+
+  // Jika tanggal ini sengaja dihapus/disembunyikan (misal jeda tunda atau dihapus per tanggal)
+  if (explicitStatus === 'hidden') {
+    return null;
+  }
+
   const pauses = getNormalizedPausePeriods(e);
   const revisions = getNormalizedRevisionCycles(e);
 
-  // 1. CEK SIKLUS REVISI TERLEBIH DAHULU (Contoh: Selesai Tgl 7, lalu Tgl 9 ada Revisi, Tgl 10 Selesai Revisi)
+  // 1. PRIORITAS UTAMA: JIKA USER SUDAH MENENTUKAN STATUS PADA TANGGAL INI (dayStatusMap[dateStr])
+  // Ini menjamin perubahan status Belum Mulai <-> Berjalan <-> Selesai <-> Revisi <-> Tertunda 100% langsung berubah!
+  if (explicitStatus) {
+    const style = DAY_STATUS_STYLE_MAP[explicitStatus] || DAY_STATUS_STYLE_MAP.berjalan;
+    const workIdx = Math.max(1, getWorkDaySpan(e.date <= dateStr ? e.date : dateStr, dateStr, policy, attendanceList, e.ownerId));
+    return {
+      isVisible: true,
+      dayStatus: explicitStatus,
+      statusLabel: style.label,
+      badgeClass: style.badge,
+      workDayIndex: workIdx,
+      isRevisionPhase: explicitStatus === 'revisi' || explicitStatus === 'revisi_selesai',
+    };
+  }
+
+  // 2. CEK SIKLUS REVISI (Jika belum di-override di dayStatusMap)
   for (const rev of revisions) {
     const revStart = rev.startDate;
     const revEnd =
@@ -714,46 +767,46 @@ function getEntryDayViewOnDate(
 
       if (rev.status === 'selesai') {
         if (revStart === revEnd) {
-          // Selesai di hari yang sama saat revisi dibuat -> Biarkan catatan revisi tetap tampil di kalender!
+          const st = DAY_STATUS_STYLE_MAP.revisi_selesai;
           return {
             isVisible: true,
             dayStatus: 'revisi_selesai',
-            statusLabel: 'revisi • selesai',
-            badgeClass: 'bg-rose-100 text-rose-900 border-rose-300 font-bold',
+            statusLabel: st.label,
+            badgeClass: st.badge,
             workDayIndex: 1,
             isRevisionPhase: true,
             revisionCycle: rev,
           };
         }
         if (dateStr < revEnd) {
-          // Hari mulai revisi sebelum hari selesai revisi (Contoh: Rabu Tgl 9 = revisi)
+          const st = DAY_STATUS_STYLE_MAP.revisi;
           return {
             isVisible: true,
             dayStatus: 'revisi',
-            statusLabel: 'revisi',
-            badgeClass: 'bg-rose-100 text-rose-800 border-rose-300 font-bold',
+            statusLabel: st.label,
+            badgeClass: st.badge,
             workDayIndex: 1,
             isRevisionPhase: true,
             revisionCycle: rev,
           };
         }
-        // Hari selesai revisi (Contoh: Kamis Tgl 10 = selesai)
+        const st = DAY_STATUS_STYLE_MAP.selesai;
         return {
           isVisible: true,
           dayStatus: 'selesai',
-          statusLabel: 'selesai',
-          badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold',
+          statusLabel: st.label,
+          badgeClass: st.badge,
           workDayIndex: getWorkDaySpan(revStart, revEnd, policy, attendanceList, e.ownerId),
           isRevisionPhase: true,
           revisionCycle: rev,
         };
       } else {
-        // Revisi masih berjalan (otomatis berlanjut ke hari kerja berikutnya)
+        const st = DAY_STATUS_STYLE_MAP.revisi;
         return {
           isVisible: true,
           dayStatus: 'revisi',
-          statusLabel: 'revisi',
-          badgeClass: 'bg-rose-100 text-rose-800 border-rose-300 font-bold',
+          statusLabel: st.label,
+          badgeClass: st.badge,
           workDayIndex: getWorkDaySpan(revStart, dateStr, policy, attendanceList, e.ownerId),
           isRevisionPhase: true,
           revisionCycle: rev,
@@ -762,25 +815,29 @@ function getEntryDayViewOnDate(
     }
   }
 
-  // 2. CEK RENTANG UTAMA & LANJUTAN SETELAH TUNDA (PAUSE-RESUME)
+  // 3. CEK RENTANG UTAMA & KELANJUTAN HARI KERJA
   const startDate = e.date;
   let mainEndDate = startDate;
   const maxResumedDate = pauses.reduce(
     (maxD, p) => (p.resumedOn && p.resumedOn > maxD ? p.resumedOn : maxD),
     ''
   );
+  const explicitDates = Object.keys(dayMap).filter((d) => dayMap[d] !== 'hidden').sort();
+  const maxExplicitDate = explicitDates.length > 0 ? explicitDates[explicitDates.length - 1] : '';
 
   if (e.status === 'selesai') {
-    mainEndDate = e.completedDate || startDate;
+    mainEndDate = e.completedDate || maxExplicitDate || startDate;
     if (mainEndDate < startDate) mainEndDate = startDate;
   } else if (e.status === 'tertunda') {
-    const freezeDate = e.suspendedDate || (startDate <= today ? today : startDate);
+    const freezeDate = e.suspendedDate || maxExplicitDate || (startDate <= today ? today : startDate);
     mainEndDate = freezeDate < startDate ? startDate : freezeDate;
   } else {
-    // Berjalan atau belum_mulai: otomatis berlanjut ke hari berikutnya sampai hari ini (atau tanggal resume yang dijadwalkan)
     mainEndDate = startDate < today ? today : startDate;
     if (maxResumedDate && maxResumedDate > mainEndDate) {
       mainEndDate = maxResumedDate;
+    }
+    if (maxExplicitDate && maxExplicitDate > mainEndDate) {
+      mainEndDate = maxExplicitDate;
     }
   }
 
@@ -788,8 +845,6 @@ function getEntryDayViewOnDate(
     return null;
   }
 
-  // Jika tanggal berada di dalam jeda tunda (contoh: Hari ke-3 & ke-4 saat ditunda di Hari ke-2 dan dilanjutkan di Hari ke-5),
-  // maka TIDAK PERLU ADA TANDA PROYEK INI!
   if (isDateInsidePauseGap(dateStr, pauses)) {
     return null;
   }
@@ -797,48 +852,38 @@ function getEntryDayViewOnDate(
   const isExplicitMilestone =
     dateStr === startDate ||
     dateStr === e.completedDate ||
-    pauses.some((p) => p.pausedOn === dateStr || p.resumedOn === dateStr) ||
-    Boolean(e.dayStatusMap && e.dayStatusMap[dateStr]);
+    pauses.some((p) => p.pausedOn === dateStr || p.resumedOn === dateStr);
 
-  // Tidak berlaku di hari libur si pekerja (mengikuti aturan tolak ukur di halaman absensi)
   if (!isExplicitMilestone && isWorkerDayOffOnDate(dateStr, policy, attendanceList, e.ownerId)) {
     return null;
   }
 
-  // Hitung urutan hari kerja aktif (mengabaikan hari libur & hari jeda tunda)
-  let activeDayCounter = 0;
-  const cur = new Date(startDate + 'T00:00:00');
-  const target = new Date(dateStr + 'T00:00:00');
-  while (cur <= target) {
-    const dStr = toDateStr(cur.getFullYear(), cur.getMonth(), cur.getDate());
-    const expMilestone =
-      dStr === startDate ||
-      dStr === e.completedDate ||
-      pauses.some((p) => p.pausedOn === dStr || p.resumedOn === dStr);
-    if (
-      !isDateInsidePauseGap(dStr, pauses) &&
-      (expMilestone || !isWorkerDayOffOnDate(dStr, policy, attendanceList, e.ownerId))
-    ) {
-      activeDayCounter += 1;
+  const workDayIndex = Math.max(
+    1,
+    getWorkDaySpan(startDate, dateStr, policy, attendanceList, e.ownerId)
+  );
+
+  // Cari status dari tanggal sebelumnya jika ada di dayStatusMap (agar ketika hari ke-2 diubah ke 'berjalan' atau 'revisi', hari selanjutnya mengikuti!)
+  let inheritedStatus: 'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'selesai' | null = null;
+  for (const expD of explicitDates) {
+    if (expD <= dateStr) {
+      const st = dayMap[expD];
+      if (st && st !== 'hidden' && st !== 'revisi_selesai') {
+        inheritedStatus = st;
+      }
     }
-    cur.setDate(cur.getDate() + 1);
   }
-  const workDayIndex = Math.max(1, activeDayCounter);
 
-  // Tentukan status spesifik pada tanggal ini (agar hari sebelumnya tetap 'berjalan' / 'Belum Mulai' saat hari berikutnya 'selesai')
   const isPauseDay = pauses.some((p) => p.pausedOn === dateStr);
-  const mappedDayStatus = e.dayStatusMap ? e.dayStatusMap[dateStr] : undefined;
-
   let dayStatus: 'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'selesai' = 'berjalan';
 
   if (isPauseDay) {
     dayStatus = 'tertunda';
   } else if (e.status === 'selesai' && dateStr === mainEndDate) {
     dayStatus = 'selesai';
-  } else if (mappedDayStatus) {
-    dayStatus = dateStr < mainEndDate && mappedDayStatus === 'selesai' ? 'berjalan' : mappedDayStatus;
+  } else if (inheritedStatus) {
+    dayStatus = dateStr < mainEndDate && inheritedStatus === 'selesai' ? 'berjalan' : inheritedStatus;
   } else if (e.status === 'selesai' && dateStr < mainEndDate) {
-    // Saat project sudah selesai di hari berikutnya, di hari-hari sebelumnya tetap ditampilkan berjalan!
     dayStatus = 'berjalan';
   } else if (e.status === 'belum_mulai' && dateStr === startDate) {
     dayStatus = 'belum_mulai';
@@ -846,37 +891,14 @@ function getEntryDayViewOnDate(
     dayStatus = 'berjalan';
   }
 
-  const labelMap: Record<string, { label: string; badge: string }> = {
-    belum_mulai: {
-      label: 'Belum Mulai',
-      badge: 'bg-slate-100 text-slate-700 border-slate-300',
-    },
-    berjalan: {
-      label: 'berjalan',
-      badge: 'bg-blue-100 text-blue-800 border-blue-300',
-    },
-    tertunda: {
-      label: 'tertunda',
-      badge: 'bg-amber-100 text-amber-900 border-amber-300 font-bold',
-    },
-    revisi: {
-      label: 'revisi',
-      badge: 'bg-rose-100 text-rose-800 border-rose-300 font-bold',
-    },
-    selesai: {
-      label: 'selesai',
-      badge: 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold',
-    },
-  };
-
-  const meta = labelMap[dayStatus] || labelMap.berjalan;
+  const style = DAY_STATUS_STYLE_MAP[dayStatus] || DAY_STATUS_STYLE_MAP.berjalan;
   return {
     isVisible: true,
     dayStatus,
-    statusLabel: meta.label,
-    badgeClass: meta.badge,
+    statusLabel: style.label,
+    badgeClass: style.badge,
     workDayIndex,
-    isRevisionPhase: false,
+    isRevisionPhase: dayStatus === 'revisi',
   };
 }
 
@@ -886,7 +908,13 @@ function getEntryDateRange(
   policy?: WorkPolicy,
   attendanceList?: AttendanceRecord[]
 ): { startDate: string; endDate: string; totalDays: number; isOngoing: boolean } {
-  const startDate = e.date;
+  const dayMap = e.dayStatusMap || {};
+  const explicitDates = Object.keys(dayMap).filter((d) => dayMap[d] !== 'hidden').sort();
+  let startDate = e.date;
+  if (explicitDates.length > 0 && explicitDates[0] < startDate) {
+    startDate = explicitDates[0];
+  }
+
   let endDate = startDate;
   let isOngoing = false;
   const pauses = getNormalizedPausePeriods(e);
@@ -895,12 +923,13 @@ function getEntryDateRange(
     (maxD, p) => (p.resumedOn && p.resumedOn > maxD ? p.resumedOn : maxD),
     ''
   );
+  const maxExplicitDate = explicitDates.length > 0 ? explicitDates[explicitDates.length - 1] : '';
 
   if (e.status === 'selesai') {
-    endDate = (e as any).completedDate || startDate;
+    endDate = (e as any).completedDate || maxExplicitDate || startDate;
     if (endDate < startDate) endDate = startDate;
   } else if (e.status === 'tertunda') {
-    const freezeDate = (e as any).suspendedDate || (e as any).completedDate || (startDate <= today ? today : startDate);
+    const freezeDate = (e as any).suspendedDate || maxExplicitDate || (startDate <= today ? today : startDate);
     endDate = freezeDate < startDate ? startDate : freezeDate;
     isOngoing = false;
   } else {
@@ -915,7 +944,10 @@ function getEntryDateRange(
     }
   }
 
-  // Periksa juga apakah ada siklus revisi di tanggal yang lebih baru
+  if (maxExplicitDate && maxExplicitDate > endDate) {
+    endDate = maxExplicitDate;
+  }
+
   revisions.forEach((rev) => {
     const rEnd =
       rev.status === 'selesai'
@@ -926,7 +958,6 @@ function getEntryDateRange(
     if (rEnd > endDate) endDate = rEnd;
   });
 
-  // Hitung durasi hari kerja aktif (mengabaikan hari libur pekerja & jeda hari tunda)
   let activeDays = 0;
   const cur = new Date(startDate + 'T00:00:00');
   const endObj = new Date(endDate + 'T00:00:00');
@@ -1475,7 +1506,7 @@ export default function App() {
   const [calendarPreviewDate, setCalendarPreviewDate] = useState<string | null>(null);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
 
-  // State Drag-and-Drop (Seret & Pindahkan Proyek ke Tanggal Lain di Kalender)
+  // State Drag-and-Drop (Seret & Pindahkan Proyek ke Tanggal Lain di Kalender) & Menu Status Cepat di Sel Kalender
   const [draggedCalendarItem, setDraggedCalendarItem] = useState<{
     entryId: string;
     fromDate: string;
@@ -1483,6 +1514,10 @@ export default function App() {
     revisionId?: string;
   } | null>(null);
   const [dragOverCalendarDate, setDragOverCalendarDate] = useState<string | null>(null);
+  const [inlineCalendarStatusMenu, setInlineCalendarStatusMenu] = useState<{
+    entryId: string;
+    dateStr: string;
+  } | null>(null);
 
   const [popupCustomDateInput, setPopupCustomDateInput] = useState<Record<string, string>>({});
 
@@ -3193,71 +3228,168 @@ export default function App() {
     showToast(`Proyek "${entry.title}" dilanjutkan pada ${formatDateShortIndo(resumeDate)} (riwayat hari awal tetap terjaga)!`);
   };
 
-  // FUNGSI UBAH STATUS PROYEK SPESIFIK PADA TANGGAL TERTENTU DI KALENDER
+  // FUNGSI FLEKSIBEL UBAH STATUS PROYEK PADA TANGGAL TERTENTU (BELUM MULAI <-> BERJALAN <-> SELESAI <-> REVISI <-> TERTUNDA)
   const handleSetEntryStatusOnDate = (
     entry: ScheduleEntry,
     targetDate: string,
-    newStatus: 'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'selesai'
+    newStatus: 'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'selesai' | 'hidden'
   ) => {
-    const dayView = getEntryDayViewOnDate(entry, targetDate, todayStr, workPolicy, attendance);
-    const nextDayMap = { ...(entry.dayStatusMap || {}) };
+    const currentView = getEntryDayViewOnDate(entry, targetDate, todayStr, workPolicy, attendance);
+    const nextDayMap: Record<
+      string,
+      'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'revisi_selesai' | 'selesai' | 'hidden'
+    > = { ...(entry.dayStatusMap || {}) };
+
+    // Jika user menghapus kotak proyek khusus pada tanggal ini saja
+    if (newStatus === 'hidden') {
+      nextDayMap[targetDate] = 'hidden';
+      const updatedRevs = getNormalizedRevisionCycles(entry).filter((r) => r.startDate !== targetDate);
+      const updated = db.updateEntry(entry.id, {
+        dayStatusMap: nextDayMap,
+        revisionCycles: updatedRevs,
+      } as any);
+      setEntries(updated);
+      showToast(`Kotak "${entry.title}" dihapus dari tanggal ${formatDateShortIndo(targetDate)}`);
+      return;
+    }
+
+    // Bekukan status hari-hari kerja sebelumnya (< targetDate) agar perubahan di targetDate tidak merusak riwayat hari sebelumnya!
+    const startD = entry.date < targetDate ? entry.date : targetDate;
+    const cur = new Date(startD + 'T00:00:00');
+    const targetObj = new Date(targetDate + 'T00:00:00');
+    while (cur < targetObj) {
+      const dStr = toDateStr(cur.getFullYear(), cur.getMonth(), cur.getDate());
+      if (!nextDayMap[dStr]) {
+        const prevView = getEntryDayViewOnDate(entry, dStr, todayStr, workPolicy, attendance);
+        if (prevView && prevView.isVisible) {
+          nextDayMap[dStr] =
+            prevView.dayStatus === 'selesai' && dStr < targetDate && entry.completedDate !== dStr
+              ? 'berjalan'
+              : prevView.dayStatus;
+        }
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+
     const existingPauses = getNormalizedPausePeriods(entry);
     const existingRevisions = getNormalizedRevisionCycles(entry);
 
-    // 1. Jika proyek sedang dalam fase REVISI pada tanggal ini dan diubah ke SELESAI
-    if (dayView?.isRevisionPhase && dayView.revisionCycle && newStatus === 'selesai') {
-      const revId = dayView.revisionCycle.id;
-      const updatedRevisions = existingRevisions.map((r) =>
-        r.id === revId ? { ...r, status: 'selesai' as const, completedDate: targetDate } : r
-      );
-      const updatedAddons = (entry.additionalTasks || []).map((a) =>
-        a.id === revId ? { ...a, isCompleted: true, completedDate: targetDate } : a
-      );
+    // 1. Jika diubah ke REVISI (dari Selesai, Berjalan, Belum Mulai, atau Tertunda)
+    if (newStatus === 'revisi') {
+      nextDayMap[targetDate] = 'revisi';
+      // Bersihkan status selesai pada tanggal setelahnya jika sedang dibuka jadi revisi
+      const revExists = existingRevisions.some((r) => r.startDate === targetDate);
+      const nextRevisions: RevisionCycle[] = revExists
+        ? existingRevisions.map((r) =>
+            r.startDate === targetDate ? { ...r, status: 'revisi' as const, completedDate: null } : r
+          )
+        : [
+            ...existingRevisions,
+            {
+              id: 'rev-' + Date.now().toString(36),
+              title: entry.title.replace(/^(\[Revisi\]\s*|Revisi:\s*)+/i, '').trim(),
+              startDate: targetDate,
+              completedDate: null,
+              status: 'revisi',
+            },
+          ];
+
       const updated = db.updateEntry(entry.id, {
-        revisionCycles: updatedRevisions,
-        additionalTasks: updatedAddons,
+        status: 'berjalan',
+        dayStatusMap: nextDayMap,
+        revisionCycles: nextRevisions,
+      } as any);
+      setEntries(updated);
+      showToast(`"${entry.title}" pada ${formatDateShortIndo(targetDate)} diubah ke (revisi)!`);
+      return;
+    }
+
+    // 2. Jika diubah ke BERJALAN atau BELUM MULAI (termasuk dari Revisi atau Selesai!)
+    if (newStatus === 'berjalan' || newStatus === 'belum_mulai') {
+      nextDayMap[targetDate] = newStatus;
+      // Jika sebelumnya pada tanggal ini ada siklus revisi, hapus/sinkronkan siklus revisi di tanggal ini agar tidak mengunci status!
+      const cleanedRevisions = existingRevisions.filter((r) => r.startDate !== targetDate);
+      // Jika sebelumnya ditunda sebelum/pada tanggal ini, tandai resumedOn pada targetDate
+      const updatedPauses = existingPauses.map((p) =>
+        !p.resumedOn && p.pausedOn < targetDate ? { ...p, resumedOn: targetDate } : p
+      );
+
+      const updated = db.updateEntry(entry.id, {
+        status: newStatus,
+        completedDate: null,
+        suspendedDate: null,
+        dayStatusMap: nextDayMap,
+        revisionCycles: cleanedRevisions,
+        pausePeriods: updatedPauses,
       } as any);
       setEntries(updated);
       showToast(
-        dayView.revisionCycle.startDate === targetDate
-          ? `Revisi "${entry.title}" selesai di hari yang sama & catatan revisi tetap disimpan di kalender!`
-          : `Revisi "${entry.title}" diselesaikan pada ${formatDateShortIndo(targetDate)}!`
+        `"${entry.title}" pada ${formatDateShortIndo(targetDate)} diubah ke (${
+          newStatus === 'belum_mulai' ? 'Belum Mulai' : 'berjalan'
+        })!`
       );
       return;
     }
 
-    // 2. Jika user memilih status REVISI pada tanggal ini
-    if (newStatus === 'revisi') {
-      handleCreateRevisionFromCompleted(entry, `Revisi: ${entry.title}`, targetDate);
-      return;
-    }
-
-    // 3. Jika user memilih TUNDA (Tertunda) pada tanggal ini
+    // 3. Jika diubah ke TUNDA (Tertunda)
     if (newStatus === 'tertunda') {
       nextDayMap[targetDate] = 'tertunda';
+      const cleanedRevisions = existingRevisions.filter((r) => r.startDate !== targetDate);
       const filteredPauses = existingPauses.filter((p) => p.pausedOn !== targetDate);
       const nextPauses: PausePeriod[] = [
         ...filteredPauses,
         { pausedOn: targetDate, resumedOn: null },
       ];
+      // Hapus auto-continuation setelah targetDate
+      Object.keys(nextDayMap).forEach((k) => {
+        if (k > targetDate) delete nextDayMap[k];
+      });
+
       const updated = db.updateEntry(entry.id, {
         status: 'tertunda',
         suspendedDate: targetDate,
-        pausePeriods: nextPauses,
         dayStatusMap: nextDayMap,
+        pausePeriods: nextPauses,
+        revisionCycles: cleanedRevisions,
       } as any);
       setEntries(updated);
-      showToast(`"${entry.title}" ditunda pada ${formatDateShortIndo(targetDate)}. Pilih tanggal lanjut kapan saja.`);
+      showToast(`"${entry.title}" pada ${formatDateShortIndo(targetDate)} diubah ke (tertunda)!`);
       return;
     }
 
-    // 4. Jika user memilih SELESAI pada tanggal ini
+    // 4. Jika diubah ke SELESAI (baik dari Berjalan, Belum Mulai, maupun dari Revisi!)
     if (newStatus === 'selesai') {
-      // Pastikan hari awal tetap tercatat berjalan/belum_mulai jika selesai di hari berikutnya
-      if (targetDate > entry.date && !nextDayMap[entry.date]) {
-        nextDayMap[entry.date] = entry.status === 'belum_mulai' ? 'belum_mulai' : 'berjalan';
+      const wasRevisiOnThisDate =
+        currentView?.dayStatus === 'revisi' ||
+        currentView?.dayStatus === 'revisi_selesai' ||
+        nextDayMap[targetDate] === 'revisi';
+
+      // Cek apakah ada hari sebelumnya yang sudah 'selesai' (berarti hari ini adalah penyelesaian revisi di hari yang sama atau hari berikutnya)
+      const hasPriorSelesai = Object.entries(nextDayMap).some(
+        ([d, st]) => d < targetDate && (st === 'selesai' || st === 'revisi_selesai')
+      );
+      const hasPriorRevisi = Object.entries(nextDayMap).some(
+        ([d, st]) => d < targetDate && st === 'revisi'
+      );
+
+      if (wasRevisiOnThisDate && !hasPriorRevisi && hasPriorSelesai) {
+        // Selesai revisi di hari yang sama saat revisi dimulai -> biarkan catatan revisi tetap ada di kalender ('revisi • selesai')
+        nextDayMap[targetDate] = 'revisi_selesai';
+      } else {
+        nextDayMap[targetDate] = 'selesai';
       }
-      nextDayMap[targetDate] = 'selesai';
+
+      // Bersihkan tanggal-tanggal setelah targetDate agar proyek berhenti di targetDate
+      Object.keys(nextDayMap).forEach((k) => {
+        if (k > targetDate) delete nextDayMap[k];
+      });
+
+      const updatedRevisions = existingRevisions.map((r) =>
+        r.startDate <= targetDate && r.status !== 'selesai'
+          ? { ...r, status: 'selesai' as const, completedDate: targetDate }
+          : r
+      );
+
       const durationDays = getCalendarDaySpan(entry.date, targetDate, workPolicy, attendance, entry.ownerId);
       const updated = db.updateEntry(entry.id, {
         status: 'selesai',
@@ -3265,92 +3397,138 @@ export default function App() {
         suspendedDate: null,
         durationDays,
         dayStatusMap: nextDayMap,
+        revisionCycles: updatedRevisions,
       } as any);
       setEntries(updated);
-      showToast(`"${entry.title}" selesai pada ${formatDateShortIndo(targetDate)}!`);
+      showToast(`"${entry.title}" pada ${formatDateShortIndo(targetDate)} diubah ke (selesai)!`);
       return;
     }
-
-    // 5. Jika user memilih BELUM MULAI atau BERJALAN pada tanggal ini
-    if (newStatus === 'berjalan' && entry.status === 'belum_mulai' && targetDate > entry.date) {
-      nextDayMap[entry.date] = 'belum_mulai';
-    }
-    nextDayMap[targetDate] = newStatus;
-    const updated = db.updateEntry(entry.id, {
-      status: newStatus,
-      completedDate: null,
-      suspendedDate: null,
-      dayStatusMap: nextDayMap,
-    } as any);
-    setEntries(updated);
-    showToast(`Status "${entry.title}" pada ${formatDateShortIndo(targetDate)} diubah ke ${newStatus === 'belum_mulai' ? 'Belum Mulai' : 'Berjalan'}`);
   };
 
-  // FUNGSI SERET & PINDAHKAN PROYEK KE TANGGAL LAIN (DRAG & DROP KALENDER)
+  // FUNGSI SERET KOTAK PROYEK KE KALENDER SEBELAHNYA / TANGGAL LAIN (KOTAK PROYEK NGIKUT BESERTA KATEGORI PROYEKNYA)
   const handleMoveEntryToDate = (
     entryId: string,
     targetDate: string,
     fromDate?: string,
-    isRevisionPhase?: boolean,
-    revisionId?: string
+    _isRevisionPhase?: boolean,
+    _revisionId?: string,
+    forceMoveOnly: boolean = false
   ) => {
     const entry = entries.find((e) => e.id === entryId);
     if (!entry || !targetDate) return;
     if (fromDate && fromDate === targetDate) return;
 
-    // Jika yang diseret adalah chip Revisi, pindahkan tanggal mulai revisi tersebut
-    if (isRevisionPhase && revisionId) {
-      const updatedRevs = getNormalizedRevisionCycles(entry).map((r) =>
-        r.id === revisionId
-          ? {
-              ...r,
-              startDate: targetDate,
-              completedDate: r.status === 'selesai' ? targetDate : null,
-            }
-          : r
-      );
-      const updatedAddons = (entry.additionalTasks || []).map((a) =>
-        a.id === revisionId
-          ? {
-              ...a,
-              scheduledDate: targetDate,
-              completedDate: a.isCompleted ? targetDate : null,
-            }
-          : a
-      );
+    const nextDayMap: Record<
+      string,
+      'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'revisi_selesai' | 'selesai' | 'hidden'
+    > = { ...(entry.dayStatusMap || {}) };
+
+    const sourceView = fromDate
+      ? getEntryDayViewOnDate(entry, fromDate, todayStr, workPolicy, attendance)
+      : null;
+    const sourceStatus = sourceView?.dayStatus || entry.status;
+
+    // Jika mode Pindah Murni (atau diseret mundur ke tanggal sebelum startDate)
+    if (forceMoveOnly || (fromDate && targetDate < entry.date)) {
+      if (fromDate) {
+        nextDayMap[fromDate] = 'hidden';
+      }
+      const movedStatus =
+        sourceStatus === 'revisi_selesai' ? 'revisi' : sourceStatus;
+      nextDayMap[targetDate] = movedStatus;
+      const newStartDate = targetDate < entry.date ? targetDate : entry.date;
       const updated = db.updateEntry(entry.id, {
-        revisionCycles: updatedRevs,
-        additionalTasks: updatedAddons,
+        date: newStartDate,
+        dayStatusMap: nextDayMap,
+        completedDate: entry.status === 'selesai' ? targetDate : entry.completedDate,
       } as any);
       setEntries(updated);
-      showToast(`Jadwal revisi "${entry.title}" dipindahkan ke ${formatDateShortIndo(targetDate)}!`);
+      showToast(`Kotak proyek "${entry.title}" dipindahkan ke ${formatDateShortIndo(targetDate)}!`);
       return;
     }
 
-    // Jika proyek sedang tertunda dan diseret ke tanggal setelah tanggal tunda -> otomatis lanjutkan di tanggal tersebut!
-    if (entry.status === 'tertunda' && entry.suspendedDate && targetDate > entry.suspendedDate) {
-      handleResumeTertundaProject(entry, targetDate);
+    // Saat kotak proyek diseret ke kalender sebelahnya / tanggal berikutnya (targetDate > fromDate):
+    // Kotak proyek pada fromDate tetap terjaga, dan kotak proyek NGIKUT masuk ke targetDate!
+    if (fromDate && !nextDayMap[fromDate]) {
+      nextDayMap[fromDate] = sourceStatus;
+    }
+
+    // 1. Jika kotak yang diseret berasal dari status 'tertunda' (misal ditunda di Hari ke-2 lalu diseret ke Hari ke-5):
+    //    Hari di antaranya (Hari ke-3 & 4) otomatis dibuat kosong ('hidden'), dan di Hari ke-5 mulai 'berjalan'!
+    if (sourceStatus === 'tertunda' && fromDate && targetDate > fromDate) {
+      const cur = new Date(fromDate + 'T00:00:00');
+      cur.setDate(cur.getDate() + 1);
+      const endObj = new Date(targetDate + 'T00:00:00');
+      while (cur < endObj) {
+        const gapStr = toDateStr(cur.getFullYear(), cur.getMonth(), cur.getDate());
+        nextDayMap[gapStr] = 'hidden';
+        cur.setDate(cur.getDate() + 1);
+      }
+      nextDayMap[targetDate] = 'berjalan';
+      const existingPauses = getNormalizedPausePeriods(entry);
+      const updatedPauses: PausePeriod[] = [
+        ...existingPauses.filter((p) => p.pausedOn !== fromDate),
+        { pausedOn: fromDate, resumedOn: targetDate },
+      ];
+      const updated = db.updateEntry(entry.id, {
+        status: 'berjalan',
+        suspendedDate: null,
+        pausePeriods: updatedPauses,
+        dayStatusMap: nextDayMap,
+      } as any);
+      setEntries(updated);
+      showToast(
+        `Kotak proyek "${entry.title}" dilanjutkan ke ${formatDateShortIndo(targetDate)} (hari jeda dikosongkan)!`
+      );
       return;
     }
 
-    // Pindahkan tanggal mulai proyek ke targetDate
-    const wasSingleDayCompleted =
-      entry.status === 'selesai' && (!entry.completedDate || entry.completedDate === entry.date);
-    const nextCompletedDate =
-      entry.status === 'selesai'
-        ? wasSingleDayCompleted
-          ? targetDate
-          : entry.completedDate && entry.completedDate >= targetDate
-          ? entry.completedDate
-          : targetDate
-        : null;
+    // 2. Jika kotak yang diseret berasal dari status 'selesai' (misal selesai di Tgl 7 lalu diseret ke Tgl 9):
+    //    Hari di antaranya dikosongkan dan pada Tgl 9 otomatis masuk sebagai 'revisi' (bisa diubah ke berjalan/selesai kapan saja)!
+    if ((sourceStatus === 'selesai' || sourceStatus === 'revisi_selesai') && fromDate && targetDate > fromDate) {
+      const cur = new Date(fromDate + 'T00:00:00');
+      cur.setDate(cur.getDate() + 1);
+      const endObj = new Date(targetDate + 'T00:00:00');
+      while (cur < endObj) {
+        const gapStr = toDateStr(cur.getFullYear(), cur.getMonth(), cur.getDate());
+        if (!nextDayMap[gapStr]) nextDayMap[gapStr] = 'hidden';
+        cur.setDate(cur.getDate() + 1);
+      }
+      nextDayMap[targetDate] = 'revisi';
+      const updated = db.updateEntry(entry.id, {
+        status: 'berjalan',
+        dayStatusMap: nextDayMap,
+      } as any);
+      setEntries(updated);
+      showToast(
+        `Kotak proyek "${entry.title}" ngikut ke ${formatDateShortIndo(targetDate)} sebagai (revisi)!`
+      );
+      return;
+    }
+
+    // 3. Jika kotak yang diseret berstatus 'berjalan', 'belum_mulai', atau 'revisi' ke kalender sebelahnya:
+    //    Kotak proyek langsung ngikut ke tanggal target (hari kerja aktif di antaranya ikut terhubung, hari libur dilewati)!
+    if (fromDate && targetDate > fromDate) {
+      const cur = new Date(fromDate + 'T00:00:00');
+      cur.setDate(cur.getDate() + 1);
+      const endObj = new Date(targetDate + 'T00:00:00');
+      while (cur <= endObj) {
+        const dStr = toDateStr(cur.getFullYear(), cur.getMonth(), cur.getDate());
+        if (dStr === targetDate || !isWorkerDayOffOnDate(dStr, workPolicy, attendance, entry.ownerId)) {
+          nextDayMap[dStr] = sourceStatus === 'belum_mulai' ? 'berjalan' : sourceStatus;
+        }
+        cur.setDate(cur.getDate() + 1);
+      }
+    } else {
+      nextDayMap[targetDate] = sourceStatus === 'belum_mulai' ? 'berjalan' : sourceStatus;
+    }
 
     const updated = db.updateEntry(entry.id, {
-      date: targetDate,
-      completedDate: nextCompletedDate,
+      status: sourceStatus === 'revisi' ? 'berjalan' : (sourceStatus as EntryStatus),
+      dayStatusMap: nextDayMap,
     } as any);
     setEntries(updated);
-    showToast(`Proyek "${entry.title}" berhasil dipindahkan ke ${formatDateShortIndo(targetDate)}!`);
+    showToast(`Kotak proyek "${entry.title}" berhasil ngikut ke ${formatDateShortIndo(targetDate)}!`);
   };
 
   // Handlers Penambahan Pekerjaan & Catatan Revisi Proyek (Dengan Penjadwalan Tanggal Muncul di Kalender)
@@ -3430,28 +3608,22 @@ export default function App() {
     showToast('Item revisi dihapus');
   };
 
-  const handleQuickCycleStatus = (entry: ScheduleEntry) => {
-    const order: EntryStatus[] = ['belum_mulai', 'berjalan', 'tertunda', 'selesai'];
-    const nextStatus = order[(order.indexOf(entry.status) + 1) % order.length];
-    const isCompleted = nextStatus === 'selesai';
-    const isTertunda = nextStatus === 'tertunda';
-    const finishDate = isCompleted ? (selectedDate || todayStr) : null;
-    // Ketika tertunda: bekukan tanggal penundaan pada hari yang dipilih atau hari ini
-    const suspendedDate = isTertunda ? (selectedDate || todayStr) : null;
-    const durationDays = isCompleted ? getCalendarDaySpan(entry.date, finishDate!) : undefined;
+  const handleQuickCycleStatus = (entry: ScheduleEntry, customDate?: string) => {
+    const targetDate = customDate || selectedDate || calendarPreviewDate || todayStr;
+    const currentView = getEntryDayViewOnDate(entry, targetDate, todayStr, workPolicy, attendance);
+    const currentDaySt = currentView?.dayStatus || entry.status;
+    const normalizedCurrent: 'belum_mulai' | 'berjalan' | 'selesai' | 'revisi' | 'tertunda' =
+      currentDaySt === 'revisi_selesai' ? 'revisi' : currentDaySt;
 
-    const updated = db.updateEntry(entry.id, {
-      status: nextStatus,
-      completedDate: finishDate,
-      suspendedDate,
-      durationDays,
-    } as any);
-    setEntries(updated);
-    if (isCompleted) {
-      showToast(`🎉 Proyek selesai! Dikerjakan selama ${durationDays} hari (${formatDateShortIndo(entry.date)} – ${formatDateShortIndo(finishDate!)}).`);
-    } else {
-      showToast(`Status diubah ke "${STATUS_META[nextStatus].label}"`);
-    }
+    const cycleOrder: Array<'belum_mulai' | 'berjalan' | 'selesai' | 'revisi' | 'tertunda'> = [
+      'belum_mulai',
+      'berjalan',
+      'selesai',
+      'revisi',
+      'tertunda',
+    ];
+    const nextSt = cycleOrder[(cycleOrder.indexOf(normalizedCurrent) + 1) % cycleOrder.length];
+    handleSetEntryStatusOnDate(entry, targetDate, nextSt);
   };
 
   const handleConfirmDeleteEntry = (id: string) => {
@@ -5892,10 +6064,10 @@ export default function App() {
                               </div>
                             ))}
 
-                            {/* TUGAS PROYEK DI CELL KALENDER (Format: - kerjaan a (berjalan/selesai/Belum Mulai/revisi/tertunda) + Bisa Diseret/Drag & Drop) */}
+                            {/* KOTAK PROYEK DI CELL KALENDER (Kotak Project Lengkap + Klik Status Langsung Ubah + Seret Kotak Project Ngikut ke Kalender Sebelahnya) */}
                             {visibleEntries.map((entry) => {
                               const proj = entry.projectId ? projectMap[entry.projectId] : null;
-                              const chipColor = proj ? proj.color : '#64748b';
+                              const chipColor = proj ? proj.color : '#6366f1';
                               const prog = proj?.programs?.find((p) => p.id === entry.programId);
                               const dayView = getEntryDayViewOnDate(
                                 entry,
@@ -5912,6 +6084,12 @@ export default function App() {
                               const isRevisi = statusOnDay === 'revisi' || statusOnDay === 'revisi_selesai';
                               const isTertunda = statusOnDay === 'tertunda';
                               const isSelesai = statusOnDay === 'selesai' || statusOnDay === 'revisi_selesai';
+                              const isMenuOpen =
+                                inlineCalendarStatusMenu?.entryId === entry.id &&
+                                inlineCalendarStatusMenu?.dateStr === cell.dateStr;
+                              const isBeingDragged =
+                                draggedCalendarItem?.entryId === entry.id &&
+                                draggedCalendarItem?.fromDate === cell.dateStr;
 
                               return (
                                 <div
@@ -5919,68 +6097,187 @@ export default function App() {
                                   draggable={true}
                                   onDragStart={(ev) => {
                                     ev.stopPropagation();
+                                    setInlineCalendarStatusMenu(null);
                                     setDraggedCalendarItem({
                                       entryId: entry.id,
                                       fromDate: cell.dateStr,
                                       isRevisionPhase: dayView?.isRevisionPhase,
                                       revisionId: dayView?.revisionCycle?.id,
                                     });
-                                    ev.dataTransfer.effectAllowed = 'move';
+                                    ev.dataTransfer.effectAllowed = 'copyMove';
+                                    try {
+                                      ev.dataTransfer.setData('text/plain', entry.id);
+                                    } catch {}
                                   }}
                                   onDragEnd={() => {
                                     setDraggedCalendarItem(null);
                                     setDragOverCalendarDate(null);
                                   }}
-                                  className={`flex items-center justify-between gap-1 px-1.5 py-1 rounded-md text-[10.5px] font-semibold truncate border transition-all cursor-grab active:cursor-grabbing hover:shadow-2xs ${
+                                  className={`relative rounded-lg p-1.5 text-[10px] border-l-4 border transition-all cursor-grab active:cursor-grabbing shadow-2xs hover:shadow-sm ${
+                                    isBeingDragged ? 'opacity-50 scale-95 ring-2 ring-indigo-500' : ''
+                                  } ${
                                     isTertunda
-                                      ? 'ring-1 ring-amber-400 bg-amber-50 text-amber-950 border-amber-300'
+                                      ? 'bg-amber-50/95 text-amber-950 border-amber-300'
                                       : isRevisi
-                                      ? 'bg-rose-50 text-rose-950 border-rose-300'
+                                      ? 'bg-rose-50/95 text-rose-950 border-rose-300'
                                       : isSelesai
                                       ? 'bg-emerald-50/90 text-emerald-950 border-emerald-300'
-                                      : ''
+                                      : 'bg-white text-slate-900 border-slate-200/90'
                                   }`}
-                                  style={
-                                    !isTertunda && !isRevisi && !isSelesai
-                                      ? {
-                                          backgroundColor: `${chipColor}15`,
-                                          borderColor: `${chipColor}45`,
-                                          color: '#0f172a',
-                                        }
-                                      : undefined
-                                  }
-                                  title={`Seret untuk pindah tanggal • Klik untuk rincian: - ${entry.title} (${statusLabelOnDay})${
-                                    proj ? ` • Proyek: ${proj.name}` : ''
-                                  }${prog ? ` • Program: ${prog.name}` : ''}`}
+                                  style={{
+                                    borderLeftColor: chipColor,
+                                    backgroundColor:
+                                      !isTertunda && !isRevisi && !isSelesai ? `${chipColor}12` : undefined,
+                                  }}
+                                  title={`Seret kotak ini ke tanggal sebelah agar ngikut • Klik status (${statusLabelOnDay}) untuk ubah langsung`}
                                 >
-                                  <div className="flex items-center gap-1 min-w-0 flex-1">
+                                  {/* Baris Atas Kotak Project: Badge Nama Project + Tombol Hapus Tanggal Ini */}
+                                  <div className="flex items-center justify-between gap-1 mb-0.5">
                                     <span
-                                      className="w-1.5 h-1.5 rounded-full shrink-0"
-                                      style={{
-                                        backgroundColor: isRevisi
-                                          ? '#e11d48'
-                                          : isSelesai
-                                          ? '#10b981'
-                                          : isTertunda
-                                          ? '#f59e0b'
-                                          : chipColor,
-                                      }}
-                                    />
-                                    <span className="truncate font-bold">
-                                      {entry.title}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[8.5px] font-black text-white truncate max-w-[115px] shadow-2xs"
+                                      style={{ backgroundColor: chipColor }}
+                                    >
+                                      <span className="truncate">{proj ? proj.name : 'UMUM'}</span>
+                                      {prog && <span className="opacity-85">• {prog.name}</span>}
                                     </span>
+
+                                    <button
+                                      type="button"
+                                      onClick={(ev) => {
+                                        ev.stopPropagation();
+                                        setInlineCalendarStatusMenu(
+                                          isMenuOpen
+                                            ? null
+                                            : { entryId: entry.id, dateStr: cell.dateStr }
+                                        );
+                                      }}
+                                      className={`text-[8.5px] font-extrabold px-1.5 py-0.2 rounded border transition-transform hover:scale-105 cursor-pointer shrink-0 ${
+                                        dayView?.badgeClass || 'bg-slate-100 text-slate-700 border-slate-300'
+                                      }`}
+                                      title="Klik untuk ubah status (Belum Mulai / Berjalan / Selesai / Revisi / Tunda)"
+                                    >
+                                      ({statusLabelOnDay}) ▾
+                                    </button>
                                   </div>
 
-                                  <span
-                                    className={`text-[9px] font-extrabold px-1.5 py-0.2 rounded shrink-0 border ${
-                                      dayView?.badgeClass || 'bg-slate-100 text-slate-700 border-slate-200'
-                                    }`}
-                                  >
-                                    ({statusLabelOnDay})
-                                  </span>
+                                  {/* Baris Bawah Kotak Project: Nama Pekerjaan */}
+                                  <div className="font-bold text-[10.5px] text-slate-900 truncate leading-snug">
+                                    - {entry.title.replace(/^(\[Revisi\]\s*|Revisi:\s*)+/i, '').trim()}
+                                  </div>
+
+                                  {/* Popover Menu Ubah Status Instan Langsung di Atas Kotak Kalender */}
+                                  {isMenuOpen && (
+                                    <div
+                                      onClick={(ev) => ev.stopPropagation()}
+                                      className="absolute left-0 right-0 top-full mt-1 z-40 bg-slate-900 text-white rounded-xl p-1.5 shadow-xl border border-slate-700 space-y-1 animate-in fade-in zoom-in-95 duration-100"
+                                    >
+                                      <div className="flex items-center justify-between px-1 pb-0.5 border-b border-slate-700/80 text-[8.5px] text-slate-300 font-bold">
+                                        <span>Ubah Status Tgl {cell.dayNumber}:</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => setInlineCalendarStatusMenu(null)}
+                                          className="text-slate-400 hover:text-white"
+                                        >
+                                          ✕
+                                        </button>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-1 text-[9px] font-bold">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            handleSetEntryStatusOnDate(entry, cell.dateStr, 'belum_mulai');
+                                            setInlineCalendarStatusMenu(null);
+                                          }}
+                                          className="px-1.5 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white text-left truncate cursor-pointer"
+                                        >
+                                          • Belum Mulai
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            handleSetEntryStatusOnDate(entry, cell.dateStr, 'berjalan');
+                                            setInlineCalendarStatusMenu(null);
+                                          }}
+                                          className="px-1.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-left truncate cursor-pointer"
+                                        >
+                                          • Berjalan
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            handleSetEntryStatusOnDate(entry, cell.dateStr, 'selesai');
+                                            setInlineCalendarStatusMenu(null);
+                                          }}
+                                          className="px-1.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-left truncate cursor-pointer"
+                                        >
+                                          ✓ Selesai
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            handleSetEntryStatusOnDate(entry, cell.dateStr, 'revisi');
+                                            setInlineCalendarStatusMenu(null);
+                                          }}
+                                          className="px-1.5 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white text-left truncate cursor-pointer"
+                                        >
+                                          • Revisi
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            handleSetEntryStatusOnDate(entry, cell.dateStr, 'tertunda');
+                                            setInlineCalendarStatusMenu(null);
+                                          }}
+                                          className="px-1.5 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 text-left truncate cursor-pointer"
+                                        >
+                                          ! Tunda
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            handleSetEntryStatusOnDate(entry, cell.dateStr, 'hidden');
+                                            setInlineCalendarStatusMenu(null);
+                                          }}
+                                          className="px-1.5 py-1 rounded bg-slate-800 hover:bg-rose-900 text-rose-300 text-left truncate cursor-pointer"
+                                          title="Hapus kotak proyek dari tanggal ini saja"
+                                        >
+                                          ✕ Hapus Tgl Ini
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}
+
+                            {/* LIVE PREVIEW KOTAK PROYEK NGIKUT SAAT DISERET KE KALENDER SEBELAHNYA */}
+                            {isDragTarget && draggedCalendarItem && draggedCalendarItem.fromDate !== cell.dateStr && (() => {
+                              const draggedEntry = entries.find((e) => e.id === draggedCalendarItem.entryId);
+                              if (!draggedEntry) return null;
+                              const dProj = draggedEntry.projectId ? projectMap[draggedEntry.projectId] : null;
+                              const dColor = dProj ? dProj.color : '#6366f1';
+                              return (
+                                <div
+                                  className="rounded-lg p-1.5 text-[10px] border-l-4 border-2 border-dashed border-indigo-500 bg-indigo-50/90 shadow-md animate-pulse"
+                                  style={{ borderLeftColor: dColor }}
+                                >
+                                  <div className="flex items-center justify-between gap-1 mb-0.5">
+                                    <span
+                                      className="inline-flex items-center px-1.5 py-0.2 rounded text-[8.5px] font-black text-white truncate"
+                                      style={{ backgroundColor: dColor }}
+                                    >
+                                      {dProj ? dProj.name : 'UMUM'}
+                                    </span>
+                                    <span className="text-[8.5px] font-black text-indigo-700 bg-white px-1.5 py-0.2 rounded border border-indigo-200">
+                                      + Lepas di Tgl {cell.dayNumber}
+                                    </span>
+                                  </div>
+                                  <div className="font-bold text-[10.5px] text-indigo-950 truncate">
+                                    - {draggedEntry.title.replace(/^(\[Revisi\]\s*|Revisi:\s*)+/i, '').trim()}
+                                  </div>
+                                </div>
+                              );
+                            })()}
 
                             {remainingCount > 0 && (
                               <button
@@ -14305,15 +14602,26 @@ export default function App() {
                                       customDateVal,
                                       calendarPreviewDate,
                                       dayView?.isRevisionPhase,
-                                      dayView?.revisionCycle?.id
+                                      dayView?.revisionCycle?.id,
+                                      true
                                     )
                                   }
                                   className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[10px] cursor-pointer"
-                                  title="Pindahkan pekerjaan ke tanggal pilihan"
+                                  title="Pindahkan kotak pekerjaan ke tanggal pilihan"
                                 >
                                   Pindah Tgl
                                 </button>
                               )}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleSetEntryStatusOnDate(entry, calendarPreviewDate, 'hidden')
+                                }
+                                className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-[10px] cursor-pointer"
+                                title="Hapus kotak proyek dari tanggal ini saja"
+                              >
+                                ✕ Hapus Tgl Ini
+                              </button>
                             </div>
                           </div>
                         </div>

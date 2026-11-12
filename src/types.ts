@@ -110,7 +110,7 @@ export interface ScheduleEntry {
   additionalTasks?: ProjectAddonTask[]; // Riwayat penambahan pekerjaan & catatan revisi
   pausePeriods?: PausePeriod[]; // Riwayat jeda tunda & lanjut kembali
   revisionCycles?: RevisionCycle[]; // Riwayat siklus revisi setelah proyek selesai
-  dayStatusMap?: Record<string, 'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'selesai'>;
+  dayStatusMap?: Record<string, 'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'revisi_selesai' | 'selesai' | 'hidden'>;
   title: string;
   projectId: string | null; // null = "Tanpa proyek"
   programId?: string | null; // null = "Tanpa cabang program spesifik"

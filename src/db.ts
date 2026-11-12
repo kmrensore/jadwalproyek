@@ -122,7 +122,7 @@ export interface ProjectAddonTask {
   // Metadata carrier untuk sinkronisasi JSONB Supabase tanpa perlu migrasi kolom baru
   _metaPausePeriods?: PausePeriod[];
   _metaRevisionCycles?: RevisionCycle[];
-  _metaDayStatusMap?: Record<string, 'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'selesai'>;
+  _metaDayStatusMap?: Record<string, 'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'revisi_selesai' | 'selesai' | 'hidden'>;
 }
 
 // Definisi mandiri ScheduleEntry di db.ts agar mengenali status 'tertunda', completedDate, suspendedDate & additionalTasks
@@ -152,7 +152,7 @@ export interface ScheduleEntry {
   additionalTasks?: ProjectAddonTask[];
   pausePeriods?: PausePeriod[];
   revisionCycles?: RevisionCycle[];
-  dayStatusMap?: Record<string, 'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'selesai'>;
+  dayStatusMap?: Record<string, 'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'revisi_selesai' | 'selesai' | 'hidden'>;
   title: string;
   projectId: string | null;
   programId?: string | null;
@@ -253,7 +253,7 @@ function unpackAdditionalTasksAndMeta(rawTasks: any): {
   additionalTasks: ProjectAddonTask[];
   pausePeriods: PausePeriod[];
   revisionCycles: RevisionCycle[];
-  dayStatusMap: Record<string, 'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'selesai'>;
+  dayStatusMap: Record<string, 'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'revisi_selesai' | 'selesai' | 'hidden'>;
 } {
   const arr = Array.isArray(rawTasks) ? rawTasks : [];
   const metaItem = arr.find((t: any) => t && t.id === '__jadwalpro_meta__');
