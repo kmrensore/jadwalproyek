@@ -95,6 +95,20 @@ export type {
   TeamConnection,
 };
 
+export interface PausePeriod {
+  pausedOn: string;
+  resumedOn?: string | null;
+}
+
+export interface RevisionCycle {
+  id: string;
+  title: string;
+  startDate: string;
+  completedDate?: string | null;
+  status: 'revisi' | 'selesai';
+  notes?: string;
+}
+
 // Model Item Penambahan Pekerjaan & Riwayat Catatan Revisi
 export interface ProjectAddonTask {
   id: string;
@@ -102,8 +116,13 @@ export interface ProjectAddonTask {
   title: string;
   dateAdded: string;
   scheduledDate?: string;
+  completedDate?: string | null;
   isCompleted: boolean;
   notes?: string;
+  // Metadata carrier untuk sinkronisasi JSONB Supabase tanpa perlu migrasi kolom baru
+  _metaPausePeriods?: PausePeriod[];
+  _metaRevisionCycles?: RevisionCycle[];
+  _metaDayStatusMap?: Record<string, 'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'selesai'>;
 }
 
 // Definisi mandiri ScheduleEntry di db.ts agar mengenali status 'tertunda', completedDate, suspendedDate & additionalTasks
@@ -131,6 +150,9 @@ export interface ScheduleEntry {
   durationDays?: number;
   originIdeaId?: string | null;
   additionalTasks?: ProjectAddonTask[];
+  pausePeriods?: PausePeriod[];
+  revisionCycles?: RevisionCycle[];
+  dayStatusMap?: Record<string, 'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'selesai'>;
   title: string;
   projectId: string | null;
   programId?: string | null;
@@ -201,6 +223,51 @@ const safeStorage = {
     }
   },
 };
+
+
+function packAdditionalTasksWithMeta(entry: Partial<ScheduleEntry>): any[] {
+  const baseList = Array.isArray(entry.additionalTasks)
+    ? entry.additionalTasks.filter((t: any) => t && t.id !== '__jadwalpro_meta__')
+    : [];
+  const hasMeta =
+    (entry.pausePeriods && entry.pausePeriods.length > 0) ||
+    (entry.revisionCycles && entry.revisionCycles.length > 0) ||
+    (entry.dayStatusMap && Object.keys(entry.dayStatusMap).length > 0);
+  if (!hasMeta) return baseList;
+  return [
+    ...baseList,
+    {
+      id: '__jadwalpro_meta__',
+      type: 'instruksi',
+      title: '__meta__',
+      dateAdded: entry.date || '',
+      isCompleted: true,
+      _metaPausePeriods: entry.pausePeriods || [],
+      _metaRevisionCycles: entry.revisionCycles || [],
+      _metaDayStatusMap: entry.dayStatusMap || {},
+    },
+  ];
+}
+
+function unpackAdditionalTasksAndMeta(rawTasks: any): {
+  additionalTasks: ProjectAddonTask[];
+  pausePeriods: PausePeriod[];
+  revisionCycles: RevisionCycle[];
+  dayStatusMap: Record<string, 'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'selesai'>;
+} {
+  const arr = Array.isArray(rawTasks) ? rawTasks : [];
+  const metaItem = arr.find((t: any) => t && t.id === '__jadwalpro_meta__');
+  const cleanTasks = arr.filter((t: any) => t && t.id !== '__jadwalpro_meta__');
+  return {
+    additionalTasks: cleanTasks,
+    pausePeriods: Array.isArray(metaItem?._metaPausePeriods) ? metaItem._metaPausePeriods : [],
+    revisionCycles: Array.isArray(metaItem?._metaRevisionCycles) ? metaItem._metaRevisionCycles : [],
+    dayStatusMap:
+      metaItem?._metaDayStatusMap && typeof metaItem._metaDayStatusMap === 'object'
+        ? metaItem._metaDayStatusMap
+        : {},
+  };
+}
 
 export const db = {
   // --- 1. SESI LOGIN & AUTHENTICATION (AUTO-LOGIN PERMANEN) ---
@@ -539,19 +606,25 @@ export const db = {
       remoteProjects.forEach((p) => projectMap.set(p.id, p));
       const mergedProjects = Array.from(projectMap.values());
 
-      // MAP REMOTE ENTRIES KE STRUKTUR LENGKAP (TERMASUK suspendedDate & additionalTasks)
-      const remoteEntries = ((entData as any[]) || []).map((row) => ({
-        id: row.id,
-        date: row.entry_date || row.date,
-        completedDate: row.completed_date || row.completedDate || null,
-        suspendedDate: row.suspended_date || row.suspendedDate || null,
-        durationDays: row.duration_days !== undefined ? row.duration_days : row.durationDays,
-        additionalTasks: Array.isArray(row.additional_tasks)
+      // MAP REMOTE ENTRIES KE STRUKTUR LENGKAP (TERMASUK suspendedDate, additionalTasks, pausePeriods, revisionCycles, dayStatusMap)
+      const remoteEntries = ((entData as any[]) || []).map((row) => {
+        const rawAddons = Array.isArray(row.additional_tasks)
           ? row.additional_tasks
           : Array.isArray(row.additionalTasks)
           ? row.additionalTasks
-          : [],
-        title: row.title || '',
+          : [];
+        const unpacked = unpackAdditionalTasksAndMeta(rawAddons);
+        return {
+          id: row.id,
+          date: row.entry_date || row.date,
+          completedDate: row.completed_date || row.completedDate || null,
+          suspendedDate: row.suspended_date || row.suspendedDate || null,
+          durationDays: row.duration_days !== undefined ? row.duration_days : row.durationDays,
+          additionalTasks: unpacked.additionalTasks,
+          pausePeriods: row.pause_periods || row.pausePeriods || unpacked.pausePeriods,
+          revisionCycles: row.revision_cycles || row.revisionCycles || unpacked.revisionCycles,
+          dayStatusMap: row.day_status_map || row.dayStatusMap || unpacked.dayStatusMap,
+          title: row.title || '',
         projectId: row.project_id !== undefined ? row.project_id : (row.projectId || null),
         programId: row.program_id !== undefined ? row.program_id : (row.programId || null),
         status: (row.status || 'belum_mulai') as EntryStatus,
@@ -562,7 +635,8 @@ export const db = {
         ownerEmail: row.owner_email || row.ownerEmail || '',
         createdAt: row.created_at || row.createdAt || new Date().toISOString(),
         updatedAt: row.updated_at || row.updatedAt || new Date().toISOString(),
-      })) as ScheduleEntry[];
+        };
+      }) as ScheduleEntry[];
 
       // SMART TIMESTAMP MERGE (MENCEGAH STATUS 'tertunda' TERTEMPEL/KEMBALI KE STATUS LAMA):
       const localEntries = this.getEntries();
@@ -945,7 +1019,7 @@ export const db = {
           completed_date: newEntry.completedDate,
           suspended_date: (newEntry as any).suspendedDate || null,
           duration_days: newEntry.durationDays,
-          additional_tasks: (newEntry as any).additionalTasks || [],
+          additional_tasks: packAdditionalTasksWithMeta(newEntry),
           title: newEntry.title,
           project_id: newEntry.projectId,
           program_id: newEntry.programId,
@@ -978,8 +1052,9 @@ export const db = {
       e.id === id ? { ...e, ...payload, updatedAt: now } : e
     );
     this.saveEntries(updated);
+    const updatedTarget = updated.find((e) => e.id === id);
 
-    if (supabase) {
+    if (supabase && updatedTarget) {
       const dbUpdate: Record<string, unknown> = {
         updated_at: now,
       };
@@ -992,7 +1067,14 @@ export const db = {
       if ((payload as any).completedDate !== undefined) dbUpdate.completed_date = (payload as any).completedDate;
       if ((payload as any).suspendedDate !== undefined) dbUpdate.suspended_date = (payload as any).suspendedDate;
       if ((payload as any).durationDays !== undefined) dbUpdate.duration_days = (payload as any).durationDays;
-      if ((payload as any).additionalTasks !== undefined) dbUpdate.additional_tasks = (payload as any).additionalTasks;
+      if (
+        (payload as any).additionalTasks !== undefined ||
+        (payload as any).pausePeriods !== undefined ||
+        (payload as any).revisionCycles !== undefined ||
+        (payload as any).dayStatusMap !== undefined
+      ) {
+        dbUpdate.additional_tasks = packAdditionalTasksWithMeta(updatedTarget);
+      }
 
       supabase
         .from('schedule_entries')
@@ -1305,33 +1387,46 @@ export const db = {
           );
         } catch {}
 
-        // 2. Upsert ke tabel attendance secara langsung
-        const { error: upsertErr } = await supabase
+        // 2. Cek apakah baris absensi untuk (owner_id, entry_date) sudah ada di Supabase
+        const { data: existingRows } = await supabase
           .from('attendance')
-          .upsert(dbPayload, { onConflict: 'owner_id,entry_date' });
+          .select('id')
+          .eq('owner_id', updatedItem.ownerId)
+          .eq('entry_date', updatedItem.date)
+          .limit(1);
 
-        if (upsertErr) {
-          console.warn('Upsert on conflict (owner_id, entry_date) notice, mencoba fallback payload standar:', upsertErr.message);
-          // Fallback tanpa kolom tambahan jika skema di Supabase user belum dimigrasi
-          const corePayload = {
-            id: updatedItem.id,
-            owner_id: updatedItem.ownerId,
-            owner_name: updatedItem.ownerName,
-            entry_date: updatedItem.date,
-            type: updatedItem.type,
-            check_in_time: updatedItem.checkInTime,
-            check_out_time: updatedItem.checkOutTime,
-            work_duration_hours: updatedItem.workDurationHours,
-            regular_work_hours: updatedItem.regularWorkHours,
-            overtime_hours: updatedItem.overtimeHours,
-            shift_category: updatedItem.shiftCategory,
-            shift_notes: updatedItem.shiftNotes,
-            notes: updatedItem.notes,
-            updated_at: now,
-          };
-          const { error: retryErr } = await supabase.from('attendance').upsert(corePayload, { onConflict: 'owner_id,entry_date' });
-          if (retryErr) {
-            await supabase.from('attendance').upsert(corePayload, { onConflict: 'id' });
+        const existingRemoteId = existingRows && existingRows.length > 0 ? existingRows[0].id : null;
+
+        const corePayload = {
+          id: existingRemoteId || updatedItem.id,
+          owner_id: updatedItem.ownerId,
+          owner_name: updatedItem.ownerName,
+          entry_date: updatedItem.date,
+          type: updatedItem.type,
+          check_in_time: updatedItem.checkInTime,
+          check_out_time: updatedItem.checkOutTime,
+          work_duration_hours: updatedItem.workDurationHours,
+          notes: updatedItem.notes,
+          updated_at: now,
+        };
+
+        if (existingRemoteId) {
+          const { id: _ignoreId, ...updateFields } = { ...dbPayload, id: existingRemoteId };
+          const { error: updErr } = await supabase
+            .from('attendance')
+            .update(updateFields)
+            .eq('id', existingRemoteId);
+          if (updErr) {
+            const { id: _ignoreCoreId, ...coreUpdateFields } = corePayload;
+            await supabase.from('attendance').update(coreUpdateFields).eq('id', existingRemoteId);
+          }
+        } else {
+          const { error: insErr } = await supabase.from('attendance').insert(dbPayload);
+          if (insErr) {
+            const { error: coreInsErr } = await supabase.from('attendance').insert(corePayload);
+            if (coreInsErr) {
+              await supabase.from('attendance').upsert(corePayload, { onConflict: 'id' });
+            }
           }
         }
       } catch (err) {

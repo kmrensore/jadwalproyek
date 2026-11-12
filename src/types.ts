@@ -73,6 +73,22 @@ export interface Project {
   createdAt: string;
 }
 
+// Periode Jeda / Tertunda (Contoh: Berjalan Hari 1-2, Ditunda Hari 2, Dilanjutkan Hari 5 -> Hari 3-4 kosong)
+export interface PausePeriod {
+  pausedOn: string; // Format YYYY-MM-DD
+  resumedOn?: string | null; // Format YYYY-MM-DD
+}
+
+// Siklus Revisi Terpisah (Contoh: Selesai Tgl 7, Revisi Tgl 9, Selesai Revisi Tgl 10 atau Tgl 9)
+export interface RevisionCycle {
+  id: string;
+  title: string;
+  startDate: string; // Format YYYY-MM-DD
+  completedDate?: string | null; // Format YYYY-MM-DD
+  status: 'revisi' | 'selesai';
+  notes?: string;
+}
+
 // Model Item Penambahan Pekerjaan & Riwayat Catatan Revisi
 export interface ProjectAddonTask {
   id: string;
@@ -80,6 +96,7 @@ export interface ProjectAddonTask {
   title: string;
   dateAdded: string; // Format YYYY-MM-DD (Tanggal dicatat)
   scheduledDate?: string; // Format YYYY-MM-DD (Kapan revisi akan dilakukan / target di kalender)
+  completedDate?: string | null; // Format YYYY-MM-DD (Kapan revisi selesai)
   isCompleted: boolean;
   notes?: string;
 }
@@ -91,6 +108,9 @@ export interface ScheduleEntry {
   suspendedDate?: string | null; // Format YYYY-MM-DD (Tanggal Pembekuan saat Tertunda)
   durationDays?: number; // Durasi hari pengerjaan sampai selesai
   additionalTasks?: ProjectAddonTask[]; // Riwayat penambahan pekerjaan & catatan revisi
+  pausePeriods?: PausePeriod[]; // Riwayat jeda tunda & lanjut kembali
+  revisionCycles?: RevisionCycle[]; // Riwayat siklus revisi setelah proyek selesai
+  dayStatusMap?: Record<string, 'belum_mulai' | 'berjalan' | 'tertunda' | 'revisi' | 'selesai'>;
   title: string;
   projectId: string | null; // null = "Tanpa proyek"
   programId?: string | null; // null = "Tanpa cabang program spesifik"
