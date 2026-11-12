@@ -1484,10 +1484,6 @@ export default function App() {
   } | null>(null);
   const [dragOverCalendarDate, setDragOverCalendarDate] = useState<string | null>(null);
 
-  // State Form Cepat di dalam Pop-Up Kalender
-  const [popupQuickTitle, setPopupQuickTitle] = useState<string>('');
-  const [popupQuickProjectId, setPopupQuickProjectId] = useState<string>('');
-  const [popupQuickStatus, setPopupQuickStatus] = useState<EntryStatus>('berjalan');
   const [popupCustomDateInput, setPopupCustomDateInput] = useState<Record<string, string>>({});
 
   // State Langganan Bulanan (Rp 27.000/bln & Free Trial 7 Hari)
@@ -3114,7 +3110,8 @@ export default function App() {
     dateInput?: string
   ) => {
     const targetDate = dateInput || revFollowupDate || calendarPreviewDate || selectedDate || todayStr;
-    const detail = titleInput || revFollowupTitle.trim() || `Revisi: ${baseEntry.title}`;
+    const cleanBaseTitle = baseEntry.title.replace(/^(\[Revisi\]\s*|Revisi:\s*)+/i, '').trim();
+    const detail = titleInput || revFollowupTitle.trim() || `Revisi: ${cleanBaseTitle}`;
     const revId = 'rev-' + Date.now().toString(36);
 
     const existingCycles = getNormalizedRevisionCycles(baseEntry);
@@ -4867,152 +4864,64 @@ export default function App() {
         </div>
       )}
 
-      {/* Top Navigation Bar */}
-      <header className="shrink-0 z-30 bg-white border-b border-slate-200 print:hidden shadow-xs">
-        <div className="w-full px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4">
-          <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
+      {/* Top Navigation Bar: Tata Letak 2-Baris Proporsional & Responsif (Mobile, Tablet & Desktop) */}
+      <header className="shrink-0 z-30 bg-white border-b border-slate-200/90 print:hidden shadow-xs">
+        {/* BARIS 1: BRAND LOGO, BADGE LANGGANAN, DIKTE AI, PROFIL & KELUAR */}
+        <div className="w-full px-3 sm:px-5 lg:px-7 py-2.5 flex items-center justify-between gap-2 sm:gap-4">
+          {/* Kiri: Tombol Menu Sidebar (Mobile/Tablet) & Brand JadwalPro */}
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
               type="button"
               onClick={() => setIsMobileSidebarOpen(true)}
-              className="lg:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100"
+              className="lg:hidden p-2 rounded-xl text-slate-600 hover:bg-slate-100 border border-slate-200/80 transition-colors shrink-0 cursor-pointer"
               aria-label="Buka menu proyek"
             >
-              <Menu className="w-5 h-5" />
+              <Menu className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
-            <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-sm shrink-0">
-              <CalendarIcon className="w-5 h-5" />
+
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-blue-600 flex items-center justify-center text-white shadow-sm shrink-0">
+              <CalendarIcon className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <div className="shrink-0">
+
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="font-bold text-base sm:text-lg tracking-tight text-slate-900">
+                <h1 className="font-black text-sm sm:text-base lg:text-lg tracking-tight text-slate-900 truncate">
                   JadwalPro
                 </h1>
-                <span className="hidden 2xl:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                  Proyek • Absensi • AI
+                <span className="hidden md:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/80">
+                  Workspace Kinerja 2026
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 hidden xl:block leading-tight">
-                Workspace Kinerja Terpadu
+              <p className="text-[10px] sm:text-[11px] text-slate-500 hidden sm:block leading-tight truncate">
+                Manajemen Jadwal Proyek, Presensi Jam Genap &amp; Evaluasi AI
               </p>
             </div>
           </div>
 
-          {/* TAB NAVIGASI UTAMA DI HEADER (RESPONSIF & FLEKSIBEL) */}
-          <div className="hidden md:flex items-center bg-slate-100 p-1 rounded-xl shrink-0 overflow-x-auto">
-            <button
-              type="button"
-              onClick={() => setActiveMainTab('calendar')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-                activeMainTab === 'calendar'
-                  ? 'bg-white text-indigo-600 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <CalendarIcon className="w-3.5 h-3.5" />
-              <span>Jadwal<span className="hidden xl:inline"> Proyek</span></span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveMainTab('attendance')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-                activeMainTab === 'attendance'
-                  ? 'bg-white text-indigo-600 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Timer className="w-3.5 h-3.5" />
-              <span>Absensi<span className="hidden xl:inline"> &amp; Kehadiran</span></span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveMainTab('reminders')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-                activeMainTab === 'reminders'
-                  ? 'bg-white text-indigo-600 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Bell className="w-3.5 h-3.5" />
-              <span>Pengingat<span className="hidden xl:inline"> &amp; Alarm</span></span>
-              {reminders.filter((r) => r.isActive && r.date === todayStr).length > 0 && (
-                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveMainTab('report')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-                activeMainTab === 'report'
-                  ? 'bg-white text-indigo-600 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>Rekap Pekerjaan</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveMainTab('ai_performance')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-                activeMainTab === 'ai_performance'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <BrainCircuit className="w-3.5 h-3.5" />
-              <span>Performa AI<span className="hidden xl:inline"> &amp; Saran</span></span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveMainTab('ideas')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-                activeMainTab === 'ideas'
-                  ? 'bg-amber-500 text-white shadow-sm'
-                  : 'text-amber-800 bg-amber-50/80 hover:bg-amber-100'
-              }`}
-            >
-              <Lightbulb className={`w-3.5 h-3.5 ${activeMainTab === 'ideas' ? 'text-white' : 'text-amber-500'}`} />
-              <span>Bank Ide<span className="hidden xl:inline"> ({ideas.length})</span></span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveMainTab('team_connect')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-                activeMainTab === 'team_connect'
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'text-emerald-800 bg-emerald-50/90 hover:bg-emerald-100'
-              }`}
-            >
-              <Users className={`w-3.5 h-3.5 ${activeMainTab === 'team_connect' ? 'text-white' : 'text-emerald-600'}`} />
-              <span>Team Connect<span className="hidden xl:inline"> ({teamConnections.length + 1})</span></span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveMainTab('voice_ai')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-                activeMainTab === 'voice_ai'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-indigo-700 bg-indigo-50 hover:bg-indigo-100'
-              }`}
-            >
-              <Mic className={`w-3.5 h-3.5 ${activeMainTab === 'voice_ai' ? 'text-white' : 'text-indigo-600 animate-pulse'}`} />
-              <span>Record Voice<span className="hidden xl:inline"> to Text</span></span>
-            </button>
-          </div>
-
-          {/* Profil User, Badge Langganan, Setingan Akun & Tombol Keluar */}
+          {/* Kanan: Status Langganan, Dikte Suara, Kapsul Profil/Setingan & Tombol Keluar */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <SubscriptionStatusBadge
               subscription={subscription}
               onOpenModal={() => setIsSubscriptionModalOpen(true)}
             />
+
+            <button
+              type="button"
+              onClick={openVoiceModal}
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 transition-colors cursor-pointer"
+              title="Rekam Suara & Transkripsi AI"
+            >
+              <Mic className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-600 shrink-0" />
+              <span className="hidden md:inline">Dikte AI</span>
+            </button>
+
             <button
               type="button"
               onClick={openAccountModal}
-              className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs transition-colors cursor-pointer group text-left"
-              title="Klik untuk membuka Pengaturan Akun & Profil Pribadi"
+              className="flex items-center gap-2 pl-1.5 pr-2 sm:pr-3 py-1 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200/90 text-xs transition-colors cursor-pointer group text-left"
+              title="Pengaturan Akun & Profil Pribadi"
             >
-              <div className="w-7 h-7 rounded-full bg-indigo-600 group-hover:bg-indigo-700 text-white font-bold flex items-center justify-center text-xs shrink-0 shadow-2xs transition-colors overflow-hidden">
+              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-indigo-600 group-hover:bg-indigo-700 text-white font-bold flex items-center justify-center text-xs shrink-0 shadow-2xs overflow-hidden">
                 {currentUser.avatarUrl ? (
                   <img
                     src={currentUser.avatarUrl}
@@ -5024,128 +4933,142 @@ export default function App() {
                 )}
               </div>
               <div className="leading-tight hidden sm:block">
-                <div className="font-bold text-slate-900 truncate max-w-[80px] lg:max-w-[120px] group-hover:text-indigo-600 transition-colors">
+                <div className="font-bold text-slate-900 truncate max-w-[90px] lg:max-w-[130px] group-hover:text-indigo-600 transition-colors text-[11px] sm:text-xs">
                   {currentUser.fullName}
                 </div>
-                <div className="text-[10px] text-slate-500 font-mono">
-                  {currentUser.id.slice(0, 8)}
+                <div className="text-[9px] text-slate-400 font-mono">
+                  ID: {currentUser.id.slice(0, 8)}
                 </div>
               </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={openVoiceModal}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors shadow-2xs"
-              title="Rekam Suara & Transkripsi AI"
-            >
-              <Mic className="w-4 h-4 text-indigo-600" />
-              <span className="hidden xl:inline">Dikte AI</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={openAccountModal}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-100 border border-slate-200 transition-colors"
-              title="Setingan Akun Pribadi"
-            >
-              <Settings className="w-4 h-4 text-slate-600" />
-              <span className="hidden xl:inline">Setingan Akun</span>
+              <Settings className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-600 shrink-0 hidden sm:block" />
             </button>
 
             <button
               type="button"
               onClick={handleLogout}
-              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition-colors"
-              title="Keluar"
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 border border-rose-200/80 transition-colors cursor-pointer"
+              title="Keluar Akun"
             >
-              <LogOut className="w-4 h-4" />
-              <span className="hidden sm:inline">Keluar</span>
+              <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+              <span className="hidden lg:inline">Keluar</span>
             </button>
           </div>
         </div>
 
-        {/* Mobile Sub Navigation Tabs */}
-        <div className="md:hidden flex border-t border-slate-200 bg-slate-50 px-3 py-1.5 gap-1.5 overflow-x-auto">
-          <button
-            type="button"
-            onClick={() => setActiveMainTab('calendar')}
-            className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold text-center whitespace-nowrap ${
-              activeMainTab === 'calendar' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            Jadwal
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveMainTab('attendance')}
-            className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold text-center whitespace-nowrap ${
-              activeMainTab === 'attendance' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            Absensi
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveMainTab('reminders')}
-            className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold text-center whitespace-nowrap ${
-              activeMainTab === 'reminders' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            Pengingat
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveMainTab('report')}
-            className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold text-center whitespace-nowrap ${
-              activeMainTab === 'report' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            Laporan
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveMainTab('ai_performance')}
-            className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold text-center whitespace-nowrap ${
-              activeMainTab === 'ai_performance' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            Performa AI
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveMainTab('ideas')}
-            className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold text-center whitespace-nowrap flex items-center justify-center gap-1 ${
-              activeMainTab === 'ideas' ? 'bg-amber-500 text-white' : 'text-amber-800 bg-amber-50 hover:bg-amber-100'
-            }`}
-          >
-            <Lightbulb className={`w-3 h-3 ${activeMainTab === 'ideas' ? 'text-white' : 'text-amber-500'}`} />
-            <span>Bank Ide</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveMainTab('team_connect')}
-            className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold text-center whitespace-nowrap flex items-center justify-center gap-1 ${
-              activeMainTab === 'team_connect' ? 'bg-emerald-600 text-white' : 'text-emerald-800 bg-emerald-50 hover:bg-emerald-100'
-            }`}
-          >
-            <Users className={`w-3 h-3 ${activeMainTab === 'team_connect' ? 'text-white' : 'text-emerald-600'}`} />
-            <span>Team Connect</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveMainTab('voice_ai')}
-            className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold text-center whitespace-nowrap flex items-center justify-center gap-1 ${
-              activeMainTab === 'voice_ai' ? 'bg-indigo-600 text-white' : 'text-indigo-700 bg-indigo-50/80 hover:bg-indigo-100'
-            }`}
-          >
-            <Mic className={`w-3 h-3 ${activeMainTab === 'voice_ai' ? 'text-white' : 'text-indigo-600'}`} />
-            <span>Record Voice</span>
-          </button>
+        {/* BARIS 2: NAVIGASI TAB UTAMA (RAPI & PROPORSIONAL DI MOBILE 4x2, TABLET 4x2 / 8-KOLOM, DAN DESKTOP 8-KOLOM) */}
+        <div className="w-full px-2.5 sm:px-5 lg:px-7 py-1.5 bg-slate-50/90 border-t border-slate-200/80">
+          <div className="grid grid-cols-4 sm:grid-cols-4 lg:grid-cols-8 gap-1 sm:gap-1.5">
+            <button
+              type="button"
+              onClick={() => setActiveMainTab('calendar')}
+              className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer truncate ${
+                activeMainTab === 'calendar'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200/70'
+              }`}
+            >
+              <CalendarIcon className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Jadwal</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveMainTab('attendance')}
+              className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer truncate ${
+                activeMainTab === 'attendance'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200/70'
+              }`}
+            >
+              <Timer className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Absensi</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveMainTab('reminders')}
+              className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer truncate ${
+                activeMainTab === 'reminders'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200/70'
+              }`}
+            >
+              <Bell className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Pengingat</span>
+              {reminders.filter((r) => r.isActive && r.date === todayStr).length > 0 && (
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping shrink-0" />
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveMainTab('report')}
+              className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer truncate ${
+                activeMainTab === 'report'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200/70'
+              }`}
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Laporan</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveMainTab('ai_performance')}
+              className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer truncate ${
+                activeMainTab === 'ai_performance'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200/70'
+              }`}
+            >
+              <BrainCircuit className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Performa AI</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveMainTab('ideas')}
+              className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer truncate ${
+                activeMainTab === 'ideas'
+                  ? 'bg-amber-500 text-white shadow-xs'
+                  : 'bg-amber-50/90 text-amber-900 hover:bg-amber-100 border border-amber-200/80'
+              }`}
+            >
+              <Lightbulb className={`w-3.5 h-3.5 shrink-0 ${activeMainTab === 'ideas' ? 'text-white' : 'text-amber-500'}`} />
+              <span className="truncate">Bank Ide ({ideas.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveMainTab('team_connect')}
+              className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer truncate ${
+                activeMainTab === 'team_connect'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-emerald-50/90 text-emerald-900 hover:bg-emerald-100 border border-emerald-200/80'
+              }`}
+            >
+              <Users className={`w-3.5 h-3.5 shrink-0 ${activeMainTab === 'team_connect' ? 'text-white' : 'text-emerald-600'}`} />
+              <span className="truncate">Team Connect</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveMainTab('voice_ai')}
+              className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer truncate ${
+                activeMainTab === 'voice_ai'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-indigo-50/80 text-indigo-800 hover:bg-indigo-100 border border-indigo-200/70'
+              }`}
+            >
+              <Mic className={`w-3.5 h-3.5 shrink-0 ${activeMainTab === 'voice_ai' ? 'text-white' : 'text-indigo-600'}`} />
+              <span className="truncate">Record Voice</span>
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* Main Content Layout (Maksimal Layar Penuh Ujung ke Ujung) */}
+            {/* Main Content Layout (Maksimal Layar Penuh Ujung ke Ujung) */}
       <div className="w-full flex-1 flex overflow-hidden relative">
         {isMobileSidebarOpen && (
           <div
@@ -14088,17 +14011,7 @@ export default function App() {
           return !e.ownerId || e.ownerId === targetOwner;
         });
 
-        // Daftar proyek milik user yang sudah selesai di hari sebelumnya atau sedang tertunda,
-        // agar bisa dengan 1-klik ditandai Revisi atau Dilanjutkan pada tanggal ini!
-        const candidateFollowupEntries = entries.filter((e) => {
-          if (popupEntries.some((pe) => pe.id === e.id)) return false;
-          const targetOwner = ownerFilter === 'MINE' ? currentUser.id : ownerFilter;
-          if (ownerFilter !== 'ALL' && e.ownerId && e.ownerId !== targetOwner) return false;
-          return (
-            (e.status === 'selesai' && e.date < calendarPreviewDate) ||
-            (e.status === 'tertunda' && e.date < calendarPreviewDate)
-          );
-        });
+
 
         const popupReminders = reminders.filter(
           (r) =>
@@ -14116,27 +14029,7 @@ export default function App() {
         );
         const isPopupToday = calendarPreviewDate === todayStr;
 
-        const handleQuickAddTaskInPopup = (ev: React.FormEvent) => {
-          ev.preventDefault();
-          if (!popupQuickTitle.trim()) return;
-          const isDone = popupQuickStatus === 'selesai';
-          const updated = db.createEntry(
-            {
-              date: calendarPreviewDate,
-              title: popupQuickTitle.trim(),
-              projectId: popupQuickProjectId || null,
-              programId: null,
-              status: popupQuickStatus,
-              notes: '',
-              completedDate: isDone ? calendarPreviewDate : null,
-              durationDays: isDone ? 1 : undefined,
-            } as any,
-            currentUser
-          );
-          setEntries(updated);
-          setPopupQuickTitle('');
-          showToast(`"${popupQuickTitle.trim()}" (${popupQuickStatus}) ditambahkan ke ${formatDateShortIndo(calendarPreviewDate)}!`);
-        };
+
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5">
@@ -14178,53 +14071,7 @@ export default function App() {
 
               {/* Body Pop-Up Ringkasan Kalender */}
               <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1 bg-slate-50/60">
-                {/* 1. Form Cepat Tambah Kerjaan di Tanggal Ini */}
-                <form
-                  onSubmit={handleQuickAddTaskInPopup}
-                  className="p-3 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-2.5"
-                >
-                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
-                    <span>+ Tambah Pekerjaan di Tanggal Ini ({formatDateShortIndo(calendarPreviewDate)})</span>
-                    <span className="text-[10px] text-slate-400">Otomatis berlanjut ke hari kerja berikutnya jika Berjalan</span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-                    <input
-                      type="text"
-                      value={popupQuickTitle}
-                      onChange={(e) => setPopupQuickTitle(e.target.value)}
-                      placeholder="Contoh: Kerjaan A, Kerjaan B..."
-                      className="sm:col-span-5 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-900 focus:outline-none focus:border-indigo-500"
-                    />
-                    <select
-                      value={popupQuickProjectId}
-                      onChange={(e) => setPopupQuickProjectId(e.target.value)}
-                      className="sm:col-span-3 px-2.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-700 focus:outline-none"
-                    >
-                      <option value="">Tanpa Proyek</option>
-                      {projects.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      value={popupQuickStatus}
-                      onChange={(e) => setPopupQuickStatus(e.target.value as EntryStatus)}
-                      className="sm:col-span-2 px-2.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-800 focus:outline-none"
-                    >
-                      <option value="berjalan">(berjalan)</option>
-                      <option value="selesai">(selesai)</option>
-                      <option value="belum_mulai">(Belum Mulai)</option>
-                    </select>
-                    <button
-                      type="submit"
-                      className="sm:col-span-2 py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-1 shadow-xs cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Tambah</span>
-                    </button>
-                  </div>
-                </form>
+
 
                 {/* Info Hari Libur / Izin jika ada */}
                 {popupHoliday && (
@@ -14475,53 +14322,7 @@ export default function App() {
                   )}
                 </div>
 
-                {/* 3. Panggil Proyek Selesai (Untuk Ditandai Revisi Hari Ini) atau Lanjutkan Proyek Tertunda Hari Ini */}
-                {candidateFollowupEntries.length > 0 && (
-                  <div className="p-3.5 rounded-2xl bg-indigo-50/60 border border-indigo-200/80 space-y-2">
-                    <span className="text-[11px] font-extrabold text-indigo-950 block">
-                      Tindak Lanjut Proyek Sebelumnya di Tanggal Ini ({formatDateShortIndo(calendarPreviewDate)}):
-                    </span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {candidateFollowupEntries.slice(0, 8).map((cand) => (
-                        <div
-                          key={cand.id}
-                          className="inline-flex items-center gap-1.5 p-1.5 pl-2.5 rounded-xl bg-white border border-slate-200 text-xs shadow-2xs"
-                        >
-                          <span className="font-bold text-slate-800 truncate max-w-[140px]">
-                            {cand.title}
-                          </span>
-                          {cand.status === 'tertunda' ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleResumeTertundaProject(cand, calendarPreviewDate)
-                              }
-                              className="px-2 py-0.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-black text-[10px] cursor-pointer"
-                              title="Lanjutkan proyek tertunda mulai tanggal ini (hari jeda sebelumnya kosong)"
-                            >
-                              + Lanjutkan di Sini
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleCreateRevisionFromCompleted(
-                                  cand,
-                                  `Revisi: ${cand.title}`,
-                                  calendarPreviewDate
-                                )
-                              }
-                              className="px-2 py-0.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-black text-[10px] cursor-pointer"
-                              title="Tandai proyek selesai ini mengalami Revisi pada tanggal ini (hari sebelumnya tetap utuh)"
-                            >
-                              + Tandai Revisi di Sini
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+
               </div>
 
               {/* Footer Pop-Up Preview Ringkasan Kalender */}
