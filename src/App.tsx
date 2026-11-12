@@ -2090,6 +2090,360 @@ export default function App() {
     }
   };
 
+  // =========================================================================
+  // FITUR POP-UP BULETAN FREKUENSI (1 MENIT) & GENERATOR IKON INSTALASI UNIK
+  // =========================================================================
+  const [isFrequencyShortcutModalOpen, setIsFrequencyShortcutModalOpen] = useState<boolean>(false);
+  const [hasTriggeredOneMinutePopup, setHasTriggeredOneMinutePopup] = useState<boolean>(false);
+  const [sessionActiveSeconds, setSessionActiveSeconds] = useState<number>(0);
+  const [uniqueAppIconUrl, setUniqueAppIconUrl] = useState<string>('');
+  const [detectedShortcutOS, setDetectedShortcutOS] = useState<'windows' | 'mac' | 'android' | 'ios'>('windows');
+  const [deferredPwaPrompt, setDeferredPwaPrompt] = useState<any>(null);
+  const [isStandaloneAppRunning, setIsStandaloneAppRunning] = useState<boolean>(false);
+
+  // Generator Ikon Instalasi Unik (Quantum Frequency Pulse Emblem — berbeda dari ikon kalender biasa)
+  const generateUniqueFrequencyAppIcon = (size: number = 512): string => {
+    if (typeof document === 'undefined') return '';
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
+
+    const cx = size / 2;
+    const cy = size / 2;
+    const pad = size * 0.04;
+    const boxSize = size - pad * 2;
+    const radius = size * 0.23;
+
+    // 1. Squircle Latar Belakang Obsidian-Quantum Gelap
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(pad, pad, boxSize, boxSize, radius);
+    const bgGrad = ctx.createRadialGradient(cx, cy * 0.75, size * 0.05, cx, cy, size * 0.65);
+    bgGrad.addColorStop(0, '#1e1b4b');
+    bgGrad.addColorStop(0.5, '#090d24');
+    bgGrad.addColorStop(1, '#030614');
+    ctx.fillStyle = bgGrad;
+    ctx.fill();
+
+    // Bingkai Neon Sian-Ungu-Zamrud
+    const strokeGrad = ctx.createLinearGradient(0, 0, size, size);
+    strokeGrad.addColorStop(0, '#06b6d4');
+    strokeGrad.addColorStop(0.5, '#a855f7');
+    strokeGrad.addColorStop(1, '#10b981');
+    ctx.lineWidth = size * 0.028;
+    ctx.strokeStyle = strokeGrad;
+    ctx.stroke();
+    ctx.restore();
+
+    // 2. Cincin Gelombang Frekuensi Konsentris
+    const ringRadii = [size * 0.36, size * 0.28, size * 0.2];
+    const ringColors = ['rgba(6, 182, 212, 0.32)', 'rgba(168, 85, 247, 0.45)', 'rgba(16, 185, 129, 0.55)'];
+    ringRadii.forEach((r, idx) => {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.strokeStyle = ringColors[idx];
+      ctx.lineWidth = size * 0.012;
+      ctx.setLineDash(idx === 1 ? [size * 0.03, size * 0.02] : []);
+      ctx.stroke();
+      ctx.restore();
+    });
+
+    // 3. Bar Equalizer Frekuensi Radial (16 Bar Mengelilingi Inti)
+    const numBars = 16;
+    for (let i = 0; i < numBars; i++) {
+      const angle = (i / numBars) * Math.PI * 2;
+      const barLen = size * (0.045 + (i % 3) * 0.025);
+      const rInner = size * 0.22;
+      const rOuter = rInner + barLen;
+      const x1 = cx + Math.cos(angle) * rInner;
+      const y1 = cy + Math.sin(angle) * rInner;
+      const x2 = cx + Math.cos(angle) * rOuter;
+      const y2 = cy + Math.sin(angle) * rOuter;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.strokeStyle = i % 2 === 0 ? '#22d3ee' : '#c084fc';
+      ctx.lineWidth = size * 0.018;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 4. Inti Buletan Frekuensi Neon (Central Core Orb)
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, size * 0.165, 0, Math.PI * 2);
+    const coreGrad = ctx.createLinearGradient(cx - size * 0.15, cy - size * 0.15, cx + size * 0.15, cy + size * 0.15);
+    coreGrad.addColorStop(0, '#06b6d4');
+    coreGrad.addColorStop(0.55, '#6366f1');
+    coreGrad.addColorStop(1, '#10b981');
+    ctx.fillStyle = coreGrad;
+    ctx.shadowColor = '#22d3ee';
+    ctx.shadowBlur = size * 0.06;
+    ctx.fill();
+    ctx.restore();
+
+    // 5. Gelombang Sinus Audio/Frekuensi di Tengah + Simbol Kilat App
+    ctx.save();
+    ctx.beginPath();
+    const waveWidth = size * 0.22;
+    const startX = cx - waveWidth / 2;
+    ctx.moveTo(startX, cy);
+    for (let x = 0; x <= waveWidth; x += 2) {
+      const norm = x / waveWidth;
+      const amp = Math.sin(norm * Math.PI * 3) * (size * 0.055);
+      ctx.lineTo(startX + x, cy + amp);
+    }
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = size * 0.022;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    ctx.restore();
+
+    // Titik Satelit Orbit Emas & Sian
+    const orbitDots = [
+      { angle: -Math.PI / 4, r: size * 0.36, color: '#fbbf24' },
+      { angle: (3 * Math.PI) / 4, r: size * 0.28, color: '#22d3ee' },
+      { angle: Math.PI / 3, r: size * 0.36, color: '#34d399' },
+    ];
+    orbitDots.forEach((dot) => {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx + Math.cos(dot.angle) * dot.r, cy + Math.sin(dot.angle) * dot.r, size * 0.022, 0, Math.PI * 2);
+      ctx.fillStyle = dot.color;
+      ctx.shadowColor = dot.color;
+      ctx.shadowBlur = size * 0.03;
+      ctx.fill();
+      ctx.restore();
+    });
+
+    return canvas.toDataURL('image/png');
+  };
+
+  // Pasang Ikon Unik, Dynamic Web App Manifest Standalone, Deteksi OS, & Timer 1 Menit (60 Detik)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    // 1. Deteksi Sistem Operasi User secara Otomatis
+    const ua = window.navigator.userAgent.toLowerCase();
+    if (/iphone|ipad|ipod/.test(ua)) {
+      setDetectedShortcutOS('ios');
+    } else if (/android/.test(ua)) {
+      setDetectedShortcutOS('android');
+    } else if (/macintosh|mac os x/.test(ua)) {
+      setDetectedShortcutOS('mac');
+    } else {
+      setDetectedShortcutOS('windows');
+    }
+
+    // Cek apakah sudah berjalan sebagai aplikasi standalone
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as any).standalone === true ||
+      window.location.search.includes('mode=standalone_app');
+    setIsStandaloneAppRunning(Boolean(isStandalone));
+
+    // 2. Buat Ikon Instalasi Unik (512x512 & 192x192) dan pasang ke DOM & Manifest PWA
+    const icon512 = generateUniqueFrequencyAppIcon(512);
+    const icon192 = generateUniqueFrequencyAppIcon(192);
+    if (icon512) {
+      setUniqueAppIconUrl(icon512);
+
+      // Pasang ke <link rel="icon"> dan <link rel="apple-touch-icon">
+      const setLinkTag = (rel: string, href: string, sizes?: string) => {
+        let link = document.querySelector(`link[rel="${rel}"]`) as HTMLLinkElement | null;
+        if (!link) {
+          link = document.createElement('link');
+          link.rel = rel;
+          document.head.appendChild(link);
+        }
+        link.href = href;
+        if (sizes) link.sizes = sizes;
+      };
+      setLinkTag('icon', icon192, '192x192');
+      setLinkTag('shortcut icon', icon192);
+      setLinkTag('apple-touch-icon', icon512, '512x512');
+
+      // Buat Web App Manifest Dinamis agar saat di-install di Windows, Android, Mac, iOS tampil full seperti Native App
+      const dynamicManifest = {
+        id: 'jadwalpro-pulse-standalone-app',
+        name: 'JadwalPro Pulse — Aplikasi Proyek & Presensi',
+        short_name: 'JadwalPro',
+        description: 'Aplikasi Manajemen Proyek, Kalender Kerja, Presensi GPS & Evaluasi Kinerja',
+        start_url: `${window.location.origin}${window.location.pathname}?mode=standalone_app`,
+        scope: `${window.location.origin}/`,
+        display: 'standalone',
+        display_override: ['window-controls-overlay', 'standalone', 'minimal-ui'],
+        orientation: 'any',
+        background_color: '#060918',
+        theme_color: '#060918',
+        icons: [
+          {
+            src: icon192,
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any maskable',
+          },
+          {
+            src: icon512,
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any maskable',
+          },
+        ],
+      };
+      try {
+        const blob = new Blob([JSON.stringify(dynamicManifest)], { type: 'application/manifest+json' });
+        const manifestUrl = URL.createObjectURL(blob);
+        let manifestLink = document.querySelector('link[rel="manifest"]') as HTMLLinkElement | null;
+        if (!manifestLink) {
+          manifestLink = document.createElement('link');
+          manifestLink.rel = 'manifest';
+          document.head.appendChild(manifestLink);
+        }
+        manifestLink.href = manifestUrl;
+      } catch (e) {
+        console.warn('Dynamic manifest generation error:', e);
+      }
+    }
+
+    // 3. Tangkap event beforeinstallprompt (Chrome / Edge di Windows, Android, macOS)
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPwaPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  // Timer 1 Menit (60 Detik) Sejak User Masuk Aplikasi -> Otomatis Munculkan Pop-Up Buletan Berefek Frekuensi
+  useEffect(() => {
+    if (!currentUser || isStandaloneAppRunning) return;
+
+    const tick = setInterval(() => {
+      setSessionActiveSeconds((prev) => {
+        const next = prev + 1;
+        if (next === 60 && !hasTriggeredOneMinutePopup) {
+          setHasTriggeredOneMinutePopup(true);
+          setIsFrequencyShortcutModalOpen(true);
+        }
+        return next;
+      });
+    }, 1000);
+
+    return () => clearInterval(tick);
+  }, [currentUser, hasTriggeredOneMinutePopup, isStandaloneAppRunning]);
+
+  // Fungsi Pembuat Pintasan App Native (Windows Desktop App Mode, macOS Dock App Mode, Android & iOS Home Screen)
+  const handleCreateNativeAppShortcut = async (targetOS: 'windows' | 'mac' | 'android' | 'ios') => {
+    const appUrl = `${window.location.origin}${window.location.pathname}?mode=standalone_app`;
+
+    // 1. Jika browser mendukung prompt instalasi PWA langsung (1-Klik Native Install di Windows/Android/macOS)
+    if (deferredPwaPrompt) {
+      try {
+        deferredPwaPrompt.prompt();
+        const choice = await deferredPwaPrompt.userChoice;
+        if (choice && choice.outcome === 'accepted') {
+          setDeferredPwaPrompt(null);
+          showToast('Aplikasi JadwalPro berhasil dipasang dengan Ikon Frekuensi Unik! ⚡');
+          setIsFrequencyShortcutModalOpen(false);
+          return;
+        }
+      } catch (err) {
+        console.warn('PWA prompt fallback:', err);
+      }
+    }
+
+    // 2. Pembuatan File Launcher Aplikasi Mandiri (Tanpa Tab & Tanpa Address Bar Browser) sesuai Sistem Operasi
+    if (targetOS === 'windows') {
+      // File .bat Launcher Windows yang membuka Microsoft Edge / Google Chrome dalam mode --app (Jendela Aplikasi Mandiri)
+      const batContent = [
+        '@echo off',
+        'title JadwalPro Standalone App Launcher',
+        'start "" msedge --app="' + appUrl + '" || start "" chrome --app="' + appUrl + '" || start "" "' + appUrl + '"',
+        'exit',
+      ].join('\r\n');
+      const blob = new Blob([batContent], { type: 'application/bat' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'JadwalPro-Desktop-App.bat';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('Pintasan App Windows (JadwalPro-Desktop-App.bat) berhasil dibuat! Klik 2x di Desktop untuk buka seperti App asli.');
+      return;
+    }
+
+    if (targetOS === 'mac') {
+      // File .command macOS yang membuka jendela aplikasi mandiri siap ditaruh di Dock Mac
+      const cmdContent = [
+        '#!/bin/bash',
+        '# JadwalPro Native-Like macOS Dock App Launcher',
+        'if [ -d "/Applications/Google Chrome.app" ]; then',
+        '  open -n -a "Google Chrome" --args --app="' + appUrl + '"',
+        'elif [ -d "/Applications/Microsoft Edge.app" ]; then',
+        '  open -n -a "Microsoft Edge" --args --app="' + appUrl + '"',
+        'else',
+        '  open "' + appUrl + '"',
+        'fi',
+      ].join('\n');
+      const blob = new Blob([cmdContent], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'JadwalPro-Dock-App.command';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('Pintasan Dock Mac berhasil diunduh! Anda juga bisa klik menu Safari/Chrome: File -> Add to Dock.');
+      return;
+    }
+
+    // Untuk Android & iOS: Coba fitur Web Share API (agar langsung muncul menu "Add to Home Screen") atau buka jendela mandiri
+    if (typeof navigator !== 'undefined' && (navigator as any).share) {
+      try {
+        await (navigator as any).share({
+          title: 'JadwalPro — Aplikasi Proyek & Absensi',
+          text: 'Pasang Pintasan Aplikasi JadwalPro ke Layar Utama (Home Screen)',
+          url: appUrl,
+        });
+        showToast('Pilih "Tambahkan ke Layar Utama / Add to Home Screen" pada menu perangkat Anda.');
+        return;
+      } catch {}
+    }
+
+    showToast(
+      targetOS === 'ios'
+        ? 'Di iPhone/iPad: Ketuk ikon Share (Kotak Panah Atas) lalu pilih "Tambah ke Layar Utama (Add to Home Screen)" — Ikon Unik sudah otomatis terpasang!'
+        : 'Di Android: Ketuk menu titik tiga (⋮) di pojok kanan atas lalu pilih "Instal Aplikasi / Tambahkan ke Layar Utama"!'
+    );
+  };
+
+  // Unduh Ikon Unik Resolusi Tinggi (512x512 PNG) jika user ingin memakainya secara manual di kustomisasi shortcut
+  const handleDownloadUniqueIcon = () => {
+    const dataUrl = uniqueAppIconUrl || generateUniqueFrequencyAppIcon(512);
+    if (!dataUrl) return;
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = 'JadwalPro-Unique-Pulse-Icon-512.png';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showToast('Ikon Instalasi Unik (512x512 PNG) berhasil diunduh!');
+  };
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
@@ -6160,8 +6514,14 @@ export default function App() {
                                     </button>
                                   </div>
 
-                                  {/* Baris Bawah Kotak Project: Nama Pekerjaan */}
-                                  <div className="font-bold text-[10.5px] text-slate-900 truncate leading-snug">
+                                  {/* Baris Bawah Kotak Project: Nama Pekerjaan (Coretan garis lurus jika berstatus Selesai) */}
+                                  <div
+                                    className={`font-bold text-[10.5px] truncate leading-snug transition-all ${
+                                      isSelesai
+                                        ? 'line-through decoration-2 decoration-emerald-700/85 text-slate-400'
+                                        : 'text-slate-900'
+                                    }`}
+                                  >
                                     - {entry.title.replace(/^(\[Revisi\]\s*|Revisi:\s*)+/i, '').trim()}
                                   </div>
 
@@ -10452,6 +10812,16 @@ export default function App() {
                             {visibleTeamEntries.map((entry) => {
                               const isAccountA = entry.ownerId === currentUser.id;
                               const proj = entry.projectId ? projectMap[entry.projectId] : null;
+                              const tcDayView = getEntryDayViewOnDate(
+                                entry,
+                                cell.dateStr,
+                                todayStr,
+                                workPolicy,
+                                attendance
+                              );
+                              const tcStatusOnDay = tcDayView?.dayStatus || entry.status;
+                              const tcIsSelesai =
+                                tcStatusOnDay === 'selesai' || tcStatusOnDay === 'revisi_selesai';
                               return (
                                 <div
                                   key={`tc-entry-${entry.id}-${cell.dateStr}`}
@@ -10468,7 +10838,15 @@ export default function App() {
                                   >
                                     {isAccountA ? 'A' : 'B'}
                                   </span>
-                                  <span className="truncate flex-1">{entry.title}</span>
+                                  <span
+                                    className={`truncate flex-1 ${
+                                      tcIsSelesai
+                                        ? 'line-through decoration-2 decoration-emerald-700/85 text-slate-400'
+                                        : ''
+                                    }`}
+                                  >
+                                    {entry.title}
+                                  </span>
                                   {proj && (
                                     <span
                                       className="w-1.5 h-1.5 rounded-full shrink-0"
@@ -10913,8 +11291,13 @@ export default function App() {
                               </div>
 
                               <h5
-                                className={`font-bold text-sm text-slate-900 pt-0.5 ${
-                                  entry.status === 'selesai' ? 'line-through text-slate-400' : ''
+                                className={`font-bold text-sm pt-0.5 ${
+                                  entry.status === 'selesai' ||
+                                  (selectedDate &&
+                                    (entry.dayStatusMap?.[selectedDate] === 'selesai' ||
+                                      entry.dayStatusMap?.[selectedDate] === 'revisi_selesai'))
+                                    ? 'line-through decoration-2 decoration-emerald-700/85 text-slate-400'
+                                    : 'text-slate-900'
                                 }`}
                               >
                                 {entry.title}
@@ -14469,7 +14852,13 @@ export default function App() {
                                 className="w-3 h-3 rounded-full shrink-0"
                                 style={{ backgroundColor: chipColor }}
                               />
-                              <span className="font-black text-sm text-slate-900 truncate">
+                              <span
+                                className={`font-black text-sm truncate transition-all ${
+                                  statusOnDay === 'selesai' || statusOnDay === 'revisi_selesai'
+                                    ? 'line-through decoration-2 decoration-emerald-700/85 text-slate-400'
+                                    : 'text-slate-900'
+                                }`}
+                              >
                                 - {entry.title}
                               </span>
                               <span
@@ -14660,7 +15049,259 @@ export default function App() {
         );
       })()}
 
-            {/* MODAL LANGGANAN & PEMBAYARAN BULANAN (Rp 27.000/BULAN & FREE TRIAL 7 HARI) */}
+            {/* TOMBOL FLOATING BULETAN BEREFEK FREKUENSI (DAPAT DIKLIK KAPAN SAJA & OTOMATIS POP-UP SAAT 1 MENIT) */}
+      {!isStandaloneAppRunning && (
+        <div className="fixed bottom-4 left-4 z-40 print:hidden flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setIsFrequencyShortcutModalOpen(true)}
+            className="group relative w-14 h-14 rounded-full bg-slate-950 text-white shadow-2xl shadow-cyan-500/30 border-2 border-cyan-400/70 flex items-center justify-center cursor-pointer hover:scale-105 active:scale-95 transition-all"
+            title="Buat Pintasan App ke Desktop / Dock / Home Screen (Pop-Up Frekuensi)"
+          >
+            {/* Gelombang Frekuensi Melingkar di Sekeliling Buletan */}
+            <span className="absolute inset-0 rounded-full border-2 border-cyan-400/60 animate-freq-ripple-1 pointer-events-none" />
+            <span className="absolute inset-0 rounded-full border-2 border-purple-500/50 animate-freq-ripple-2 pointer-events-none" />
+            <span className="absolute inset-0 rounded-full border border-emerald-400/50 animate-freq-ripple-3 pointer-events-none" />
+
+            {/* Ikon Unik atau Equalizer Frekuensi di Dalam Buletan */}
+            {uniqueAppIconUrl ? (
+              <img
+                src={uniqueAppIconUrl}
+                alt="JadwalPro Pulse Icon"
+                className="w-10 h-10 rounded-full object-cover shadow-inner"
+              />
+            ) : (
+              <AudioWaveform className="w-6 h-6 text-cyan-300 animate-pulse" />
+            )}
+
+            {/* Indikator Detik Menuju 1 Menit (60d) atau Badge APP */}
+            <span className="absolute -top-1 -right-1 px-1.5 py-0.2 rounded-full bg-gradient-to-r from-cyan-500 to-indigo-600 text-[8.5px] font-black text-white border border-white/60 shadow-sm">
+              {sessionActiveSeconds < 60 ? `${60 - sessionActiveSeconds}s` : 'APP'}
+            </span>
+          </button>
+        </div>
+      )}
+
+      {/* POP-UP BULETAN BEREFEK FREKUENSI (MUNCUL OTOMATIS SAAT 1 MENIT DI APP WEB UNTUK PINTASAN DESKTOP / DOCK / MOBILE) */}
+      {isFrequencyShortcutModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          {/* Backdrop Gelap dengan Efek Blur Kosmik */}
+          <div
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-md transition-opacity"
+            onClick={() => setIsFrequencyShortcutModalOpen(false)}
+          />
+
+          {/* Kontainer Utama Pop-Up Buletan Frekuensi Radial */}
+          <div className="relative z-10 w-full max-w-md rounded-[44px] bg-gradient-to-b from-slate-950 via-indigo-950/95 to-slate-950 text-white border border-cyan-500/40 shadow-[0_0_70px_-10px_rgba(6,182,212,0.45)] p-6 sm:p-7 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Efek Cahaya Latar Radial */}
+            <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-72 h-72 rounded-full bg-cyan-500/15 blur-3xl pointer-events-none" />
+            <div className="absolute -bottom-24 left-1/2 -translate-x-1/2 w-72 h-72 rounded-full bg-purple-600/15 blur-3xl pointer-events-none" />
+
+            {/* Tombol Tutup di Pojok Kanan Atas */}
+            <button
+              type="button"
+              onClick={() => setIsFrequencyShortcutModalOpen(false)}
+              className="absolute top-5 right-5 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 border border-white/15 flex items-center justify-center text-slate-300 hover:text-white transition-colors cursor-pointer z-20"
+              title="Tutup Pop-Up Pintasan"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* Bagian Atas: ORB BULETAN FREKUENSI + IKON INSTALASI UNIK */}
+            <div className="flex flex-col items-center text-center pt-1">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/15 border border-cyan-400/30 text-cyan-300 text-[10px] font-black uppercase tracking-widest mb-5">
+                <AudioWaveform className="w-3.5 h-3.5 animate-pulse" />
+                <span>Frekuensi Pintasan Native App • 1 Menit Aktif</span>
+              </div>
+
+              {/* BULETAN EFEK FREKUENSI UTAMA */}
+              <div className="relative w-36 h-36 sm:w-40 sm:h-40 flex items-center justify-center my-2">
+                {/* 3 Gelombang Ripple Frekuensi Melingkar */}
+                <span className="absolute inset-2 rounded-full border-2 border-cyan-400/55 animate-freq-ripple-1 pointer-events-none" />
+                <span className="absolute inset-2 rounded-full border-2 border-purple-400/50 animate-freq-ripple-2 pointer-events-none" />
+                <span className="absolute inset-2 rounded-full border-2 border-emerald-400/45 animate-freq-ripple-3 pointer-events-none" />
+
+                {/* Cincin Orbit Putar Frekuensi */}
+                <div className="absolute inset-0 rounded-full border border-dashed border-cyan-300/40 animate-freq-orbit pointer-events-none">
+                  <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-cyan-400 shadow-lg shadow-cyan-400" />
+                  <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-purple-400 shadow-lg shadow-purple-400" />
+                </div>
+
+                {/* Inti Buletan Ikon Instalasi Unik */}
+                <div className="relative z-10 w-24 h-24 sm:w-28 sm:h-28 rounded-[28px] p-1 bg-gradient-to-br from-cyan-400 via-indigo-500 to-emerald-400 shadow-2xl shadow-cyan-500/40 flex items-center justify-center">
+                  {uniqueAppIconUrl ? (
+                    <img
+                      src={uniqueAppIconUrl}
+                      alt="Ikon Unik JadwalPro Pulse"
+                      className="w-full h-full rounded-[24px] object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full rounded-[24px] bg-slate-950 flex items-center justify-center">
+                      <Zap className="w-10 h-10 text-cyan-400" />
+                    </div>
+                  )}
+                  <span className="absolute -bottom-2 px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-black text-[9px] uppercase tracking-wider shadow-md">
+                    Ikon Unik Baru
+                  </span>
+                </div>
+              </div>
+
+              {/* Bar Gelombang Equalizer Frekuensi Audio Live */}
+              <div className="flex items-center justify-center gap-1 h-7 my-3">
+                {[0.4, 0.8, 1.1, 0.6, 1.2, 0.75, 1.0, 0.5, 1.15, 0.85, 0.45, 0.95, 1.2, 0.65, 0.9, 0.5].map(
+                  (delay, idx) => (
+                    <span
+                      key={idx}
+                      className="w-1 rounded-full bg-gradient-to-t from-cyan-500 via-indigo-400 to-emerald-300 animate-freq-bar"
+                      style={{
+                        height: `${10 + ((idx * 7) % 16)}px`,
+                        animationDelay: `${(idx * 0.09).toFixed(2)}s`,
+                        animationDuration: `${0.75 + (delay % 0.5)}s`,
+                      }}
+                    />
+                  )
+                )}
+              </div>
+
+              <h3 className="text-lg sm:text-xl font-black tracking-tight text-white mt-1">
+                Pasang Pintasan Aplikasi Mandiri
+              </h3>
+              <p className="text-xs text-slate-300 leading-relaxed mt-1 max-w-sm">
+                Buka <strong>JadwalPro</strong> langsung dari <strong>Desktop, Taskbar, Dock Mac, atau Layar Utama HP</strong> dengan{' '}
+                <span className="text-cyan-300 font-bold">Ikon Frekuensi Quantum Unik</span> &amp; jendela aplikasi penuh tanpa bar browser!
+              </p>
+            </div>
+
+            {/* Pilihan Platform (Otomatis Mendeteksi Windows / macOS Dock / Android / iOS) */}
+            <div className="grid grid-cols-4 gap-1.5 bg-white/5 p-1.5 rounded-2xl border border-white/10 mt-5">
+              {[
+                { id: 'windows', label: 'Windows', sub: 'Desktop' },
+                { id: 'mac', label: 'macOS', sub: 'Ke Dock' },
+                { id: 'android', label: 'Android', sub: 'App Mode' },
+                { id: 'ios', label: 'iOS', sub: 'Layar Utama' },
+              ].map((plat) => {
+                const active = detectedShortcutOS === plat.id;
+                return (
+                  <button
+                    key={plat.id}
+                    type="button"
+                    onClick={() => setDetectedShortcutOS(plat.id as any)}
+                    className={`py-2 px-1.5 rounded-xl text-center transition-all cursor-pointer ${
+                      active
+                        ? 'bg-gradient-to-br from-cyan-500 to-indigo-600 text-white shadow-md font-black'
+                        : 'text-slate-300 hover:bg-white/10 font-semibold'
+                    }`}
+                  >
+                    <div className="text-[11px] leading-tight">{plat.label}</div>
+                    <div className="text-[9px] opacity-80">{plat.sub}</div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Keterangan Cara Kerja Pintasan Sesuai OS yang Dipilih */}
+            <div className="mt-4 p-3.5 rounded-2xl bg-white/5 border border-white/10 text-xs space-y-2">
+              {detectedShortcutOS === 'windows' && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="font-black text-cyan-300">💻 Pintasan Desktop &amp; Taskbar Windows</span>
+                    <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-200 text-[9px] font-bold">
+                      Standalone Window
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    Membuat aplikasi mandiri tanpa tab browser (seperti software <code>.exe</code> asli) lengkap dengan <strong>Ikon Frekuensi Quantum Unik</strong> di Desktop &amp; Taskbar Windows Anda.
+                  </p>
+                </>
+              )}
+
+              {detectedShortcutOS === 'mac' && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="font-black text-cyan-300">🍎 Pintasan Langsung ke Dock macOS</span>
+                    <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-200 text-[9px] font-bold">
+                      macOS Dock App
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    Menghasilkan launcher aplikasi macOS mandiri (<code>.command</code>) siap taruh di <strong>Dock Mac</strong>, atau klik menu <strong>Safari/Chrome &rarr; File &rarr; Add to Dock (Tambahkan ke Dock)</strong> dengan ikon unik otomatis.
+                  </p>
+                </>
+              )}
+
+              {detectedShortcutOS === 'android' && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="font-black text-cyan-300">🤖 Instal Aplikasi Mandiri di Android</span>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-200 text-[9px] font-bold">
+                      Full Screen APK-Like
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    Memasang <strong>JadwalPro Pulse</strong> langsung ke daftar aplikasi Android dengan ikon frekuensi unik dan layar penuh tanpa address bar Chrome.
+                  </p>
+                </>
+              )}
+
+              {detectedShortcutOS === 'ios' && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="font-black text-cyan-300">📱 Pintasan App Mandiri iPhone &amp; iPad</span>
+                    <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-200 text-[9px] font-bold">
+                      iOS Standalone App
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    Ikon unik beresolusi tinggi sudah terpasang otomatis di sistem iOS! Klik tombol di bawah lalu pilih <strong>&ldquo;Tambah ke Layar Utama (Add to Home Screen)&rdquo;</strong> agar terbuka penuh seperti aplikasi App Store.
+                  </p>
+                </>
+              )}
+            </div>
+
+            {/* Tombol Aksi Utama: Buat Pintasan App + Unduh Ikon Unik */}
+            <div className="mt-5 space-y-2.5">
+              <button
+                type="button"
+                onClick={() => handleCreateNativeAppShortcut(detectedShortcutOS)}
+                className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-cyan-500 via-indigo-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-black text-xs sm:text-sm shadow-xl shadow-cyan-500/25 flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-[0.98]"
+              >
+                <Download className="w-4 h-4 stroke-[2.5]" />
+                <span>
+                  {deferredPwaPrompt
+                    ? 'Instal Aplikasi Mandiri Sekarang (1-Klik)'
+                    : detectedShortcutOS === 'windows'
+                    ? 'Buat Pintasan App ke Desktop Windows'
+                    : detectedShortcutOS === 'mac'
+                    ? 'Buat Pintasan App ke Dock macOS'
+                    : detectedShortcutOS === 'android'
+                    ? 'Pasang App Mandiri ke Layar Utama Android'
+                    : 'Pasang App Mandiri ke Layar Utama iOS'}
+                </span>
+              </button>
+
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleDownloadUniqueIcon}
+                  className="flex-1 py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-[11px] font-bold text-cyan-200 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Unduh Ikon Unik (512px)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsFrequencyShortcutModalOpen(false)}
+                  className="py-2 px-4 rounded-xl bg-white/5 hover:bg-white/10 text-[11px] font-semibold text-slate-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  Nanti Saja
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL LANGGANAN & PEMBAYARAN BULANAN (Rp 27.000/BULAN & FREE TRIAL 7 HARI) */}
       <SubscriptionModal
         isOpen={isSubscriptionModalOpen}
         onClose={() => setIsSubscriptionModalOpen(false)}

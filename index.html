@@ -6,11 +6,14 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="JadwalPro" />
+    <meta name="application-name" content="JadwalPro" />
+    <meta name="msapplication-TileColor" content="#060918" />
     <meta name="format-detection" content="telephone=no" />
-    <meta name="theme-color" content="#4f46e5" />
+    <meta name="theme-color" content="#060918" />
     <title>JadwalPro — Aplikasi Penjadwalan Proyek &amp; Absensi</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -29,12 +32,56 @@
       }
       /* Kunci posisi halaman utama agar resolusi fix dan tidak bergeser horizontal */
       html, body {
-        touch-action: pan-x pan-y;
         -webkit-text-size-adjust: 100%;
         text-size-adjust: 100%;
-        overscroll-behavior-y: none;
         max-width: 100vw;
         overflow-x: hidden;
+      }
+      /* Animasi Gelombang Frekuensi untuk Pop-Up Buletan Pintasan App */
+      @keyframes freqRippleWave {
+        0% {
+          transform: scale(0.85);
+          opacity: 0.85;
+        }
+        70% {
+          transform: scale(1.55);
+          opacity: 0;
+        }
+        100% {
+          transform: scale(1.65);
+          opacity: 0;
+        }
+      }
+      @keyframes freqEqualizerBar {
+        0%, 100% {
+          transform: scaleY(0.3);
+        }
+        50% {
+          transform: scaleY(1.15);
+        }
+      }
+      @keyframes freqOrbitSpin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+      .animate-freq-ripple-1 {
+        animation: freqRippleWave 2.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+      }
+      .animate-freq-ripple-2 {
+        animation: freqRippleWave 2.6s cubic-bezier(0.16, 1, 0.3, 1) 0.85s infinite;
+      }
+      .animate-freq-ripple-3 {
+        animation: freqRippleWave 2.6s cubic-bezier(0.16, 1, 0.3, 1) 1.7s infinite;
+      }
+      .animate-freq-orbit {
+        animation: freqOrbitSpin 14s linear infinite;
+      }
+      .animate-freq-bar {
+        animation: freqEqualizerBar 1.1s ease-in-out infinite;
       }
     </style>
   </head>
